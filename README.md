@@ -46,7 +46,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 - **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.
 - **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples.
 - **Projects**: autosave, saved projects, `.astudio` import and export, WAV export of a pattern or the whole song, undo and redo.
-- **Settings**: English or French interface, themes, plugins, update check.
+- **Settings**: English or French interface, themes, code plugins, update check.
 - Scrollbars and two finger gestures for navigation, landscape full screen layout, keyboard shortcuts on tablets.
 
 ## Piano roll
@@ -63,12 +63,12 @@ Import audio files (WAV, MP3, OGG, FLAC, M4A, AIFF) or whole ZIP sample packs fr
 
 ## Plugins and themes
 
-Both are JSON files you can write yourself and install from **Menu, Plugins and themes**.
+Install both from **Menu, Plugins and themes**.
 
-- **Plugins** add instruments: oscillators, envelope, filter and LFO. No code from a plugin is ever run; every value is checked and clamped.
-- **Themes** change the interface and editor colors with hex values only.
+- **Plugins** are JavaScript files: you code an instrument voice that computes its own samples, and declare knobs in the header. The code runs isolated in the audio thread (AudioWorklet), without access to the interface, storage, files or network; a crashing voice is removed without taking the app down.
+- **Themes** are JSON files that change the interface and editor colors, with hex values only.
 
-The format, every field and ready to install examples are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
+The plugin API, the theme format and ready to install examples (Supersaw, FM Bell, Noise Snare) are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
 
 ## Updates
 
@@ -110,7 +110,7 @@ src/
   audio/        instrument catalog, synthesized instruments, engine (sequencer, mixer, export)
   ui/           channel rack, piano roll, playlist, mixer, browser, settings, controls
   locales/      translations (English is the source language)
-  plugins.js    plugin validation and synth
+  plugins.js    code plugins: header parsing and the AudioWorklet host
   themes.js     themes
   samples.js    sample storage (IndexedDB) and ZIP import
 public/

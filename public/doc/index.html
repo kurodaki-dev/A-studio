@@ -127,45 +127,89 @@
 <p class="note">The startup check can be turned off in Settings. Menu, Check for updates, checks by hand.</p>
 
 <h2 id="plugins">Plugins</h2>
-<p>A plugin adds an instrument to the browser. It is a JSON file that describes a synthesizer. A plugin cannot contain code: the app reads the values, checks them and clamps them to safe ranges. Install one from Menu, Plugins and themes, Install a plugin.</p>
-<h3>Example</h3>
-<pre><code>{
-  "type": "astudio-plugin",
-  "kind": "instrument",
-  "id": "warm-pad",
-  "name": "Warm Pad",
-  "version": "1.0.0",
-  "author": "Your name",
-  "category": "synth",
-  "gain": 0.12,
-  "oscillators": [
-    { "wave": "sawtooth", "detune": -9, "gain": 0.5 },
-    { "wave": "sawtooth", "detune": 9, "gain": 0.5 },
-    { "wave": "triangle", "octave": -1, "gain": 0.4 }
-  ],
-  "envelope": { "attack": 0.5, "decay": 1.0, "sustain": 0.85, "release": 1.2 },
-  "filter": { "type": "lowpass", "cutoff": 1400, "q": 0.8, "envAmount": 800, "envDecay": 1.5 },
-  "lfo": { "target": "pitch", "rate": 0.4, "depth": 6 }
-}</code></pre>
-<p>Ready to install examples: <a href="examples/warm-pad.astudio-plugin.json" download>warm-pad.astudio-plugin.json</a>, <a href="examples/chip-lead.astudio-plugin.json" download>chip-lead.astudio-plugin.json</a>.</p>
-<h3>Fields</h3>
+<p>A plugin is a JavaScript file that adds an instrument. You write the code that generates the sound, sample by sample: oscillators, filters, envelopes, physical models, anything you can compute. Install a plugin from Menu, Plugins and themes, Install a plugin. It then appears in the browser under Plugins and is used like any instrument: channel rack, piano roll, playlist, WAV export.</p>
+
+<h3>Where the code runs</h3>
+<p>Plugin code runs only inside an <a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletGlobalScope">AudioWorklet</a>, the audio thread of the app. That scope has no access to the interface, to storage (projects, samples, settings), to the network or to files: a plugin receives notes and parameter values and returns samples. The host also protects the app:</p>
+<ul>
+  <li>an exception in a voice removes that voice and shows the error once, the app keeps running;</li>
+  <li>output is limited to ±4 and NaN values become silence;</li>
+  <li>32 voices at most per channel, and a voice still playing 10 seconds after its note off is cut.</li>
+</ul>
+<p class="note">A plugin can still use a lot of CPU and make the sound stutter. Install plugins from people you trust.</p>
+
+<h3>A minimal plugin</h3>
+<pre><code>/**
+ * @astudio-plugin
+ * @id simple-sine
+ * @name Simple Sine
+ * @version 1.0.0
+ * @author Your name
+ * @category synth
+ * @param release "Release" 0.01 2 0.3
+ */
+class SineVoice {
+  // Called when a note starts.
+  constructor({ key, frequency, velocity, sampleRate, params }) {
+    this.step = frequency / sampleRate;
+    this.phase = 0;
+    this.gain = 0.2 * velocity;
+    this.sr = sampleRate;
+    this.releasing = false;
+  }
+
+  // Called when the note ends (optional).
+  noteOff() {
+    this.releasing = true;
+  }
+
+  // Fill left and right (Float32Array, up to 128 samples, already zeroed).
+  // Return false when the voice is finished.
+  process(left, right, params) {
+    for (let i = 0; i &lt; left.length; i++) {
+      if (this.releasing) this.gain *= Math.exp(-1 / (params.release * this.sr));
+      const s = Math.sin(2 * Math.PI * this.phase) * this.gain;
+      this.phase = (this.phase + this.step) % 1;
+      left[i] = s;
+      right[i] = s;
+    }
+    return !(this.releasing &amp;&amp; this.gain &lt; 0.0001);
+  }
+}
+
+registerVoice(SineVoice);</code></pre>
+
+<h3>Header</h3>
+<p>The comment at the top is read without running the code, to list the plugin and build its knobs.</p>
 <table>
-  <tr><th>Field</th><th>Type and range</th><th>Meaning</th></tr>
-  <tr><td><code>type</code></td><td><code>"astudio-plugin"</code></td><td>Required.</td></tr>
-  <tr><td><code>kind</code></td><td><code>"instrument"</code></td><td>Required. Only instruments exist for now.</td></tr>
-  <tr><td><code>id</code></td><td>1 to 40 characters: a to z, 0 to 9, <code>-</code></td><td>Unique identifier. Installing a plugin with the same id replaces it.</td></tr>
-  <tr><td><code>name</code></td><td>text, up to 40 characters</td><td>Name shown in the browser.</td></tr>
-  <tr><td><code>version</code>, <code>author</code></td><td>text</td><td>Optional, shown in Settings.</td></tr>
-  <tr><td><code>category</code></td><td><code>drums keys bass synth strings winds mallets</code></td><td>Sets the preview note. Default <code>synth</code>.</td></tr>
-  <tr><td><code>gain</code></td><td>0 to 1</td><td>Output level. Default 0.2.</td></tr>
-  <tr><td><code>oneShot</code></td><td>true or false</td><td>If true the sound plays for <code>length</code> seconds whatever the note length (drums).</td></tr>
-  <tr><td><code>length</code></td><td>0.05 to 20 seconds</td><td>Length of a one shot sound.</td></tr>
-  <tr><td><code>oscillators</code></td><td>1 to 8 objects</td><td>Each: <code>wave</code> (<code>sine square sawtooth triangle noise</code>), <code>octave</code> (-3 to 3), <code>detune</code> in cents (±1200), <code>gain</code> (0 to 1).</td></tr>
-  <tr><td><code>envelope</code></td><td>seconds, sustain 0 to 1</td><td><code>attack</code>, <code>decay</code>, <code>sustain</code>, <code>release</code>.</td></tr>
-  <tr><td><code>filter</code></td><td>optional</td><td><code>type</code> (<code>lowpass highpass bandpass</code>), <code>cutoff</code> in Hz (20 to 20000), <code>q</code> (0.1 to 30), <code>envAmount</code> in Hz added at the attack and scaled by velocity, <code>envDecay</code> in seconds.</td></tr>
-  <tr><td><code>lfo</code></td><td>optional</td><td><code>target</code> (<code>pitch</code> or <code>filter</code>), <code>rate</code> in Hz (0.01 to 30), <code>depth</code> (cents for pitch, Hz for filter, up to 2400).</td></tr>
+  <tr><th>Tag</th><th>Meaning</th></tr>
+  <tr><td><code>@astudio-plugin</code></td><td>Required. Marks the file as an A Studio plugin.</td></tr>
+  <tr><td><code>@id</code></td><td>Required. 1 to 40 characters: a to z, 0 to 9, <code>-</code>. Installing a plugin with the same id replaces it.</td></tr>
+  <tr><td><code>@name</code></td><td>Required. Name shown in the browser, up to 40 characters.</td></tr>
+  <tr><td><code>@version</code>, <code>@author</code></td><td>Optional, shown in Settings.</td></tr>
+  <tr><td><code>@category</code></td><td><code>drums keys bass synth strings winds mallets</code>. Sets the preview note. Default <code>synth</code>.</td></tr>
+  <tr><td><code>@oneshot</code></td><td>Optional. Marks a drum style sound that plays to its end whatever the note length.</td></tr>
+  <tr><td><code>@param id "Label" min max default</code></td><td>Up to 8 knobs, shown in the channel settings. Values reach your code in <code>params.id</code>, live.</td></tr>
 </table>
-<p>Projects store plugin channels as <code>plugin:&lt;id&gt;</code>. If the plugin is missing on a device, its channel stays silent until you install it.</p>
+
+<h3>API</h3>
+<table>
+  <tr><th>Item</th><th>Description</th></tr>
+  <tr><td><code>registerVoice(VoiceClass)</code></td><td>Required. Registers the class used for every note.</td></tr>
+  <tr><td><code>constructor(note)</code></td><td><code>note.key</code> (MIDI number, 60 is C5), <code>note.frequency</code> in Hz (channel transposition included), <code>note.velocity</code> 0 to 1, <code>note.sampleRate</code>, <code>note.params</code> (current knob values).</td></tr>
+  <tr><td><code>process(left, right, params)</code></td><td>Called for every audio block. Write samples into <code>left</code> and <code>right</code>. Return <code>false</code> to end the voice; any other value keeps it alive.</td></tr>
+  <tr><td><code>noteOff()</code></td><td>Optional. Called when the note ends. Start your release here.</td></tr>
+  <tr><td>Globals</td><td>Standard AudioWorklet globals are available: <code>sampleRate</code>, <code>currentFrame</code>, <code>currentTime</code>, <code>Math</code>. No <code>fetch</code>, no DOM, no storage.</td></tr>
+</table>
+<p>A file is limited to 256 KB. Use plain JavaScript in one file; <code>import</code> of other files is not available.</p>
+
+<h3>Examples</h3>
+<ul>
+  <li><a href="examples/supersaw.astudio-plugin.js" download>supersaw.astudio-plugin.js</a>: seven detuned saws, filter and envelope, three knobs.</li>
+  <li><a href="examples/fm-bell.astudio-plugin.js" download>fm-bell.astudio-plugin.js</a>: two operator FM bell.</li>
+  <li><a href="examples/noise-snare.astudio-plugin.js" download>noise-snare.astudio-plugin.js</a>: a one shot drum made of a tone and filtered noise.</li>
+</ul>
+<p>Projects store plugin channels as <code>plugin:&lt;id&gt;</code> with their knob values. If the plugin is missing on a device, the channel stays silent until you install it.</p>
 
 <h2 id="themes">Themes</h2>
 <p>A theme changes the colors of the interface and of the editors. It only contains hex colors (<code>#rgb</code> or <code>#rrggbb</code>); anything else is ignored. Missing keys fall back to the default theme. Install one from Menu, Plugins and themes, Install a theme. Three themes are built in: A Studio, Graphite and Daylight.</p>
@@ -228,7 +272,7 @@
 </table>
 
 <h2 id="privacy">Privacy</h2>
-<p>A Studio collects no personal data. Projects, samples, plugins and themes stay on the device. The only connection checks GitHub for a new version and downloads it when you accept. Details: <a href="../legal/privacy.html">privacy policy</a>, <a href="../legal/terms.html">terms of use</a>, <a href="../legal/cookies.html">cookie policy</a>.</p>
+<p>A Studio collects no personal data. Projects, samples, plugins and themes stay on the device; plugin code runs isolated in the audio thread. The only connection checks GitHub for a new version and downloads it when you accept. Details: <a href="../legal/privacy.html">privacy policy</a>, <a href="../legal/terms.html">terms of use</a>, <a href="../legal/cookies.html">cookie policy</a>.</p>
 
 <h2 id="building">Building from source</h2>
 <p>Requirements: Node.js 22, JDK 21 and the Android SDK (platform 36).</p>

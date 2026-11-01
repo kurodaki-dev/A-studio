@@ -1,74 +1,68 @@
-// Instrument plugins. A plugin is a JSON file that describes a synth
-// (oscillators, envelope, filter, LFO). No code from a plugin is ever run:
-// every value is checked and clamped before use. Format: see /doc.
+// Code plugins. A plugin is a JavaScript file that defines an instrument voice:
+// the plugin computes its own audio samples. Its code runs only inside an
+// AudioWorklet (the audio thread), which has no access to the page, to the
+// app storage, to the network or to files. It receives notes and parameter
+// values and returns sound. API reference: /doc/#plugins.
 const KEY = 'astudio:plugins';
-const WAVES = ['sine', 'square', 'sawtooth', 'triangle', 'noise'];
-const FILTERS = ['lowpass', 'highpass', 'bandpass'];
+const MAX_CODE = 256 * 1024;
 const CATS = ['drums', 'keys', 'bass', 'synth', 'strings', 'winds', 'mallets'];
 
-const clamp = (v, a, b, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : d);
-const str = (v, max, d) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : d);
+const clampNum = (v, a, b, d) => (Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : d);
 
-// Returns a clean plugin object or throws an Error with a readable message.
-export function validatePlugin(raw) {
-  if (!raw || typeof raw !== 'object') throw new Error('Not a JSON object');
-  if (raw.type !== 'astudio-plugin') throw new Error('"type" must be "astudio-plugin"');
-  if (raw.kind !== 'instrument') throw new Error('"kind" must be "instrument"');
-  const id = str(raw.id, 40, '').toLowerCase();
-  if (!/^[a-z0-9-]{1,40}$/.test(id)) throw new Error('"id" must use a to z, 0 to 9 and "-" only');
-  const name = str(raw.name, 40, '');
-  if (!name) throw new Error('"name" is required');
-  const oscs = Array.isArray(raw.oscillators) ? raw.oscillators.slice(0, 8) : [];
-  if (!oscs.length) throw new Error('At least one oscillator is required');
-  const env = raw.envelope || {};
-  const f = raw.filter || null;
-  const lfo = raw.lfo || null;
+// Reads the header comment (no code is executed on the main thread):
+//   @astudio-plugin
+//   @id my-synth        @name My Synth        @version 1.0.0
+//   @author Me          @category synth
+//   @param cutoff "Cutoff" 0 1 0.5
+export function parsePlugin(code) {
+  if (typeof code !== 'string' || !code.trim()) throw new Error('The file is empty');
+  if (code.length > MAX_CODE) throw new Error('The plugin is larger than 256 KB');
+  const head = code.slice(0, 8000);
+  if (!/@astudio-plugin\b/.test(head)) throw new Error('Missing the @astudio-plugin header');
+  const tag = (name) => {
+    const m = new RegExp('@' + name + '[ \\t]+([^\\r\\n*]+)').exec(head);
+    return m ? m[1].trim() : '';
+  };
+  const id = tag('id').toLowerCase();
+  if (!/^[a-z0-9-]{1,40}$/.test(id)) throw new Error('@id must use a to z, 0 to 9 and "-" only');
+  const name = tag('name').slice(0, 40);
+  if (!name) throw new Error('@name is required');
+  if (!/registerVoice\s*\(/.test(code)) throw new Error('The plugin must call registerVoice(YourVoiceClass)');
+  const params = [];
+  const re = /@param[ \t]+([a-zA-Z][a-zA-Z0-9_]{0,30})[ \t]+"([^"\r\n]{1,30})"[ \t]+(-?[\d.]+)[ \t]+(-?[\d.]+)[ \t]+(-?[\d.]+)/g;
+  let m;
+  while ((m = re.exec(head)) && params.length < 8) {
+    const min = Number(m[3]);
+    const max = Number(m[4]);
+    if (!(max > min)) continue;
+    params.push({ id: m[1], name: m[2], min, max, def: clampNum(Number(m[5]), min, max, min) });
+  }
+  const cat = tag('category');
   return {
-    type: 'astudio-plugin',
-    kind: 'instrument',
     id,
     name,
-    version: str(raw.version, 20, '1.0.0'),
-    author: str(raw.author, 60, ''),
-    category: CATS.includes(raw.category) ? raw.category : 'synth',
-    gain: clamp(raw.gain, 0, 1, 0.2),
-    oneShot: !!raw.oneShot,
-    length: clamp(raw.length, 0.05, 20, 2),
-    oscillators: oscs.map((o) => ({
-      wave: WAVES.includes(o && o.wave) ? o.wave : 'sine',
-      octave: Math.round(clamp(o && o.octave, -3, 3, 0)),
-      detune: clamp(o && o.detune, -1200, 1200, 0),
-      gain: clamp(o && o.gain, 0, 1, 0.5),
-    })),
-    envelope: {
-      attack: clamp(env.attack, 0, 10, 0.005),
-      decay: clamp(env.decay, 0.001, 10, 0.2),
-      sustain: clamp(env.sustain, 0, 1, 0.7),
-      release: clamp(env.release, 0.005, 10, 0.2),
-    },
-    filter: f
-      ? {
-          type: FILTERS.includes(f.type) ? f.type : 'lowpass',
-          cutoff: clamp(f.cutoff, 20, 20000, 4000),
-          q: clamp(f.q, 0.1, 30, 0.7),
-          envAmount: clamp(f.envAmount, -20000, 20000, 0),
-          envDecay: clamp(f.envDecay, 0.001, 10, 0.2),
-        }
-      : null,
-    lfo: lfo
-      ? {
-          target: lfo.target === 'filter' ? 'filter' : 'pitch',
-          rate: clamp(lfo.rate, 0.01, 30, 5),
-          depth: clamp(lfo.depth, 0, 2400, 0),
-        }
-      : null,
+    version: tag('version').slice(0, 20) || '1.0.0',
+    author: tag('author').slice(0, 60),
+    category: CATS.includes(cat) ? cat : 'synth',
+    oneShot: /@oneshot\b/i.test(head),
+    params,
+    code,
   };
 }
 
 function read() {
   try {
     const list = JSON.parse(localStorage.getItem(KEY) || '[]');
-    return Array.isArray(list) ? list.map((p) => { try { return validatePlugin(p); } catch { return null; } }).filter(Boolean) : [];
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((x) => {
+        try {
+          return parsePlugin(x && x.code);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
   } catch {
     return [];
   }
@@ -79,105 +73,160 @@ let cache = read();
 export const pluginInstruments = () => cache;
 export const getPlugin = (id) => cache.find((p) => p.id === id) || null;
 
-export function installPlugin(raw) {
-  const p = validatePlugin(raw);
+export function installPlugin(code) {
+  const p = parsePlugin(code);
   const list = cache.filter((x) => x.id !== p.id);
   list.push(p);
-  localStorage.setItem(KEY, JSON.stringify(list));
+  localStorage.setItem(KEY, JSON.stringify(list.map((x) => ({ code: x.code }))));
   cache = list;
-  instruments.delete(p.id);
   return p;
 }
 
 export function removePlugin(id) {
   cache = cache.filter((x) => x.id !== id);
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache));
+    localStorage.setItem(KEY, JSON.stringify(cache.map((x) => ({ code: x.code }))));
   } catch {
     /* ignore */
   }
-  instruments.delete(id);
 }
 
-function noiseBuffer(ctx) {
-  if (ctx.__pnoise) return ctx.__pnoise;
-  const b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-  const d = b.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  ctx.__pnoise = b;
-  return b;
+// Parameter values of a channel, completed with the plugin defaults.
+export function paramValues(plugin, stored) {
+  const out = {};
+  for (const p of plugin.params) out[p.id] = clampNum(stored && stored[p.id], p.min, p.max, p.def);
+  return out;
 }
 
-// Build a playable instrument (same interface as audio/instruments.js).
-function build(p) {
-  return {
-    oneShot: p.oneShot,
-    release: p.envelope.release,
-    play(ctx, out, t, freq, vel) {
-      const e = p.envelope;
-      const g = ctx.createGain();
-      g.connect(out);
-      const peak = p.gain * (0.35 + vel * 0.65);
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(peak, t + e.attack + 0.001);
-      g.gain.setTargetAtTime(peak * e.sustain, t + e.attack + 0.001, e.decay / 3);
-      let dest = g;
-      let filt = null;
-      if (p.filter) {
-        filt = ctx.createBiquadFilter();
-        filt.type = p.filter.type;
-        filt.Q.value = p.filter.q;
-        const base = p.filter.cutoff;
-        const top = Math.max(20, Math.min(20000, base + p.filter.envAmount * vel));
-        filt.frequency.setValueAtTime(top, t);
-        filt.frequency.setTargetAtTime(base, t + 0.001, p.filter.envDecay / 3);
-        filt.connect(g);
-        dest = filt;
-      }
-      const sources = [];
-      const pitched = [];
-      for (const o of p.oscillators) {
-        const og = ctx.createGain();
-        og.gain.value = o.gain;
-        og.connect(dest);
-        let s;
-        if (o.wave === 'noise') {
-          s = ctx.createBufferSource();
-          s.buffer = noiseBuffer(ctx);
-          s.loop = true;
-        } else {
-          s = ctx.createOscillator();
-          s.type = o.wave;
-          s.frequency.setValueAtTime(freq * Math.pow(2, o.octave), t);
-          s.detune.setValueAtTime(o.detune, t);
-          pitched.push(s);
-        }
-        s.connect(og);
-        s.start(t);
-        sources.push(s);
-      }
-      if (p.lfo && p.lfo.depth > 0) {
-        const lfo = ctx.createOscillator();
-        lfo.frequency.value = p.lfo.rate;
-        const lg = ctx.createGain();
-        lg.gain.value = p.lfo.depth;
-        lfo.connect(lg);
-        if (p.lfo.target === 'filter' && filt) lg.connect(filt.frequency);
-        else for (const s of pitched) lg.connect(s.detune);
-        lfo.start(t);
-        sources.push(lfo);
-      }
-      return { sources, length: p.oneShot ? p.length : undefined };
-    },
-  };
+function hash(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
 }
 
-const instruments = new Map();
-export function pluginInstrument(id) {
-  if (instruments.has(id)) return instruments.get(id);
-  const p = getPlugin(id);
-  if (!p) return null;
-  const inst = build(p);
-  instruments.set(id, inst);
-  return inst;
+export const processorName = (p) => 'astudio-' + p.id + '-' + hash(p.code);
+
+// The worklet module: host code, then the plugin code, then the processor.
+// Exported for tests.
+export function moduleSource(p) {
+  return `"use strict";
+let __Voice = null;
+function registerVoice(V) { if (typeof V === 'function') __Voice = V; }
+const MAX_VOICES = 32;
+const MAX_TAIL = 10;
+${p.code}
+;
+registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const o = (options && options.processorOptions) || {};
+    this.params = Object.assign({}, o.params || {});
+    this.queue = (o.events || []).slice().sort((a, b) => a.frame - b.frame);
+    this.voices = [];
+    this.L = new Float32Array(128);
+    this.R = new Float32Array(128);
+    this.reported = false;
+    this.port.onmessage = (e) => this.message(e.data);
+  }
+  message(m) {
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'note') {
+      let i = this.queue.length;
+      while (i > 0 && this.queue[i - 1].frame > m.frame) i--;
+      this.queue.splice(i, 0, m);
+    } else if (m.type === 'off') {
+      for (const v of this.voices) if (v.id === m.id) v.offFrame = Math.min(v.offFrame, currentFrame);
+      for (const q of this.queue) if (q.id === m.id) q.dur = 0;
+    } else if (m.type === 'params' && m.values && typeof m.values === 'object') {
+      for (const k of Object.keys(m.values)) if (typeof m.values[k] === 'number') this.params[k] = m.values[k];
+    } else if (m.type === 'stop') {
+      this.voices = [];
+      this.queue = [];
+    }
+  }
+  fail(err) {
+    if (this.reported) return;
+    this.reported = true;
+    this.port.postMessage({ type: 'error', message: String((err && err.message) || err) });
+  }
+  start(ev, offset) {
+    if (!__Voice) return this.fail('registerVoice was not called');
+    let inst;
+    try {
+      inst = new __Voice({ key: ev.key, frequency: ev.freq, velocity: ev.vel, sampleRate, params: this.params });
+    } catch (err) {
+      return this.fail(err);
+    }
+    if (this.voices.length >= MAX_VOICES) this.voices.shift();
+    const off = ev.dur === Infinity || ev.dur == null ? Infinity : ev.frame + Math.max(1, Math.round(ev.dur * sampleRate));
+    this.voices.push({ id: ev.id, inst, offset, offFrame: off, released: false, killFrame: Infinity });
+  }
+  process(inputs, outputs) {
+    const out = outputs[0];
+    const oL = out[0];
+    const oR = out[1] || out[0];
+    const n = oL.length;
+    const now = currentFrame;
+    const end = now + n;
+    while (this.queue.length && this.queue[0].frame < end) {
+      const ev = this.queue.shift();
+      this.start(ev, Math.max(0, ev.frame - now));
+    }
+    const keep = [];
+    for (const v of this.voices) {
+      if (!v.released && v.offFrame < end) {
+        v.released = true;
+        v.killFrame = end + MAX_TAIL * sampleRate;
+        try { if (v.inst.noteOff) v.inst.noteOff(); } catch (err) { this.fail(err); continue; }
+      }
+      const off = v.offset;
+      v.offset = 0;
+      const L = this.L.subarray(0, n - off);
+      const R = this.R.subarray(0, n - off);
+      L.fill(0);
+      R.fill(0);
+      let alive;
+      try { alive = v.inst.process(L, R, this.params); } catch (err) { this.fail(err); continue; }
+      // Clamp to +-4 and replace NaN with silence, channel by channel.
+      for (let i = 0; i < L.length; i++) {
+        let a = L[i];
+        let b = R[i];
+        a = a === a ? (a < -4 ? -4 : a > 4 ? 4 : a) : 0;
+        b = b === b ? (b < -4 ? -4 : b > 4 ? 4 : b) : 0;
+        oL[i + off] += a;
+        if (oR !== oL) oR[i + off] += b;
+      }
+      if (alive !== false && end < v.killFrame) keep.push(v);
+    }
+    this.voices = keep;
+    return true;
+  }
+});
+`;
+}
+
+// Load a plugin module into an audio context once. Resolves to true when ready.
+const loaded = new WeakMap();
+export function loadPluginModule(ctx, p) {
+  let map = loaded.get(ctx);
+  if (!map) loaded.set(ctx, (map = new Map()));
+  const name = processorName(p);
+  if (map.has(name)) return map.get(name);
+  const url = URL.createObjectURL(new Blob([moduleSource(p)], { type: 'text/javascript' }));
+  const prom = ctx.audioWorklet
+    .addModule(url)
+    .then(() => true)
+    .catch(() => false)
+    .finally(() => URL.revokeObjectURL(url));
+  map.set(name, prom);
+  prom.then((ok) => {
+    map.ready = map.ready || new Set();
+    if (ok) map.ready.add(name);
+  });
+  return prom;
+}
+
+export function pluginReady(ctx, p) {
+  const map = loaded.get(ctx);
+  return !!(map && map.ready && map.ready.has(processorName(p)));
 }
