@@ -4,10 +4,13 @@ Station de création musicale pour Android, construite sur le modèle de FL Stud
 
 ## Télécharger l'APK
 
-- Dernière version publiée : onglet **Releases** du dépôt (fichier `A-Studio.apk`).
-- Version de développement : onglet **Actions**, workflow « APK Android », dernier run, artefact `A-Studio-apk`.
+Lien direct vers la dernière version : https://github.com/kurodaki-dev/A-studio/releases/latest/download/A-Studio.apk
 
 Sur le téléphone, autorisez l'installation depuis cette source quand Android le demande. L'application s'affiche en paysage.
+
+### Mises à jour
+
+Chaque modification poussée sur `main` publie automatiquement une nouvelle version (`v1.0.<numéro>`) dans les Releases. Au démarrage, l'application vérifie s'il en existe une plus récente et propose de la télécharger. La nouvelle version s'installe par dessus l'ancienne et garde les projets. Menu : « Rechercher une mise à jour » pour vérifier à la main, « Vérifier au démarrage » pour couper la vérification automatique.
 
 ## Fonctions
 
@@ -51,7 +54,7 @@ Raccourcis clavier (tablette avec clavier ou navigateur) : espace pour lecture e
 
 ## Données personnelles
 
-L'application ne collecte rien. Pas de compte, pas de publicité, pas de mesure d'audience, aucune connexion à un serveur. Les projets restent dans le stockage local de l'appareil. Détails dans [la politique de confidentialité](public/legal/confidentialite.html), [les conditions d'utilisation](public/legal/conditions.html) et [la politique des cookies](public/legal/cookies.html). Aucun bandeau cookies n'est nécessaire, car l'application ne dépose aucun cookie et n'utilise que le stockage strictement nécessaire.
+L'application ne collecte rien. Pas de compte, pas de publicité, pas de mesure d'audience. Sa seule connexion interroge GitHub pour savoir si une nouvelle version existe, sans rien envoyer sur l'utilisateur, et peut être désactivée. Les projets restent dans le stockage local de l'appareil. Détails dans [la politique de confidentialité](public/legal/confidentialite.html), [les conditions d'utilisation](public/legal/conditions.html) et [la politique des cookies](public/legal/cookies.html). Aucun bandeau cookies n'est nécessaire, car l'application ne dépose aucun cookie et n'utilise que le stockage strictement nécessaire.
 
 ## Développement
 
@@ -70,11 +73,25 @@ L'APK se trouve ensuite dans `android/app/build/outputs/apk/debug/`.
 
 ### Publication
 
-- Chaque push sur `main` construit l'APK (workflow `.github/workflows/android.yml`).
-- Un tag `v1.0.0` crée une release avec l'APK.
+- Chaque push sur `main` construit l'APK signé et publie une release `v1.0.<numéro du run>` (workflow `.github/workflows/android.yml`). Les notes de version sont générées à partir des commits.
+- Les pull requests construisent un APK de test, sans release.
 - Le workflow `.github/workflows/pages.yml` publie la version web et les pages légales sur GitHub Pages. À activer une fois dans Settings, Pages, Source : GitHub Actions.
 
-L'APK produit est signé avec la clé de débogage, ce qui suffit pour l'installer directement. Une publication sur le Play Store demandera une clé de signature dédiée.
+**Clé de signature.** Android n'installe une mise à jour que si elle est signée avec la même clé que la version installée. La clé n'est jamais dans le dépôt : le workflow la lit dans deux secrets (Settings, Secrets and variables, Actions) :
+
+| Secret | Contenu |
+|---|---|
+| `ANDROID_KEYSTORE` | Le fichier `.jks` encodé en base64 (`base64 -w0 astudio.jks`) |
+| `ANDROID_KEYSTORE_PASSWORD` | Le mot de passe du fichier et de la clé (alias `astudio`) |
+
+Sans ces secrets, le workflow s'arrête sur `main` au lieu de publier un APK impossible à mettre à jour. Gardez une copie de la clé en lieu sûr : si elle est perdue, les utilisateurs devront désinstaller l'application pour passer à une nouvelle clé.
+
+Build signé en local :
+
+```bash
+APP_BUILD=1 APP_VERSION=1.0.1 ANDROID_KEYSTORE_FILE=/chemin/astudio.jks ANDROID_KEYSTORE_PASSWORD=... \
+  ./gradlew assembleRelease
+```
 
 ## Structure
 

@@ -37,7 +37,7 @@
         </provider>
     </application>
 
-    <!-- The WebView engine needs this permission to display the bundled pages.
-         The app itself makes no network request: a Content Security Policy blocks external resources. -->
+    <!-- Used only to check GitHub for a newer release. The Content Security Policy
+         in index.html blocks every other connection. -->
     <uses-permission android:name="android.permission.INTERNET" />
 </manifest>
