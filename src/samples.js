@@ -1,4 +1,5 @@
 import { unzipSync } from 'fflate';
+import { t } from './i18n.js';
 
 // Imported samples live in IndexedDB on the device. Nothing is uploaded.
 const DB_NAME = 'astudio';
@@ -169,7 +170,7 @@ export async function importFiles(files, onProgress) {
       }
     } else if (AUDIO_EXT.test(f.name) || (f.type && f.type.startsWith('audio/'))) {
       try {
-        await addOne(stripExt(f.name), 'Importés', bytes);
+        await addOne(stripExt(f.name), t('Imported'), bytes);
         added += 1;
       } catch {
         skipped += 1;

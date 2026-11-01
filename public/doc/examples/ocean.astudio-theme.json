@@ -1,0 +1,31 @@
+{
+  "type": "astudio-theme",
+  "id": "ocean",
+  "name": "Ocean",
+  "author": "A Studio",
+  "colors": {
+    "bg": "#0f1b24",
+    "panel": "#16262f",
+    "panel2": "#1d313c",
+    "panel3": "#284352",
+    "line": "#0a1218",
+    "text": "#d6e6ee",
+    "dim": "#86a3b1",
+    "accent": "#3fb6c8",
+    "green": "#6fd0a0",
+    "red": "#e0605a",
+    "input": "#0d1820",
+    "lcd": "#081016",
+    "lcd-text": "#8fe3f0"
+  },
+  "editor": {
+    "gridWhite": "#1f3542",
+    "gridBlack": "#192c37",
+    "note": "#5fd3c4",
+    "noteSelected": "#f2a65a",
+    "playhead": "#3fb6c8",
+    "trackA": "#1d313c",
+    "trackB": "#192b35",
+    "ruler": "#14232c"
+  }
+}

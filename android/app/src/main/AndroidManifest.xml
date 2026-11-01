@@ -37,7 +37,9 @@
         </provider>
     </application>
 
-    <!-- Used only to check GitHub for a newer release. The Content Security Policy
-         in index.html blocks every other connection. -->
+    <!-- Used only to check GitHub for a newer release and download it. The Content
+         Security Policy in index.html blocks every other connection from the interface. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets the app open the Android installer for a downloaded update. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

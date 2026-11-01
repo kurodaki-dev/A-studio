@@ -2,6 +2,7 @@ import { h, promptText } from './dom.js';
 import { knob, fader, led } from './controls.js';
 import { store } from '../store.js';
 import { faderGain } from '../audio/engine.js';
+import { t } from '../i18n.js';
 
 const dbText = (v) => {
   const gn = faderGain(v);
@@ -13,7 +14,7 @@ const dbText = (v) => {
 export function createMixer(engine) {
   const strips = h('div', { class: 'mixer-strips' });
   const el = h('div', { class: 'panel mixer' },
-    h('div', { class: 'ptools' }, h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Mixer'), h('span', { class: 'rack-info' }, 'Glissez verticalement pour régler, double tap pour revenir à la valeur par défaut'))),
+    h('div', { class: 'ptools' }, h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Mixer'), h('span', { class: 'rack-info' }, t('Drag vertically to adjust, double tap to reset')))),
     h('div', { class: 'mixer-scroll' }, strips),
   );
   let items = [];
@@ -22,28 +23,28 @@ export function createMixer(engine) {
   function build() {
     const mx = store.project.mixer;
     items = mx.map((m, i) => {
-      const name = h('button', { class: 'strip-name', type: 'button', title: 'Renommer', onClick: async () => {
+      const name = h('button', { class: 'strip-name', type: 'button', title: t('Rename'), onClick: async () => {
         if (i === 0) return;
-        const v = await promptText('Renommer l’insert', m.name);
+        const v = await promptText(t('Rename insert'), m.name);
         if (v) store.change(() => { m.name = v; });
       } }, m.name);
       const meter = h('canvas', { class: 'meter', width: 8, height: 120 });
       const fd = fader({ value: m.vol, label: 'Volume ' + m.name, format: dbText, onStart: () => store.commit(), onInput: (v) => { m.vol = v; store.emit(); } });
       const pan = knob({
-        value: m.pan, min: -1, max: 1, def: 0, size: 24, label: 'Panoramique ' + m.name,
-        format: (v) => (Math.abs(v) < 0.01 ? 'Centre' : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? 'gauche' : 'droite')),
+        value: m.pan, min: -1, max: 1, def: 0, size: 24, label: t('Pan ') + m.name,
+        format: (v) => (Math.abs(v) < 0.01 ? t('Center') : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? 'gauche' : 'droite')),
         onStart: () => store.commit(), onInput: (v) => { m.pan = v; store.emit(); },
       });
-      const rev = i === 0 ? null : knob({ value: m.reverb, size: 22, label: 'Réverbération ' + m.name, onStart: () => store.commit(), onInput: (v) => { m.reverb = v; store.emit(); } });
-      const del = i === 0 ? null : knob({ value: m.delay, size: 22, label: 'Écho ' + m.name, onStart: () => store.commit(), onInput: (v) => { m.delay = v; store.emit(); } });
-      const mute = led(!m.mute, 'Insert actif', () => store.change(() => { m.mute = !m.mute; }));
+      const rev = i === 0 ? null : knob({ value: m.reverb, size: 22, label: t('Reverb ') + m.name, onStart: () => store.commit(), onInput: (v) => { m.reverb = v; store.emit(); } });
+      const del = i === 0 ? null : knob({ value: m.delay, size: 22, label: t('Delay ') + m.name, onStart: () => store.commit(), onInput: (v) => { m.delay = v; store.emit(); } });
+      const mute = led(!m.mute, t('Insert enabled'), () => store.change(() => { m.mute = !m.mute; }));
       const solo = i === 0 ? null : h('button', { class: 'b tb solo', type: 'button', title: 'Solo', onClick: () => store.change(() => { m.solo = !m.solo; }) }, 'S');
       const strip = h('div', { class: 'strip' + (i === 0 ? ' master' : '') },
         h('div', { class: 'strip-num' }, i === 0 ? 'M' : String(i)),
         name,
         h('div', { class: 'strip-fx' },
-          rev ? h('label', { class: 'kl' }, rev, h('span', null, 'Rév')) : null,
-          del ? h('label', { class: 'kl' }, del, h('span', null, 'Écho')) : null,
+          rev ? h('label', { class: 'kl' }, rev, h('span', null, t('Rev'))) : null,
+          del ? h('label', { class: 'kl' }, del, h('span', null, t('Delay'))) : null,
         ),
         h('label', { class: 'kl' }, pan, h('span', null, 'Pan')),
         h('div', { class: 'strip-fader' }, meter, fd),

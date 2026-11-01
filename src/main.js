@@ -15,7 +15,14 @@ import { loadCurrent, saveCurrent, saveProject, loadProject, listProjects } from
 import { saveFile, pickFile } from './platform.js';
 import { BAR, STEP, clamp } from './constants.js';
 import { APP_VERSION } from './version.js';
-import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from './update.js';
+import { checkForUpdate, updatesSupported, autoCheckEnabled } from './update.js';
+import { t, locale, lang } from './i18n.js';
+import { initTheme } from './themes.js';
+import { openSettings } from './ui/settings.js';
+import { openExternal, DOCS_URL, bugReportUrl } from './links.js';
+
+initTheme();
+document.documentElement.lang = lang;
 
 // Restore the last session
 const saved = loadCurrent();
@@ -43,9 +50,9 @@ const actions = {
     engine.stop();
     try {
       store.load(data);
-      hint('Projet ouvert : ' + store.project.name);
+      hint(t('Project opened: ') + store.project.name);
     } catch (e) {
-      alertBox('Ouverture impossible', String(e.message || e));
+      alertBox(t('Could not open'), String(e.message || e));
     }
   },
   addSampler(id) {
@@ -70,18 +77,18 @@ bindHint(hintEl);
 
 const patBtn = h('button', { class: 'b tb seg', type: 'button', onClick: () => setSongMode(false) }, 'PAT');
 const songBtn = h('button', { class: 'b tb seg', type: 'button', onClick: () => setSongMode(true) }, 'SONG');
-const playBtn = btn('Play', 'Lecture / pause (espace)', () => togglePlay(), 'play');
+const playBtn = btn('Play', t('Play / pause (space)'), () => togglePlay(), 'play');
 const stopBtn = btn('Square', 'Stop', () => stop(), 'stop');
-const metroBtn = btn('Metronome', 'Métronome', () => {
+const metroBtn = btn('Metronome', t('Metronome'), () => {
   ui.metronome = !ui.metronome;
-  hint('Métronome ' + (ui.metronome ? 'activé' : 'désactivé'));
+  hint(t('Metronome ') + (ui.metronome ? t('on') : t('off')));
   refreshToolbar();
 });
-const tempoVal = h('div', { class: 'lcd tempo', title: 'Tempo : glissez verticalement, double tap pour saisir' });
-const timeVal = h('div', { class: 'lcd time', title: 'Position mesure:pas:tick' });
-const patName = h('button', { class: 'b tb patname', type: 'button', title: 'Motifs', onClick: (e) => patternMenu(e.currentTarget) });
-const undoBtn = btn('Undo2', 'Annuler', () => { if (store.undo()) hint('Annulé'); });
-const redoBtn = btn('Redo2', 'Rétablir', () => { if (store.redo()) hint('Rétabli'); });
+const tempoVal = h('div', { class: 'lcd tempo', title: t('Tempo: drag vertically, double tap to type') });
+const timeVal = h('div', { class: 'lcd time', title: t('Position bar:step:tick') });
+const patName = h('button', { class: 'b tb patname', type: 'button', title: t('Patterns'), onClick: (e) => patternMenu(e.currentTarget) });
+const undoBtn = btn('Undo2', t('Cancel'), () => { if (store.undo()) hint(t('Undone')); });
+const redoBtn = btn('Redo2', t('Redo'), () => { if (store.redo()) hint(t('Redone')); });
 
 const topbar = h('header', { class: 'topbar' },
   btn('Menu', 'Menu', (e) => mainMenu(e.currentTarget)),
@@ -89,15 +96,15 @@ const topbar = h('header', { class: 'topbar' },
   h('div', { class: 'tgrp segs' }, patBtn, songBtn),
   h('div', { class: 'tgrp' }, playBtn, stopBtn, metroBtn),
   h('div', { class: 'tgrp tempo-grp' },
-    btn('Minus', 'Tempo moins', () => setBpm(Math.round(store.project.bpm) - 1), 'small'),
+    btn('Minus', t('Tempo down'), () => setBpm(Math.round(store.project.bpm) - 1), 'small'),
     tempoVal,
-    btn('Plus', 'Tempo plus', () => setBpm(Math.round(store.project.bpm) + 1), 'small'),
+    btn('Plus', t('Tempo up'), () => setBpm(Math.round(store.project.bpm) + 1), 'small'),
   ),
   timeVal,
   h('div', { class: 'tgrp' },
-    btn('ChevronLeft', 'Motif précédent', () => stepPattern(-1), 'small'),
+    btn('ChevronLeft', t('Previous pattern'), () => stepPattern(-1), 'small'),
     patName,
-    btn('ChevronRight', 'Motif suivant', () => stepPattern(1), 'small'),
+    btn('ChevronRight', t('Next pattern'), () => stepPattern(1), 'small'),
   ),
   h('div', { class: 'tgrp' }, undoBtn, redoBtn),
   hintEl,
@@ -114,7 +121,7 @@ const railBtns = railDefs.map(([id, ic, label]) => {
   b.dataset.panel = id;
   return b;
 });
-const browserBtn = h('button', { class: 'rail-btn', type: 'button', title: 'Navigateur (F8)', 'aria-label': 'Navigateur', onClick: () => setSidebar(!ui.sidebar) }, icon('FolderOpen', 20), h('span', null, 'Navigateur'));
+const browserBtn = h('button', { class: 'rail-btn', type: 'button', title: t('Browser (F8)'), 'aria-label': t('Browser'), onClick: () => setSidebar(!ui.sidebar) }, icon('FolderOpen', 20), h('span', null, t('Browser')));
 const rail = h('nav', { class: 'rail' }, browserBtn, h('div', { class: 'rail-sep' }), railBtns);
 const stage = h('main', { class: 'stage' }, Object.values(panels).map((p) => p.el));
 const body = h('div', { class: 'body' }, rail, sidebar.el, stage);
@@ -161,7 +168,7 @@ function showPanel(id) {
       store.commit();
     }
     store.project.bpm = clamp(Math.round(start.v + dy / 3), 10, 522);
-    hint('Tempo : ' + store.project.bpm + ' BPM');
+    hint(t('Tempo: ') + store.project.bpm + ' BPM');
     store.emit();
   });
   const end = () => { start = null; };
@@ -173,7 +180,7 @@ function setBpm(v) {
   const n = clamp(Math.round(v * 1000) / 1000, 10, 522);
   if (n === store.project.bpm) return;
   store.change((p) => { p.bpm = n; });
-  hint('Tempo : ' + n + ' BPM');
+  hint(t('Tempo: ') + n + ' BPM');
 }
 
 function setSongMode(on) {
@@ -182,7 +189,7 @@ function setSongMode(on) {
   engine.stop();
   ui.songMode = on;
   if (was) engine.play();
-  hint(on ? 'Mode morceau : lecture de la playlist' : 'Mode motif : lecture du motif courant');
+  hint(on ? t('Song mode: plays the playlist') : t('Pattern mode: plays the current pattern'));
   refreshToolbar();
   panels[ui.panel].update();
 }
@@ -217,7 +224,7 @@ function newPattern() {
     p.patterns.push(pat);
     p.currentPattern = pat.id;
   });
-  hint('Nouveau motif : ' + currentPattern(store.project).name);
+  hint(t('New pattern: ') + currentPattern(store.project).name);
 }
 
 function patternMenu(anchor) {
@@ -226,22 +233,22 @@ function patternMenu(anchor) {
   openMenu(anchor, [
     ...p.patterns.map((pt) => ({ label: pt.name, checked: pt.id === p.currentPattern, onClick: () => { p.currentPattern = pt.id; store.emit(); } })),
     { sep: true },
-    { label: 'Nouveau motif', icon: 'Plus', onClick: newPattern },
-    { label: 'Renommer le motif', icon: 'Pencil', onClick: async () => {
-      const v = await promptText('Renommer le motif', cur.name);
+    { label: t('New pattern'), icon: 'Plus', onClick: newPattern },
+    { label: t('Rename pattern'), icon: 'Pencil', onClick: async () => {
+      const v = await promptText(t('Rename pattern'), cur.name);
       if (v) store.change(() => { cur.name = v; });
     } },
-    { label: 'Cloner le motif', icon: 'Copy', onClick: () => store.change((pp) => {
+    { label: t('Clone pattern'), icon: 'Copy', onClick: () => store.change((pp) => {
       const copy = JSON.parse(serialize(cur));
       const fresh = makePattern(nextPatternIndex(pp));
       copy.id = fresh.id;
-      copy.name = cur.name + ' copie';
+      copy.name = cur.name + t(' copy');
       copy.color = fresh.color;
       pp.patterns.splice(pp.patterns.indexOf(cur) + 1, 0, copy);
       pp.currentPattern = copy.id;
     }) },
-    { label: 'Supprimer le motif', icon: 'Trash', disabled: p.patterns.length < 2, onClick: async () => {
-      if (!(await confirmBox('Supprimer le motif', 'Le motif « ' + cur.name + ' » et ses clips dans la playlist seront supprimés.', 'Supprimer'))) return;
+    { label: t('Delete pattern'), icon: 'Trash', disabled: p.patterns.length < 2, onClick: async () => {
+      if (!(await confirmBox(t('Delete pattern'), t('Pattern “') + cur.name + t('” and its playlist clips will be deleted.'), t('Delete')))) return;
       store.change((pp) => {
         const i = pp.patterns.indexOf(cur);
         pp.patterns.splice(i, 1);
@@ -275,10 +282,10 @@ function refreshToolbar() {
 
 // Project menu
 async function saveAs() {
-  const v = await promptText('Nom du projet', store.project.name === 'Sans titre' ? '' : store.project.name);
+  const v = await promptText(t('Project name'), store.project.name === t('Untitled') ? '' : store.project.name);
   if (!v) return false;
   if (v !== store.project.name && listProjects().some((x) => x.name === v)) {
-    if (!(await confirmBox('Remplacer', 'Un projet nommé « ' + v + ' » existe déjà sur cet appareil. Le remplacer ?', 'Remplacer'))) return false;
+    if (!(await confirmBox(t('Replace'), t('A project named “') + v + t('” already exists on this device. Replace it?'), t('Replace')))) return false;
   }
   store.project.name = v;
   return doSave();
@@ -287,51 +294,51 @@ async function saveAs() {
 function doSave() {
   try {
     saveProject(store.project);
-    hint('Projet enregistré : ' + store.project.name);
+    hint(t('Project saved: ') + store.project.name);
     sidebar.refresh();
     store.emit();
     return true;
   } catch {
-    alertBox('Enregistrement impossible', 'L’espace de stockage de l’application est plein. Supprimez d’anciens projets dans le navigateur.');
+    alertBox(t('Could not save'), t('The app storage is full. Delete old projects in the browser.'));
     return false;
   }
 }
 
 async function save() {
-  if (store.project.name === 'Sans titre') return saveAs();
+  if (store.project.name === t('Untitled')) return saveAs();
   return doSave();
 }
 
 async function newProj() {
-  if (!(await confirmBox('Nouveau projet', 'Le projet en cours sera fermé. Pensez à l’enregistrer avant.', 'Nouveau projet'))) return;
+  if (!(await confirmBox(t('New project'), t('The current project will be closed. Save it first if needed.'), t('New project')))) return;
   engine.stop();
   store.load(newProject());
   ui.prChannel = null;
-  hint('Nouveau projet');
+  hint(t('New project'));
 }
 
 function openProjectDialog() {
   const list = listProjects();
   if (!list.length) {
-    alertBox('Ouvrir', 'Aucun projet enregistré sur cet appareil.');
+    alertBox(t('Open'), t('No project saved on this device.'));
     return;
   }
   const m = openModal({
-    title: 'Ouvrir un projet',
+    title: t('Open a project'),
     body: h('div', { class: 'plist' }, list.map((pr) =>
       h('button', { class: 'brow-name', type: 'button', onClick: () => { m.close(); actions.openProject(pr.name); } }, icon('FileText', 14), pr.name,
-        h('span', { class: 'brow-date' }, new Date(pr.savedAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }))),
+        h('span', { class: 'brow-date' }, new Date(pr.savedAt).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' }))),
     )),
-    actions: [{ label: 'Annuler' }],
+    actions: [{ label: t('Cancel') }],
   });
 }
 
 async function exportProject() {
-  const name = (store.project.name || 'projet').replace(/[\\/:*?"<>|]/g, '_') + '.astudio';
+  const name = (store.project.name || 'project').replace(/[\\/:*?"<>|]/g, '_') + '.astudio';
   try {
     await saveFile(name, serialize(store.project), 'application/json');
   } catch (e) {
-    alertBox('Export impossible', String(e.message || e));
+    alertBox(t('Export failed'), String(e.message || e));
   }
 }
 
@@ -342,19 +349,19 @@ async function importProject() {
     const p = normalizeProject(JSON.parse(text));
     engine.stop();
     store.load(p);
-    hint('Projet importé : ' + p.name);
+    hint(t('Project imported: ') + p.name);
   } catch {
-    alertBox('Import impossible', 'Ce fichier n’est pas un projet A Studio valide.');
+    alertBox(t('Import failed'), t('This file is not a valid A Studio project.'));
   }
 }
 
 async function exportWav() {
   const mode = ui.songMode ? 'song' : 'pattern';
   if (mode === 'song' && !store.project.playlist.clips.length) {
-    alertBox('Export WAV', 'La playlist est vide. Placez des motifs dans la playlist, ou passez en mode PAT pour exporter le motif courant.');
+    alertBox('Export WAV', t('The playlist is empty. Place patterns in the playlist, or switch to PAT mode to export the current pattern.'));
     return;
   }
-  const m = openModal({ title: 'Export WAV', body: h('p', null, 'Rendu en cours...'), actions: [] });
+  const m = openModal({ title: 'Export WAV', body: h('p', null, t('Rendering...')), actions: [] });
   try {
     const wav = await renderWav(store.project, mode);
     m.close();
@@ -362,54 +369,63 @@ async function exportWav() {
     await saveFile(base + '.wav', wav, 'audio/wav');
   } catch (e) {
     m.close();
-    alertBox('Export impossible', String(e.message || e));
+    alertBox(t('Export failed'), String(e.message || e));
   }
 }
 
+const LEGAL = {
+  privacy: { en: 'privacy', fr: 'fr/confidentialite' },
+  terms: { en: 'terms', fr: 'fr/conditions' },
+  cookies: { en: 'cookies', fr: 'fr/cookies' },
+};
 function openLegal(page, title) {
-  const frame = h('iframe', { class: 'legal-frame', src: 'legal/' + page + '.html', title });
+  const frame = h('iframe', { class: 'legal-frame', src: 'legal/' + LEGAL[page][lang === 'fr' ? 'fr' : 'en'] + '.html', title });
   openModal({ title, body: frame, wide: true, actions: [] });
 }
 
 function about() {
   openModal({
-    title: 'À propos',
+    title: t('About'),
     body: h('div', { class: 'about' },
-      h('p', null, h('strong', null, 'A Studio'), ' version ' + APP_VERSION),
-      h('p', null, 'Station de création musicale pour Android. Les sons sont produits par synthèse en temps réel, sans échantillons.'),
-      h('p', null, 'Vos projets restent sur cet appareil. L’application ne collecte aucune donnée. Sa seule connexion sert à vérifier sur GitHub si une nouvelle version existe, et elle peut être désactivée dans le menu.'),
-      h('p', null, 'Logiciel libre sous licence MIT. A Studio est un projet indépendant, sans lien avec Image Line ni avec FL Studio.'),
-      h('p', null, 'Icônes : Lucide (licence ISC).'),
+      h('p', null, h('strong', null, 'A Studio'), t(' version ') + APP_VERSION),
+      h('p', null, t('Music production studio for Android. Built in sounds are synthesized in real time.')),
+      h('p', null, t('Your projects stay on this device. The app collects no data. Its only connection checks GitHub for a new version and can be turned off in Settings.')),
+      h('p', null, t('Free software under the MIT license. A Studio is an independent project, not affiliated with Image Line or FL Studio.')),
+      h('p', null, t('Icons: Lucide (ISC license).')),
     ),
   });
 }
 
 function mainMenu(anchor) {
   openMenu(anchor, [
-    { label: 'Nouveau projet', icon: 'FilePlus', onClick: newProj },
-    { label: 'Ouvrir', icon: 'FolderOpen', onClick: openProjectDialog },
-    { label: 'Enregistrer', icon: 'Save', onClick: save },
-    { label: 'Enregistrer sous', icon: 'Save', onClick: saveAs },
+    { label: t('New project'), icon: 'FilePlus', onClick: newProj },
+    { label: t('Open'), icon: 'FolderOpen', onClick: openProjectDialog },
+    { label: t('Save'), icon: 'Save', onClick: save },
+    { label: t('Save as'), icon: 'Save', onClick: saveAs },
     { sep: true },
-    { label: 'Importer un fichier projet', icon: 'Upload', onClick: importProject },
-    { label: 'Exporter le fichier projet', icon: 'Share2', onClick: exportProject },
-    { label: ui.songMode ? 'Exporter le morceau en WAV' : 'Exporter le motif en WAV', icon: 'Download', onClick: exportWav },
-    ...(updatesSupported()
-      ? [
-          { sep: true },
-          { label: 'Rechercher une mise à jour', icon: 'Download', onClick: () => checkForUpdate({ silent: false }) },
-          { label: 'Vérifier au démarrage', checked: autoCheckEnabled(), onClick: () => {
-            setAutoCheck(!autoCheckEnabled());
-            hint(autoCheckEnabled() ? 'Vérification au démarrage activée' : 'Vérification au démarrage désactivée');
-          } },
-        ]
-      : []),
+    { label: t('Import project file'), icon: 'Upload', onClick: importProject },
+    { label: t('Export project file'), icon: 'Share2', onClick: exportProject },
+    { label: ui.songMode ? t('Export song as WAV') : t('Export pattern as WAV'), icon: 'Download', onClick: exportWav },
     { sep: true },
-    { label: 'Confidentialité', icon: 'Shield', onClick: () => openLegal('confidentialite', 'Politique de confidentialité') },
-    { label: 'Conditions d’utilisation', icon: 'FileText', onClick: () => openLegal('conditions', 'Conditions d’utilisation') },
-    { label: 'Cookies', icon: 'Cookie', onClick: () => openLegal('cookies', 'Politique des cookies') },
-    { label: 'À propos', icon: 'Info', onClick: about },
+    { label: t('Settings'), icon: 'Settings', onClick: () => openSettings({ onExtensionsChange: extensionsChanged }) },
+    { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged }) },
+    ...(updatesSupported() ? [{ label: t('Check for updates'), icon: 'Download', onClick: () => checkForUpdate({ silent: false }) }] : []),
+    { sep: true },
+    { label: t('Documentation'), icon: 'BookOpen', onClick: () => openExternal(DOCS_URL) },
+    { label: t('Report a bug'), icon: 'Bug', onClick: () => openExternal(bugReportUrl()) },
+    { sep: true },
+    { label: t('Privacy'), icon: 'Shield', onClick: () => openLegal('privacy', t('Privacy policy')) },
+    { label: t('Terms of use'), icon: 'FileText', onClick: () => openLegal('terms', t('Terms of use')) },
+    { label: 'Cookies', icon: 'Cookie', onClick: () => openLegal('cookies', t('Cookie policy')) },
+    { label: t('About'), icon: 'Info', onClick: about },
   ]);
+}
+
+// A theme or plugin was installed, removed or selected.
+function extensionsChanged() {
+  sidebar.refresh();
+  dirty = true;
+  for (const p of Object.values(panels)) if (p.redrawMinis) p.redrawMinis();
 }
 
 // Render loop

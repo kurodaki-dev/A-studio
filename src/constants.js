@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Time base: 96 ticks per quarter note, as in FL Studio.
 export const PPQ = 96;
 export const STEP = 24; // a 1/16 step
@@ -12,17 +13,17 @@ export const noteName = (k) => NOTE_NAMES[((k % 12) + 12) % 12] + Math.floor(k /
 export const isBlack = (k) => [1, 3, 6, 8, 10].includes(((k % 12) + 12) % 12);
 
 export const SNAPS = [
-  { id: 'none', label: 'Aucun', ticks: 1 },
-  { id: '1/6s', label: '1/6 de pas', ticks: 4 },
-  { id: '1/4s', label: '1/4 de pas', ticks: 6 },
-  { id: '1/3s', label: '1/3 de pas', ticks: 8 },
-  { id: '1/2s', label: '1/2 pas', ticks: 12 },
-  { id: 'step', label: 'Pas', ticks: 24 },
-  { id: '1/6b', label: '1/6 de temps', ticks: 16 },
-  { id: '1/3b', label: '1/3 de temps', ticks: 32 },
-  { id: '1/2b', label: '1/2 temps', ticks: 48 },
-  { id: 'beat', label: 'Temps', ticks: 96 },
-  { id: 'bar', label: 'Mesure', ticks: 384 },
+  { id: 'none', label: t('None'), ticks: 1 },
+  { id: '1/6s', label: t('1/6 step'), ticks: 4 },
+  { id: '1/4s', label: t('1/4 step'), ticks: 6 },
+  { id: '1/3s', label: t('1/3 step'), ticks: 8 },
+  { id: '1/2s', label: t('1/2 step'), ticks: 12 },
+  { id: 'step', label: t('Step'), ticks: 24 },
+  { id: '1/6b', label: t('1/6 beat'), ticks: 16 },
+  { id: '1/3b', label: t('1/3 beat'), ticks: 32 },
+  { id: '1/2b', label: t('1/2 beat'), ticks: 48 },
+  { id: 'beat', label: t('Beat'), ticks: 96 },
+  { id: 'bar', label: t('Bar'), ticks: 384 },
 ];
 
 export const snapTicks = (id) => (SNAPS.find((s) => s.id === id) || SNAPS[5]).ticks;

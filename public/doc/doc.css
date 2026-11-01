@@ -1,0 +1,41 @@
+:root {
+  --bg: #1e2427; --panel: #2f383d; --panel2: #384349; --line: #161b1e;
+  --text: #d5dcdf; --dim: #9aa7ad; --accent: #f0993a; --code: #20272b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: auto; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); }
+header.top { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+header.top .brand { color: var(--accent); font-weight: 800; letter-spacing: 0.08em; text-decoration: none; }
+header.top nav { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; }
+header.top nav a { color: var(--text); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; }
+aside.toc { position: sticky; top: 0; align-self: start; padding: 24px 0; font-size: 14px; max-height: 100vh; overflow-y: auto; }
+aside.toc a { display: block; padding: 3px 0; color: var(--dim); text-decoration: none; }
+aside.toc a:hover { color: var(--text); }
+main { padding: 16px 0 64px; min-width: 0; }
+.hero { text-align: center; padding: 24px 0 8px; }
+.hero img { width: 96px; height: 96px; }
+.hero h1 { margin: 12px 0 4px; font-size: 32px; }
+.hero p { color: var(--dim); margin: 0 auto 16px; max-width: 60ch; }
+.btns { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.btn { display: inline-block; padding: 10px 16px; border: 1px solid var(--line); border-radius: 2px; background: var(--panel2); color: var(--text); text-decoration: none; font-weight: 600; }
+.btn.primary { background: var(--accent); color: #1b1206; border-color: #8a5520; }
+h2 { margin: 40px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 24px; }
+h3 { margin: 24px 0 6px; font-size: 18px; }
+p, li { max-width: 72ch; }
+code { background: var(--code); border: 1px solid var(--line); padding: 1px 5px; border-radius: 2px; font: 14px ui-monospace, "Roboto Mono", Menlo, monospace; }
+pre { background: var(--code); border: 1px solid var(--line); padding: 12px; overflow-x: auto; border-radius: 2px; }
+pre code { background: none; border: 0; padding: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 8px 0; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: var(--panel); }
+kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px; padding: 0 5px; border-radius: 2px; font-size: 13px; }
+.note { background: var(--panel); border-left: 3px solid var(--accent); padding: 8px 12px; }
+footer { color: var(--dim); font-size: 14px; border-top: 1px solid var(--line); padding: 16px 0; margin-top: 48px; }
+@media (max-width: 800px) {
+  .wrap { grid-template-columns: 1fr; gap: 0; }
+  aside.toc { position: static; max-height: none; padding: 12px 0 0; columns: 2; }
+}

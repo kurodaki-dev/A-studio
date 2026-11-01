@@ -1,0 +1,11 @@
+name: Feature request
+description: Suggest an idea for A Studio.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What you would like and how it would help.
+    validations:
+      required: true

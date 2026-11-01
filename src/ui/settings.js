@@ -1,0 +1,115 @@
+import { h, btn, icon, openModal, alertBox, confirmBox, dropdown, hint } from './dom.js';
+import { t, lang, LANGS, setLang } from '../i18n.js';
+import { allThemes, currentTheme, applyTheme, installTheme, removeTheme } from '../themes.js';
+import { pluginInstruments, installPlugin, removePlugin } from '../plugins.js';
+import { pickFile } from '../platform.js';
+import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from '../update.js';
+import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
+import { APP_VERSION } from '../version.js';
+
+// Settings window. section: 'general' | 'extensions' scrolls to that part.
+export function openSettings({ section = 'general', onExtensionsChange } = {}) {
+  const body = h('div', { class: 'settings' });
+  const m = openModal({ title: t('Settings'), body, wide: true });
+
+  async function importJson(kind) {
+    const text = await pickFile();
+    if (!text) return;
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      alertBox(t('Install failed'), t('This file is not valid JSON.'));
+      return;
+    }
+    try {
+      if (kind === 'theme') {
+        const th = installTheme(raw);
+        applyTheme(th.id);
+        hint(t('Theme installed: ') + th.name);
+      } else {
+        const p = installPlugin(raw);
+        hint(t('Plugin installed: ') + p.name);
+      }
+      onExtensionsChange && onExtensionsChange();
+      render();
+    } catch (e) {
+      alertBox(t('Install failed'), String((e && e.message) || e));
+    }
+  }
+
+  function row(label, control, help) {
+    return h('div', { class: 'set-row' },
+      h('div', { class: 'set-label' }, h('span', null, label), help ? h('small', null, help) : null),
+      h('div', { class: 'set-control' }, control),
+    );
+  }
+
+  function render() {
+    const themes = allThemes();
+    const plugins = pluginInstruments();
+    body.replaceChildren(
+      h('section', { class: 'set-sec', id: 'set-general' },
+        h('h3', null, icon('Settings', 16), t('General')),
+        row(t('Language'), dropdown({ label: t('Language'), value: lang, options: LANGS.map((l) => ({ value: l.id, label: l.name })), onChange: (v) => { if (v !== lang) setLang(v); } }), t('The app reloads to apply the language.')),
+        updatesSupported()
+          ? row(t('Updates'), h('div', { class: 'set-inline' },
+              h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: autoCheckEnabled(), onChange: (e) => setAutoCheck(e.target.checked) }), h('span', null, t('Check at startup'))),
+              h('button', { class: 'b tb', type: 'button', onClick: () => checkForUpdate({ silent: false }) }, t('Check now')),
+            ), t('Installed version: ') + APP_VERSION)
+          : row(t('Version'), h('span', null, APP_VERSION)),
+      ),
+      h('section', { class: 'set-sec', id: 'set-themes' },
+        h('h3', null, icon('Palette', 16), t('Themes')),
+        h('div', { class: 'set-list' }, themes.map((th) =>
+          h('div', { class: 'set-item' + (currentTheme().id === th.id ? ' on' : '') },
+            h('span', { class: 'swatches' }, ['bg', 'panel', 'accent', 'green'].map((k) => h('i', { style: { background: th.colors[k] } }))),
+            h('button', { class: 'set-item-name', type: 'button', onClick: () => { applyTheme(th.id); onExtensionsChange && onExtensionsChange(); render(); } }, th.name, th.builtIn ? h('small', null, t('built in')) : th.author ? h('small', null, th.author) : null),
+            th.builtIn ? null : btn('Trash', t('Delete'), async () => {
+              if (await confirmBox(t('Delete theme'), th.name, t('Delete'))) {
+                removeTheme(th.id);
+                onExtensionsChange && onExtensionsChange();
+                render();
+              }
+            }),
+          ),
+        )),
+        h('div', { class: 'set-actions' },
+          h('button', { class: 'b tb', type: 'button', onClick: () => importJson('theme') }, icon('Upload', 16), t('Install a theme')),
+        ),
+      ),
+      h('section', { class: 'set-sec', id: 'set-plugins' },
+        h('h3', null, icon('Puzzle', 16), t('Plugins')),
+        plugins.length
+          ? h('div', { class: 'set-list' }, plugins.map((p) =>
+              h('div', { class: 'set-item' },
+                icon('AudioLines', 16),
+                h('span', { class: 'set-item-name static' }, p.name, h('small', null, [p.version, p.author].filter(Boolean).join(' · '))),
+                btn('Trash', t('Delete'), async () => {
+                  if (await confirmBox(t('Delete plugin'), p.name + '. ' + t('Channels using it will go silent.'), t('Delete'))) {
+                    removePlugin(p.id);
+                    onExtensionsChange && onExtensionsChange();
+                    render();
+                  }
+                }),
+              ),
+            ))
+          : h('p', { class: 'empty' }, t('No plugin installed. Plugins are JSON files that describe an instrument; see the documentation to create one.')),
+        h('div', { class: 'set-actions' },
+          h('button', { class: 'b tb', type: 'button', onClick: () => importJson('plugin') }, icon('Upload', 16), t('Install a plugin')),
+          h('button', { class: 'b tb', type: 'button', onClick: () => openExternal(DOCS_URL + '#plugins') }, icon('BookOpen', 16), t('How to create plugins and themes')),
+        ),
+      ),
+      h('section', { class: 'set-sec', id: 'set-help' },
+        h('h3', null, icon('Info', 16), t('Help')),
+        h('div', { class: 'set-actions' },
+          h('button', { class: 'b tb', type: 'button', onClick: () => openExternal(DOCS_URL) }, icon('BookOpen', 16), t('Documentation')),
+          h('button', { class: 'b tb', type: 'button', onClick: () => openExternal(bugReportUrl()) }, icon('Bug', 16), t('Report a bug')),
+        ),
+      ),
+    );
+  }
+  render();
+  if (section === 'extensions') setTimeout(() => body.querySelector('#set-themes')?.scrollIntoView({ block: 'start' }), 0);
+  return m;
+}

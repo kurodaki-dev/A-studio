@@ -1,41 +1,48 @@
+import { getPlugin } from '../plugins.js';
+import { t } from '../i18n.js';
 // Instrument list. All sounds are synthesized in real time, no samples.
 export const CATEGORIES = [
-  { id: 'drums', name: 'Batterie', icon: 'Drum' },
-  { id: 'keys', name: 'Claviers', icon: 'Piano' },
-  { id: 'bass', name: 'Basses', icon: 'AudioWaveform' },
-  { id: 'synth', name: 'Synthés', icon: 'AudioLines' },
-  { id: 'strings', name: 'Cordes', icon: 'Guitar' },
-  { id: 'winds', name: 'Vents', icon: 'Wind' },
-  { id: 'mallets', name: 'Percussions mélodiques', icon: 'Bell' },
+  { id: 'drums', name: t('Drums'), icon: 'Drum' },
+  { id: 'keys', name: t('Keys'), icon: 'Piano' },
+  { id: 'bass', name: t('Bass'), icon: 'AudioWaveform' },
+  { id: 'synth', name: t('Synths'), icon: 'AudioLines' },
+  { id: 'strings', name: t('Strings'), icon: 'Guitar' },
+  { id: 'winds', name: t('Winds'), icon: 'Wind' },
+  { id: 'mallets', name: t('Mallets'), icon: 'Bell' },
 ];
 
 export const CATALOG = [
   { id: 'kick', name: 'Kick', cat: 'drums' },
-  { id: 'snare', name: 'Caisse claire', cat: 'drums' },
+  { id: 'snare', name: t('Snare'), cat: 'drums' },
   { id: 'clap', name: 'Clap', cat: 'drums' },
-  { id: 'hat', name: 'Charleston fermé', cat: 'drums' },
-  { id: 'ohat', name: 'Charleston ouvert', cat: 'drums' },
+  { id: 'hat', name: t('Closed Hat'), cat: 'drums' },
+  { id: 'ohat', name: t('Open Hat'), cat: 'drums' },
   { id: 'crash', name: 'Crash', cat: 'drums' },
   { id: 'tom', name: 'Tom', cat: 'drums' },
   { id: 'rim', name: 'Rimshot', cat: 'drums' },
-  { id: 'cowbell', name: 'Cloche à vache', cat: 'drums' },
+  { id: 'cowbell', name: t('Cowbell'), cat: 'drums' },
   { id: 'piano', name: 'Piano', cat: 'keys' },
-  { id: 'epiano', name: 'Piano électrique', cat: 'keys' },
-  { id: 'organ', name: 'Orgue', cat: 'keys' },
-  { id: 'bass', name: 'Basse synthé', cat: 'bass' },
-  { id: 'sub808', name: 'Basse 808', cat: 'bass' },
+  { id: 'epiano', name: t('Electric Piano'), cat: 'keys' },
+  { id: 'organ', name: t('Organ'), cat: 'keys' },
+  { id: 'bass', name: t('Synth Bass'), cat: 'bass' },
+  { id: 'sub808', name: t('808 Bass'), cat: 'bass' },
   { id: 'lead', name: 'Lead', cat: 'synth' },
-  { id: 'pad', name: 'Nappe', cat: 'synth' },
+  { id: 'pad', name: t('Pad'), cat: 'synth' },
   { id: 'pluck', name: 'Pluck', cat: 'synth' },
-  { id: 'strings', name: 'Ensemble de cordes', cat: 'strings' },
-  { id: 'guitar', name: 'Guitare', cat: 'strings' },
-  { id: 'flute', name: 'Flûte', cat: 'winds' },
-  { id: 'brass', name: 'Cuivres', cat: 'winds' },
+  { id: 'strings', name: t('String Ensemble'), cat: 'strings' },
+  { id: 'guitar', name: t('Guitar'), cat: 'strings' },
+  { id: 'flute', name: t('Flute'), cat: 'winds' },
+  { id: 'brass', name: t('Brass'), cat: 'winds' },
   { id: 'marimba', name: 'Marimba', cat: 'mallets' },
-  { id: 'bell', name: 'Cloche', cat: 'mallets' },
+  { id: 'bell', name: t('Bell'), cat: 'mallets' },
 ];
 
 // The sampler plays an imported sample. It is created by dropping a sample, not picked from the list.
 export const INSTRUMENT_IDS = [...CATALOG.map((i) => i.id), 'sampler'];
-export const instrumentName = (id) => (id === 'sampler' ? 'Sampler' : (CATALOG.find((i) => i.id === id) || { name: id }).name);
+export const instrumentName = (id) => {
+  if (id === 'sampler') return 'Sampler';
+  if (id.startsWith('plugin:')) return (getPlugin(id.slice(7)) || { name: id.slice(7) }).name;
+  return (CATALOG.find((i) => i.id === id) || { name: id }).name;
+};
+export const isInstrumentId = (id) => typeof id === 'string' && (INSTRUMENT_IDS.includes(id) || /^plugin:[a-z0-9-]{1,40}$/.test(id));
 export const instrumentCat = (id) => (CATALOG.find((i) => i.id === id) || { cat: 'keys' }).cat;

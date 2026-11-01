@@ -1,9 +1,11 @@
-import { h, openModal } from './dom.js';
+import { h, openModal, dropdown } from './dom.js';
+import { pluginInstruments } from '../plugins.js';
 import { knob } from './controls.js';
 import { store, getChannel } from '../store.js';
 import { CATALOG, CATEGORIES } from '../audio/catalog.js';
 import { cutoffHz } from '../audio/engine.js';
 import { getSampleMeta } from '../samples.js';
+import { t } from '../i18n.js';
 
 export function openChannelSettings(id, engine) {
   const c = getChannel(store.project, id);
@@ -13,17 +15,26 @@ export function openChannelSettings(id, engine) {
     fn();
     store.emit();
   };
-  const name = h('input', { class: 'input', type: 'text', value: c.name, maxlength: 80, onInput: (e) => set(() => { c.name = e.target.value || 'Canal'; }) });
-  const inst = h('select', { class: 'sel', onChange: (e) => set(() => { c.instrument = e.target.value; engine.preview(c, 60); }) },
-    c.sample ? h('optgroup', { label: 'Sample' }, h('option', { value: 'sampler', selected: c.instrument === 'sampler' }, 'Sampler : ' + ((getSampleMeta(c.sample) || {}).name || 'sample absent'))) : null,
-    CATEGORIES.map((cat) => h('optgroup', { label: cat.name }, CATALOG.filter((x) => x.cat === cat.id).map((x) => h('option', { value: x.id, selected: x.id === c.instrument }, x.name)))),
-  );
-  const insert = h('select', { class: 'sel', onChange: (e) => set(() => { c.insert = Number(e.target.value); }) },
-    store.project.mixer.map((m, i) => h('option', { value: i, selected: c.insert === i }, i === 0 ? 'Master' : i + '  ' + m.name)),
-  );
+  const name = h('input', { class: 'input', type: 'text', value: c.name, maxlength: 80, onInput: (e) => set(() => { c.name = e.target.value || t('Channel'); }) });
+  const inst = dropdown({
+    label: t('Instrument'),
+    value: c.instrument,
+    options: [
+      ...(c.sample ? [{ value: 'sampler', label: t('Sampler: ') + ((getSampleMeta(c.sample) || {}).name || t('Missing sample')), group: 'Sample' }] : []),
+      ...pluginInstruments().map((p) => ({ value: 'plugin:' + p.id, label: p.name, group: t('Plugins') })),
+      ...CATEGORIES.flatMap((cat) => CATALOG.filter((x) => x.cat === cat.id).map((x) => ({ value: x.id, label: x.name, group: cat.name }))),
+    ],
+    onChange: (v) => set(() => { c.instrument = v; engine.preview(c, 60); }),
+  });
+  const insert = dropdown({
+    label: t('Mixer insert'),
+    value: c.insert,
+    options: store.project.mixer.map((m, i) => ({ value: i, label: i === 0 ? 'Master' : i + '  ' + m.name })),
+    onChange: (v) => set(() => { c.insert = v; }),
+  });
   const pitchOut = h('output', null);
   const pitch = h('input', { type: 'range', class: 'range', min: -24, max: 24, step: 1, value: c.params.pitch, onInput: (e) => set(() => { c.params.pitch = Number(e.target.value); showPitch(); }) });
-  const showPitch = () => { pitchOut.textContent = (c.params.pitch > 0 ? '+' : '') + c.params.pitch + ' demi tons'; };
+  const showPitch = () => { pitchOut.textContent = (c.params.pitch > 0 ? '+' : '') + c.params.pitch + t(' semitones'); };
   showPitch();
   const sec = (v) => (v < 1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s');
   const k = (label, key, max, def, fmt) =>
@@ -32,17 +43,17 @@ export function openChannelSettings(id, engine) {
       h('span', null, label),
     );
   const body = h('div', { class: 'form' },
-    h('label', { class: 'field' }, h('span', null, 'Nom'), name),
+    h('label', { class: 'field' }, h('span', null, t('Name')), name),
     h('label', { class: 'field' }, h('span', null, 'Instrument'), inst),
-    h('label', { class: 'field' }, h('span', null, 'Insert du mixer'), insert),
+    h('label', { class: 'field' }, h('span', null, t('Mixer insert')), insert),
     h('label', { class: 'field' }, h('span', null, 'Transposition'), h('div', { class: 'rangebox' }, pitch, pitchOut)),
     h('div', { class: 'knobs' },
-      k('Attaque', 'attack', 2, 0, sec),
-      k('Relâchement', 'release', 3, 0, sec),
-      k('Filtre', 'cutoff', 1, 1, (v) => Math.round(cutoffHz(v)) + ' Hz'),
-      k('Résonance', 'reso', 1, 0, (v) => Math.round(v * 100) + '%'),
+      k(t('Attack'), 'attack', 2, 0, sec),
+      k(t('Release'), 'release', 3, 0, sec),
+      k(t('Filter'), 'cutoff', 1, 1, (v) => Math.round(cutoffHz(v)) + ' Hz'),
+      k(t('Resonance'), 'reso', 1, 0, (v) => Math.round(v * 100) + '%'),
     ),
-    h('button', { class: 'b tb', type: 'button', onClick: () => engine.preview(c, 60, 0.8, 0.6) }, 'Écouter'),
+    h('button', { class: 'b tb', type: 'button', onClick: () => engine.preview(c, 60, 0.8, 0.6) }, t('Preview')),
   );
-  openModal({ title: 'Paramètres du canal', body, wide: true });
+  openModal({ title: t('Channel settings'), body, wide: true });
 }

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Studio documentation</title>
+<meta name="description" content="User guide for A Studio, the music production studio for Android, and the reference for plugins and themes.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html">A STUDIO</a>
+  <nav>
+    <a href="../index.html">Open the web app</a>
+    <a href="https://github.com/kurodaki-dev/A-studio/releases/latest">Download the APK</a>
+    <a href="https://github.com/kurodaki-dev/A-studio">GitHub</a>
+    <a href="https://github.com/kurodaki-dev/A-studio/issues/new?template=bug_report.yml">Report a bug</a>
+  </nav>
+</header>
+<div class="wrap">
+<aside class="toc" aria-label="Contents">
+  <a href="#install">Install</a>
+  <a href="#interface">Interface</a>
+  <a href="#channel-rack">Channel rack</a>
+  <a href="#piano-roll">Piano roll</a>
+  <a href="#playlist">Playlist</a>
+  <a href="#mixer">Mixer</a>
+  <a href="#browser">Browser and samples</a>
+  <a href="#projects">Projects and export</a>
+  <a href="#settings">Settings and language</a>
+  <a href="#updates">Updates</a>
+  <a href="#plugins">Plugins</a>
+  <a href="#themes">Themes</a>
+  <a href="#shortcuts">Keyboard shortcuts</a>
+  <a href="#privacy">Privacy</a>
+  <a href="#building">Building from source</a>
+</aside>
+<main>
+<section class="hero">
+  <img src="icon.svg" alt="A Studio icon">
+  <h1>A Studio documentation</h1>
+  <p>A music production studio for Android, built on the FL Studio workflow: channel rack, piano roll, playlist, mixer and a browser for your samples.</p>
+  <div class="btns">
+    <a class="btn primary" href="https://github.com/kurodaki-dev/A-studio/releases/latest/download/A-Studio.apk">Download the APK</a>
+    <a class="btn" href="../index.html">Try the web version</a>
+  </div>
+</section>
+
+<h2 id="install">Install</h2>
+<ol>
+  <li>On your phone, download <code>A-Studio.apk</code> from the <a href="https://github.com/kurodaki-dev/A-studio/releases/latest">latest release</a>.</li>
+  <li>Open the file. Android asks you to allow installs from your browser or file manager the first time.</li>
+  <li>A Studio runs in landscape and full screen. Swipe from an edge to show the system bars.</li>
+</ol>
+<p>Requirements: Android 7.0 (API 24) or newer. The app keeps itself up to date, see <a href="#updates">Updates</a>.</p>
+
+<h2 id="interface">Interface</h2>
+<p>The top bar holds the menu (three lines), the PAT and SONG modes, play, stop, metronome, tempo, the position display (bar:step:tick), the current pattern and undo/redo. The rail on the left opens the browser and switches between the playlist, channel rack, piano roll and mixer.</p>
+<p>Knobs and faders move with a vertical drag. A double tap resets them. The current value shows in the hint bar at the top right on wide screens.</p>
+
+<h2 id="channel-rack">Channel rack</h2>
+<ul>
+  <li>Each row is a channel: enable light, pan, volume, mixer insert, name and 16 steps per bar.</li>
+  <li>Tap a step to turn it on; drag across steps to fill or clear several.</li>
+  <li>The name button opens the channel menu: piano roll, settings, rename, clone, move, delete.</li>
+  <li>A channel holding piano roll notes shows a preview instead of steps. Tap it to open the piano roll.</li>
+  <li>The plus and minus buttons in the rack header add or remove bars from the pattern.</li>
+</ul>
+
+<h2 id="piano-roll">Piano roll</h2>
+<p>The piano roll follows FL Studio. Notes are named like FL Studio: middle C is <code>C5</code>.</p>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td>Draw</td><td>Tap an empty cell to place a note with the last used length. Tap a note to reuse its length and velocity. Drag a note to move it, drag its right edge to resize it.</td></tr>
+  <tr><td>Paint</td><td>Drag to paint a run of notes.</td></tr>
+  <tr><td>Delete</td><td>Tap or drag over notes to delete them.</td></tr>
+  <tr><td>Select</td><td>Drag a box to select. Dragging a selected note moves the whole selection.</td></tr>
+  <tr><td>Slice</td><td>Drag vertically to cut the notes under the line.</td></tr>
+  <tr><td>Pan view</td><td>Drag to scroll.</td></tr>
+</table>
+<ul>
+  <li>A long press on a note deletes it (the mouse right button does the same).</li>
+  <li>Scroll with the scrollbars at the bottom and right, with two fingers, or with the Pan view tool. Pinch to zoom: horizontally or vertically depending on how you hold your fingers.</li>
+  <li>Notes from the other channels show as ghost notes. The velocity lane edits note velocity.</li>
+  <li>Snap goes from 1/6 step to a full bar, or off.</li>
+  <li>Toolbar actions: copy, paste, duplicate, delete selection, transpose by a semitone or an octave, quantize, select all.</li>
+</ul>
+
+<h2 id="playlist">Playlist</h2>
+<ul>
+  <li>PAT plays the current pattern, SONG plays the playlist.</li>
+  <li>With the Draw tool, tap an empty spot to place the current pattern. Tap a clip to make its pattern current. Drag a clip to move it, long press to delete it.</li>
+  <li>Stretch a clip by dragging its right edge. A stretched pattern clip repeats its pattern; an audio clip is cut or extended with silence.</li>
+  <li>Tap a track name to mute the track.</li>
+</ul>
+
+<h2 id="mixer">Mixer</h2>
+<p>The master and 16 inserts each have a fader (0 dB at 80%), pan, reverb and delay sends, mute, solo and a level meter. Route a channel to an insert from the insert number in the channel rack or from the channel settings.</p>
+
+<h2 id="browser">Browser and samples</h2>
+<ul>
+  <li>Open or close the browser with the top button of the left rail (<kbd>F8</kbd> on a keyboard). It has a search field and folders for projects, your samples, plugins and built in sounds.</li>
+  <li>The import button accepts audio files (WAV, MP3, OGG, FLAC, M4A, AIFF) and ZIP sample packs. Folders inside a pack are kept. Samples are stored on the device only.</li>
+  <li>Tap an item to preview it. To drop it somewhere, drag it to the right or long press it, then move it:
+    <ul>
+      <li>onto a playlist track: it becomes an audio clip with its waveform;</li>
+      <li>into the piano roll: a Sampler channel is created and a note is placed where you let go;</li>
+      <li>into the channel rack: a Sampler channel is created.</li>
+    </ul>
+  </li>
+  <li>The Sampler plays the sample at its own pitch on C5 and transposes it on other notes.</li>
+</ul>
+
+<h2 id="projects">Projects and export</h2>
+<ul>
+  <li>The open project is saved automatically. Use Save or Save as to keep named projects on the device.</li>
+  <li>Export project file writes a <code>.astudio</code> file you can share or back up. It does not contain imported samples: import the pack again on another device.</li>
+  <li>Export as WAV renders the pattern (PAT mode) or the song (SONG mode) as 16 bit, 44.1 kHz stereo.</li>
+</ul>
+
+<h2 id="settings">Settings and language</h2>
+<p>Menu, Settings. The interface is in English by default and also available in French. Settings also hold the theme, plugins, the update check, the documentation link and the bug report button.</p>
+
+<h2 id="updates">Updates</h2>
+<p>Every change published on the main branch builds a signed APK and a new release (<code>v1.0.&lt;number&gt;</code>). At startup the app checks the latest release and offers it. Tap Download: the app downloads the APK, then Android shows its installer and asks you to confirm. Android requires that confirmation and the first time also asks you to allow A Studio to install apps. When the install finishes, tap Open to restart A Studio on the new version. Projects are kept.</p>
+<p class="note">The startup check can be turned off in Settings. Menu, Check for updates, checks by hand.</p>
+
+<h2 id="plugins">Plugins</h2>
+<p>A plugin adds an instrument to the browser. It is a JSON file that describes a synthesizer. A plugin cannot contain code: the app reads the values, checks them and clamps them to safe ranges. Install one from Menu, Plugins and themes, Install a plugin.</p>
+<h3>Example</h3>
+<pre><code>{
+  "type": "astudio-plugin",
+  "kind": "instrument",
+  "id": "warm-pad",
+  "name": "Warm Pad",
+  "version": "1.0.0",
+  "author": "Your name",
+  "category": "synth",
+  "gain": 0.12,
+  "oscillators": [
+    { "wave": "sawtooth", "detune": -9, "gain": 0.5 },
+    { "wave": "sawtooth", "detune": 9, "gain": 0.5 },
+    { "wave": "triangle", "octave": -1, "gain": 0.4 }
+  ],
+  "envelope": { "attack": 0.5, "decay": 1.0, "sustain": 0.85, "release": 1.2 },
+  "filter": { "type": "lowpass", "cutoff": 1400, "q": 0.8, "envAmount": 800, "envDecay": 1.5 },
+  "lfo": { "target": "pitch", "rate": 0.4, "depth": 6 }
+}</code></pre>
+<p>Ready to install examples: <a href="examples/warm-pad.astudio-plugin.json" download>warm-pad.astudio-plugin.json</a>, <a href="examples/chip-lead.astudio-plugin.json" download>chip-lead.astudio-plugin.json</a>.</p>
+<h3>Fields</h3>
+<table>
+  <tr><th>Field</th><th>Type and range</th><th>Meaning</th></tr>
+  <tr><td><code>type</code></td><td><code>"astudio-plugin"</code></td><td>Required.</td></tr>
+  <tr><td><code>kind</code></td><td><code>"instrument"</code></td><td>Required. Only instruments exist for now.</td></tr>
+  <tr><td><code>id</code></td><td>1 to 40 characters: a to z, 0 to 9, <code>-</code></td><td>Unique identifier. Installing a plugin with the same id replaces it.</td></tr>
+  <tr><td><code>name</code></td><td>text, up to 40 characters</td><td>Name shown in the browser.</td></tr>
+  <tr><td><code>version</code>, <code>author</code></td><td>text</td><td>Optional, shown in Settings.</td></tr>
+  <tr><td><code>category</code></td><td><code>drums keys bass synth strings winds mallets</code></td><td>Sets the preview note. Default <code>synth</code>.</td></tr>
+  <tr><td><code>gain</code></td><td>0 to 1</td><td>Output level. Default 0.2.</td></tr>
+  <tr><td><code>oneShot</code></td><td>true or false</td><td>If true the sound plays for <code>length</code> seconds whatever the note length (drums).</td></tr>
+  <tr><td><code>length</code></td><td>0.05 to 20 seconds</td><td>Length of a one shot sound.</td></tr>
+  <tr><td><code>oscillators</code></td><td>1 to 8 objects</td><td>Each: <code>wave</code> (<code>sine square sawtooth triangle noise</code>), <code>octave</code> (-3 to 3), <code>detune</code> in cents (±1200), <code>gain</code> (0 to 1).</td></tr>
+  <tr><td><code>envelope</code></td><td>seconds, sustain 0 to 1</td><td><code>attack</code>, <code>decay</code>, <code>sustain</code>, <code>release</code>.</td></tr>
+  <tr><td><code>filter</code></td><td>optional</td><td><code>type</code> (<code>lowpass highpass bandpass</code>), <code>cutoff</code> in Hz (20 to 20000), <code>q</code> (0.1 to 30), <code>envAmount</code> in Hz added at the attack and scaled by velocity, <code>envDecay</code> in seconds.</td></tr>
+  <tr><td><code>lfo</code></td><td>optional</td><td><code>target</code> (<code>pitch</code> or <code>filter</code>), <code>rate</code> in Hz (0.01 to 30), <code>depth</code> (cents for pitch, Hz for filter, up to 2400).</td></tr>
+</table>
+<p>Projects store plugin channels as <code>plugin:&lt;id&gt;</code>. If the plugin is missing on a device, its channel stays silent until you install it.</p>
+
+<h2 id="themes">Themes</h2>
+<p>A theme changes the colors of the interface and of the editors. It only contains hex colors (<code>#rgb</code> or <code>#rrggbb</code>); anything else is ignored. Missing keys fall back to the default theme. Install one from Menu, Plugins and themes, Install a theme. Three themes are built in: A Studio, Graphite and Daylight.</p>
+<h3>Example</h3>
+<pre><code>{
+  "type": "astudio-theme",
+  "id": "ocean",
+  "name": "Ocean",
+  "author": "Your name",
+  "colors": {
+    "bg": "#0f1b24", "panel": "#16262f", "panel2": "#1d313c", "panel3": "#284352",
+    "line": "#0a1218", "text": "#d6e6ee", "dim": "#86a3b1", "accent": "#3fb6c8",
+    "green": "#6fd0a0", "red": "#e0605a", "input": "#0d1820",
+    "lcd": "#081016", "lcd-text": "#8fe3f0"
+  },
+  "editor": {
+    "gridWhite": "#1f3542", "gridBlack": "#192c37", "note": "#5fd3c4",
+    "noteSelected": "#f2a65a", "playhead": "#3fb6c8",
+    "trackA": "#1d313c", "trackB": "#192b35", "ruler": "#14232c"
+  }
+}</code></pre>
+<p>Example: <a href="examples/ocean.astudio-theme.json" download>ocean.astudio-theme.json</a>.</p>
+<h3>Keys</h3>
+<table>
+  <tr><th>Group</th><th>Key</th><th>Used for</th></tr>
+  <tr><td rowspan="13"><code>colors</code></td><td><code>bg</code></td><td>Window background</td></tr>
+  <tr><td><code>panel</code></td><td>Panels and editor background</td></tr>
+  <tr><td><code>panel2</code></td><td>Buttons and raised areas</td></tr>
+  <tr><td><code>panel3</code></td><td>Hovered and active buttons</td></tr>
+  <tr><td><code>line</code></td><td>Borders</td></tr>
+  <tr><td><code>text</code></td><td>Main text</td></tr>
+  <tr><td><code>dim</code></td><td>Secondary text, scrollbar thumbs</td></tr>
+  <tr><td><code>accent</code></td><td>Highlights, active mode, knob arcs</td></tr>
+  <tr><td><code>green</code></td><td>Play button, enabled lights</td></tr>
+  <tr><td><code>red</code></td><td>Warnings, clipping</td></tr>
+  <tr><td><code>input</code></td><td>Text fields, velocity lane, scrollbar tracks</td></tr>
+  <tr><td><code>lcd</code></td><td>Tempo and time display background</td></tr>
+  <tr><td><code>lcd-text</code></td><td>Tempo display text</td></tr>
+  <tr><td rowspan="8"><code>editor</code></td><td><code>gridWhite</code>, <code>gridBlack</code></td><td>Piano roll rows for white and black keys</td></tr>
+  <tr><td><code>note</code></td><td>Notes</td></tr>
+  <tr><td><code>noteSelected</code></td><td>Selected notes</td></tr>
+  <tr><td><code>playhead</code></td><td>Play position</td></tr>
+  <tr><td><code>trackA</code>, <code>trackB</code></td><td>Alternating playlist tracks</td></tr>
+  <tr><td><code>ruler</code></td><td>Time ruler</td></tr>
+</table>
+
+<h2 id="shortcuts">Keyboard shortcuts</h2>
+<p>With a keyboard (tablet or web version):</p>
+<table>
+  <tr><th>Key</th><th>Action</th></tr>
+  <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+  <tr><td><kbd>F5</kbd> <kbd>F6</kbd> <kbd>F7</kbd> <kbd>F9</kbd></td><td>Playlist, channel rack, piano roll, mixer</td></tr>
+  <tr><td><kbd>F8</kbd></td><td>Open or close the browser</td></tr>
+  <tr><td><kbd>L</kbd></td><td>Switch PAT and SONG</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo, redo</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+  <tr><td><kbd>P</kbd> <kbd>B</kbd> <kbd>D</kbd> <kbd>E</kbd> <kbd>C</kbd></td><td>Piano roll tools: draw, paint, delete, select, slice</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd> / <kbd>C</kbd> / <kbd>V</kbd> / <kbd>B</kbd> / <kbd>Q</kbd></td><td>Select all, copy, paste, duplicate, quantize</td></tr>
+  <tr><td>Arrows</td><td>Transpose a semitone (with <kbd>Shift</kbd>: an octave)</td></tr>
+</table>
+
+<h2 id="privacy">Privacy</h2>
+<p>A Studio collects no personal data. Projects, samples, plugins and themes stay on the device. The only connection checks GitHub for a new version and downloads it when you accept. Details: <a href="../legal/privacy.html">privacy policy</a>, <a href="../legal/terms.html">terms of use</a>, <a href="../legal/cookies.html">cookie policy</a>.</p>
+
+<h2 id="building">Building from source</h2>
+<p>Requirements: Node.js 22, JDK 21 and the Android SDK (platform 36).</p>
+<pre><code>git clone https://github.com/kurodaki-dev/A-studio.git
+cd A-studio
+npm install
+npm run dev            # web version on http://localhost:5173
+npm test               # unit tests
+npm run build
+npx cap sync android
+cd android &amp;&amp; ./gradlew assembleDebug</code></pre>
+<p>Found a problem? <a href="https://github.com/kurodaki-dev/A-studio/issues/new?template=bug_report.yml">Open a bug report</a>.</p>
+
+<footer>A Studio is free software under the MIT license. It is an independent project, not affiliated with Image Line Software. FL Studio is a trademark of Image Line Software.</footer>
+</main>
+</div>
+</body>
+</html>

@@ -56,14 +56,20 @@ import {
   ArrowUp,
   ArrowDown,
   Check,
+  Palette,
+  Puzzle,
+  BookOpen,
+  Bug,
+  ExternalLink,
 } from 'lucide';
+import { t } from '../i18n.js';
 
 const ICONS = {
   Play, Pause, Square, Menu, Undo2, Redo2, Pencil, Paintbrush, Eraser, SquareDashed, Scissors, Hand, Magnet,
   ZoomIn, ZoomOut, Piano, SlidersVertical, LayoutList, Grid3x3, FolderOpen, Save, Download, Upload, Plus, Minus,
   X, Copy, ClipboardPaste, CopyPlus, Trash, Settings, Drum, AudioLines, AudioWaveform, Guitar, Wind, Bell,
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Metronome, FilePlus, Share2, Info,
-  Shield, FileText, Cookie, ListMusic, Volume2, Music, ArrowUp, ArrowDown, Check,
+  Shield, FileText, Cookie, ListMusic, Volume2, Music, ArrowUp, ArrowDown, Check, Palette, Puzzle, BookOpen, Bug, ExternalLink,
 };
 
 export function icon(name, size = 18) {
@@ -133,6 +139,8 @@ export function openMenu(anchor, items) {
     items.map((it) =>
       it.sep
         ? h('div', { class: 'menu-sep' })
+        : it.header
+        ? h('div', { class: 'menu-header' }, it.header)
         : h(
             'button',
             {
@@ -166,7 +174,7 @@ export function openMenu(anchor, items) {
 }
 
 // Modal dialog. actions: [{label, primary, onClick}] ; onClick returning false keeps it open.
-export function openModal({ title, body, actions = [{ label: 'Fermer', primary: true }], wide = false, onClose }) {
+export function openModal({ title, body, actions = [{ label: t('Close'), primary: true }], wide = false, onClose }) {
   closeMenu();
   const close = () => {
     overlay.remove();
@@ -179,7 +187,7 @@ export function openModal({ title, body, actions = [{ label: 'Fermer', primary: 
   const dialog = h(
     'div',
     { class: 'dialog' + (wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-    h('div', { class: 'dialog-title' }, h('span', null, title), btn('X', 'Fermer', () => close(), 'ghost')),
+    h('div', { class: 'dialog-title' }, h('span', null, title), btn('X', t('Close'), () => close(), 'ghost')),
     h('div', { class: 'dialog-body' }, body),
     actions.length
       ? h(
@@ -228,8 +236,8 @@ export function promptText(title, value = '') {
       title,
       body: input,
       actions: [
-        { label: 'Annuler', onClick: () => finish(null) },
-        { label: 'Valider', primary: true, onClick: () => finish(input.value.trim() || null) },
+        { label: t('Cancel'), onClick: () => finish(null) },
+        { label: t('OK'), primary: true, onClick: () => finish(input.value.trim() || null) },
       ],
       onClose: () => finish(null),
     });
@@ -246,7 +254,7 @@ export function promptText(title, value = '') {
   });
 }
 
-export function confirmBox(title, text, okLabel = 'Confirmer') {
+export function confirmBox(title, text, okLabel = t('Confirm')) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => {
@@ -259,7 +267,7 @@ export function confirmBox(title, text, okLabel = 'Confirmer') {
       title,
       body: h('p', null, text),
       actions: [
-        { label: 'Annuler', onClick: () => finish(false) },
+        { label: t('Cancel'), onClick: () => finish(false) },
         { label: okLabel, primary: true, onClick: () => finish(true) },
       ],
       onClose: () => finish(false),
@@ -269,4 +277,45 @@ export function confirmBox(title, text, okLabel = 'Confirmer') {
 
 export function alertBox(title, text) {
   openModal({ title, body: h('p', null, text) });
+}
+
+// Flat dropdown that opens a menu, used instead of the native <select>.
+// options: [{ value, label, group }]
+export function dropdown({ options, value, onChange, label, cls = '' }) {
+  let cur = value;
+  let opts = options;
+  const text = h('span', { class: 'dd-text' });
+  const el = h('button', { class: 'b dd ' + cls, type: 'button', 'aria-haspopup': 'menu', 'aria-label': label, title: label }, text, icon('ChevronDown', 14));
+  const show = () => {
+    const o = opts.find((x) => x.value === cur);
+    text.textContent = o ? o.label : '';
+  };
+  el.addEventListener('click', () => {
+    const items = [];
+    let group = null;
+    for (const o of opts) {
+      if (o.group && o.group !== group) {
+        if (items.length) items.push({ sep: true });
+        items.push({ header: o.group });
+        group = o.group;
+      }
+      items.push({ label: o.label, checked: o.value === cur, onClick: () => {
+        cur = o.value;
+        show();
+        onChange(o.value);
+      } });
+    }
+    openMenu(el, items);
+  });
+  el.setValue = (v) => {
+    cur = v;
+    show();
+  };
+  el.setOptions = (list, v = cur) => {
+    opts = list;
+    cur = v;
+    show();
+  };
+  show();
+  return el;
 }
