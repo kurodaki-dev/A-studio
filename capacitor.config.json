@@ -1,0 +1,9 @@
+{
+  "appId": "com.kurodaki.astudio",
+  "appName": "A Studio",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}

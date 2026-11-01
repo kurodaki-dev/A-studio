@@ -1,0 +1,424 @@
+import { INSTRUMENTS } from './instruments.js';
+import { PPQ, BEAT, BAR, MIXER_SIZE } from '../constants.js';
+import { patternLength, songLength, getPattern, currentPattern } from '../store.js';
+import { encodeWav } from '../wav.js';
+
+// Fader position to linear gain. 0.8 is 0 dB, like FL Studio's mixer.
+export const faderGain = (v) => (v <= 0 ? 0 : Math.pow(v / 0.8, 2));
+export const cutoffHz = (v) => 40 * Math.pow(20000 / 40, v);
+
+function impulse(ctx, seconds = 2.2, decay = 3) {
+  const sr = ctx.sampleRate;
+  const len = Math.floor(sr * seconds);
+  const b = ctx.createBuffer(2, len, sr);
+  for (let c = 0; c < 2; c++) {
+    const d = b.getChannelData(c);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return b;
+}
+
+export function createGraph(ctx, dest) {
+  const G = { ctx, channels: new Map(), inserts: [] };
+  const masterIn = ctx.createGain();
+  const masterPan = ctx.createStereoPanner();
+  const masterVol = ctx.createGain();
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.1;
+  const masterAn = ctx.createAnalyser();
+  masterAn.fftSize = 1024;
+  masterIn.connect(masterPan);
+  masterPan.connect(masterVol);
+  masterVol.connect(limiter);
+  limiter.connect(dest);
+  limiter.connect(masterAn);
+  G.inserts[0] = { in: masterIn, pan: masterPan, vol: masterVol, an: masterAn };
+
+  const rev = ctx.createConvolver();
+  rev.buffer = impulse(ctx);
+  const revOut = ctx.createGain();
+  revOut.gain.value = 0.6;
+  rev.connect(revOut);
+  revOut.connect(masterIn);
+
+  const del = ctx.createDelay(2);
+  const fb = ctx.createGain();
+  fb.gain.value = 0.35;
+  const dlp = ctx.createBiquadFilter();
+  dlp.type = 'lowpass';
+  dlp.frequency.value = 3500;
+  del.connect(dlp);
+  dlp.connect(fb);
+  fb.connect(del);
+  const delOut = ctx.createGain();
+  delOut.gain.value = 0.5;
+  dlp.connect(delOut);
+  delOut.connect(masterIn);
+  G.delay = del;
+
+  for (let i = 1; i < MIXER_SIZE; i++) {
+    const inp = ctx.createGain();
+    const pan = ctx.createStereoPanner();
+    const vol = ctx.createGain();
+    const an = ctx.createAnalyser();
+    an.fftSize = 1024;
+    const sr = ctx.createGain();
+    const sd = ctx.createGain();
+    sr.gain.value = 0;
+    sd.gain.value = 0;
+    inp.connect(pan);
+    pan.connect(vol);
+    vol.connect(masterIn);
+    vol.connect(an);
+    vol.connect(sr);
+    sr.connect(rev);
+    vol.connect(sd);
+    sd.connect(del);
+    G.inserts[i] = { in: inp, pan, vol, an, sr, sd };
+  }
+  return G;
+}
+
+function setParam(G, param, v, smooth) {
+  if (smooth) param.setTargetAtTime(v, G.ctx.currentTime, 0.015);
+  else param.value = v;
+}
+
+export function syncGraph(G, project, smooth) {
+  const mx = project.mixer;
+  const anySolo = mx.some((m, i) => i > 0 && m.solo);
+  mx.forEach((m, i) => {
+    const ins = G.inserts[i];
+    if (!ins) return;
+    const muted = m.mute || (i > 0 && anySolo && !m.solo);
+    setParam(G, ins.vol.gain, muted ? 0 : faderGain(m.vol), smooth);
+    setParam(G, ins.pan.pan, m.pan, smooth);
+    if (i > 0) {
+      setParam(G, ins.sr.gain, m.reverb, smooth);
+      setParam(G, ins.sd.gain, m.delay, smooth);
+    }
+  });
+  setParam(G, G.delay.delayTime, Math.min(2, (60 / project.bpm) * 0.75), smooth);
+
+  const seen = new Set();
+  for (const c of project.channels) {
+    seen.add(c.id);
+    let ch = G.channels.get(c.id);
+    if (!ch) {
+      ch = { in: G.ctx.createGain(), filt: G.ctx.createBiquadFilter(), pan: G.ctx.createStereoPanner(), insert: -1 };
+      ch.filt.type = 'lowpass';
+      ch.in.connect(ch.filt);
+      ch.filt.connect(ch.pan);
+      G.channels.set(c.id, ch);
+    }
+    if (ch.insert !== c.insert) {
+      ch.pan.disconnect();
+      ch.pan.connect((G.inserts[c.insert] || G.inserts[0]).in);
+      ch.insert = c.insert;
+    }
+    setParam(G, ch.in.gain, c.mute ? 0 : c.vol, smooth);
+    setParam(G, ch.pan.pan, c.pan, smooth);
+    setParam(G, ch.filt.frequency, cutoffHz(c.params.cutoff), smooth);
+    setParam(G, ch.filt.Q, 0.7 + c.params.reso * 14, smooth);
+  }
+  for (const [id, ch] of G.channels) {
+    if (!seen.has(id) && !id.startsWith('__preview_')) {
+      ch.pan.disconnect();
+      G.channels.delete(id);
+    }
+  }
+}
+
+// Start one note. dur = Infinity holds it until releaseVoice().
+export function playNote(G, channel, t, key, vel, dur) {
+  const ctx = G.ctx;
+  const inst = INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
+  const ch = G.channels.get(channel.id);
+  if (!ch) return null;
+  const p = channel.params;
+  const f = 440 * Math.pow(2, (key + (p.pitch || 0) - 69) / 12);
+  const vg = ctx.createGain();
+  vg.connect(ch.in);
+  const v = inst.play(ctx, vg, t, f, vel, dur);
+  const rel = Math.max(inst.release || 0.05, p.release || 0);
+  const off = Number.isFinite(dur) ? t + Math.max(dur, 0.005) : Infinity;
+  const att = Math.max(0, p.attack || 0);
+  if (att > 0 && !inst.oneShot) {
+    const rampEnd = Math.min(t + att, off);
+    vg.gain.setValueAtTime(0, t);
+    vg.gain.linearRampToValueAtTime(Math.min(1, (rampEnd - t) / att), rampEnd);
+  }
+  let end;
+  if (inst.oneShot) end = t + v.length;
+  else if (Number.isFinite(off)) {
+    vg.gain.setTargetAtTime(0, off, rel / 4);
+    end = off + rel * 1.6;
+    if (v.length) end = Math.min(end, t + v.length);
+  } else end = v.length ? t + v.length : Infinity;
+  const voice = { vg, sources: v.sources, rel, end, oneShot: !!inst.oneShot };
+  if (Number.isFinite(end)) for (const s of v.sources) s.stop(end);
+  if (v.sources[0]) {
+    v.sources[0].onended = () => {
+      voice.ended = true;
+      try {
+        vg.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    };
+  }
+  return voice;
+}
+
+export function releaseVoice(ctx, voice, fast = false) {
+  if (!voice || voice.ended) return;
+  const now = ctx.currentTime;
+  if (voice.end <= now) return;
+  if (voice.oneShot && !fast) return;
+  const g = voice.vg.gain;
+  const rel = fast ? 0.01 : voice.rel;
+  g.cancelScheduledValues(now);
+  g.setValueAtTime(g.value, now);
+  g.setTargetAtTime(0, now, rel / 4);
+  const end = now + rel * 1.6 + 0.01;
+  for (const s of voice.sources) s.stop(end);
+  voice.end = end;
+}
+
+// Calls cb(channel, note, tick) for every note starting in [from, to) of the loop.
+export function collectEvents(project, mode, from, to, cb) {
+  const chans = new Map(project.channels.map((c) => [c.id, c]));
+  if (mode === 'pattern') {
+    const pat = currentPattern(project);
+    for (const [cid, notes] of Object.entries(pat.notes)) {
+      const c = chans.get(cid);
+      if (!c) continue;
+      for (const n of notes) if (n.t >= from && n.t < to) cb(c, n, n.t);
+    }
+    return;
+  }
+  for (const clip of project.playlist.clips) {
+    const track = project.playlist.tracks[clip.track];
+    if (track && track.mute) continue;
+    const pat = getPattern(project, clip.patternId);
+    if (!pat) continue;
+    const L = patternLength(pat);
+    const s = clip.start;
+    if (s >= to || s + L <= from) continue;
+    for (const [cid, notes] of Object.entries(pat.notes)) {
+      const c = chans.get(cid);
+      if (!c) continue;
+      for (const n of notes) {
+        const tt = s + n.t;
+        if (n.t < L && tt >= from && tt < to) cb(c, n, tt);
+      }
+    }
+  }
+}
+
+export function loopLength(project, mode) {
+  return mode === 'song' ? songLength(project) : patternLength(currentPattern(project));
+}
+
+export class Engine {
+  constructor(store, getMode, getMetronome) {
+    this.store = store;
+    this.getMode = getMode;
+    this.getMetronome = getMetronome;
+    this.ctx = null;
+    this.G = null;
+    this.playing = false;
+    this.pos = 0;
+    this.voices = new Set();
+    this.timer = null;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AC({ latencyHint: 'interactive' });
+      this.G = createGraph(this.ctx, this.ctx.destination);
+      syncGraph(this.G, this.store.project, false);
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    return this.ctx;
+  }
+
+  sync() {
+    if (this.G) syncGraph(this.G, this.store.project, true);
+  }
+
+  spt() {
+    return 60 / (this.bpm * PPQ);
+  }
+
+  tickToTime(abs) {
+    return this.anchorTime + (abs - this.anchorTick) * this.spt();
+  }
+
+  timeToTick(time) {
+    return this.anchorTick + (time - this.anchorTime) / this.spt();
+  }
+
+  play() {
+    this.init();
+    this.sync();
+    this.playing = true;
+    this.bpm = this.store.project.bpm;
+    this.anchorTime = this.ctx.currentTime + 0.05;
+    this.anchorTick = 0;
+    this.nextAbs = 0;
+    this.nextPos = this.pos;
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.schedule(), 25);
+    this.schedule();
+  }
+
+  pause() {
+    this.pos = this.position();
+    this.halt();
+  }
+
+  stop() {
+    this.halt();
+    this.pos = 0;
+  }
+
+  togglePlay() {
+    if (this.playing) this.pause();
+    else this.play();
+  }
+
+  halt() {
+    clearInterval(this.timer);
+    this.timer = null;
+    this.playing = false;
+    if (this.ctx) for (const v of this.voices) releaseVoice(this.ctx, v, true);
+    this.voices.clear();
+  }
+
+  setPosition(tick) {
+    if (this.playing) {
+      for (const v of this.voices) releaseVoice(this.ctx, v, true);
+      this.voices.clear();
+      this.anchorTime = this.ctx.currentTime + 0.03;
+      this.anchorTick = 0;
+      this.nextAbs = 0;
+      this.nextPos = Math.max(0, tick);
+    } else this.pos = Math.max(0, tick);
+  }
+
+  // Current position in loop ticks.
+  position() {
+    if (!this.playing) return this.pos;
+    const L = loopLength(this.store.project, this.getMode());
+    const now = this.timeToTick(this.ctx.currentTime);
+    let p = this.nextPos - (this.nextAbs - now);
+    while (p < 0) p += L;
+    return Math.min(p, L - 0.001) % L;
+  }
+
+  schedule() {
+    const ctx = this.ctx;
+    const proj = this.store.project;
+    if (proj.bpm !== this.bpm) {
+      const now = ctx.currentTime;
+      this.anchorTick = this.timeToTick(now);
+      this.anchorTime = now;
+      this.bpm = proj.bpm;
+    }
+    const mode = this.getMode();
+    const horizon = this.timeToTick(ctx.currentTime + 0.12);
+    const L = loopLength(proj, mode);
+    const spt = this.spt();
+    if (this.nextPos >= L) this.nextPos = 0;
+    while (this.nextAbs < horizon) {
+      const seg = Math.min(horizon - this.nextAbs, L - this.nextPos);
+      const from = this.nextPos;
+      const to = from + seg;
+      const base = this.nextAbs - from;
+      collectEvents(proj, mode, from, to, (c, n, tt) => {
+        const time = Math.max(this.tickToTime(base + tt), ctx.currentTime);
+        const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt);
+        if (v) this.track(v);
+      });
+      if (this.getMetronome()) {
+        for (let b = Math.ceil(from / BEAT) * BEAT; b < to; b += BEAT) {
+          this.click(this.tickToTime(base + b), b % BAR === 0);
+        }
+      }
+      this.nextAbs += seg;
+      this.nextPos = to;
+      if (this.nextPos >= L - 1e-6) this.nextPos = 0;
+    }
+  }
+
+  track(v) {
+    this.voices.add(v);
+    if (this.voices.size > 256) {
+      for (const x of this.voices) if (x.ended) this.voices.delete(x);
+    }
+  }
+
+  click(time, accent) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.value = accent ? 1600 : 1100;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.18, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
+    o.connect(g);
+    g.connect(this.G.inserts[0].in);
+    o.start(time);
+    o.stop(time + 0.04);
+  }
+
+  preview(channel, key, vel = 0.78, dur = 0.35) {
+    this.init();
+    this.sync();
+    playNote(this.G, channel, this.ctx.currentTime + 0.005, key, vel, dur);
+  }
+
+  noteOn(channel, key, vel = 0.78) {
+    this.init();
+    this.sync();
+    return playNote(this.G, channel, this.ctx.currentTime + 0.005, key, vel, Infinity);
+  }
+
+  noteOff(voice) {
+    if (this.ctx && voice) releaseVoice(this.ctx, voice);
+  }
+
+  level(insert) {
+    if (!this.G) return 0;
+    const ins = this.G.inserts[insert];
+    if (!ins) return 0;
+    const buf = this._buf || (this._buf = new Float32Array(1024));
+    ins.an.getFloatTimeDomainData(buf);
+    let peak = 0;
+    for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i]));
+    return peak;
+  }
+}
+
+// Render the song or the current pattern to a WAV ArrayBuffer.
+export async function renderWav(project, mode) {
+  const L = loopLength(project, mode);
+  const spt = 60 / (project.bpm * PPQ);
+  const sr = 44100;
+  const tail = 3;
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new OAC(2, Math.ceil((L * spt + tail) * sr), sr);
+  const G = createGraph(ctx, ctx.destination);
+  syncGraph(G, project, false);
+  collectEvents(project, mode, 0, L, (c, n, tt) => {
+    playNote(G, c, tt * spt, n.key, n.vel, n.len * spt);
+  });
+  const buf = await ctx.startRendering();
+  return encodeWav([buf.getChannelData(0), buf.getChannelData(1)], sr);
+}
