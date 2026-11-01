@@ -19,7 +19,7 @@ import { checkForUpdate, updatesSupported, autoCheckEnabled } from './update.js'
 import { t, locale, lang } from './i18n.js';
 import { initTheme } from './themes.js';
 import { openSettings } from './ui/settings.js';
-import { openExternal, DOCS_URL, bugReportUrl } from './links.js';
+import { openExternal, DOCS_URL, bugReportUrl, featureRequestUrl } from './links.js';
 
 initTheme();
 document.documentElement.lang = lang;
@@ -68,7 +68,7 @@ const panels = {
   rack: createRack(engine, actions),
   piano: createPianoRoll(engine),
   playlist: createPlaylist(engine, actions),
-  mixer: createMixer(engine),
+  mixer: createMixer(engine, () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine })),
 };
 const sidebar = createSidebar(engine, actions);
 
@@ -408,12 +408,13 @@ function mainMenu(anchor) {
     { label: t('Export project file'), icon: 'Share2', onClick: exportProject },
     { label: ui.songMode ? t('Export song as WAV') : t('Export pattern as WAV'), icon: 'Download', onClick: exportWav },
     { sep: true },
-    { label: t('Settings'), icon: 'Settings', onClick: () => openSettings({ onExtensionsChange: extensionsChanged }) },
-    { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged }) },
+    { label: t('Settings'), icon: 'Settings', onClick: () => openSettings({ onExtensionsChange: extensionsChanged, engine }) },
+    { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine }) },
     ...(updatesSupported() ? [{ label: t('Check for updates'), icon: 'Download', onClick: () => checkForUpdate({ silent: false }) }] : []),
     { sep: true },
     { label: t('Documentation'), icon: 'BookOpen', onClick: () => openExternal(DOCS_URL) },
     { label: t('Report a bug'), icon: 'Bug', onClick: () => openExternal(bugReportUrl()) },
+    { label: t('Request a feature'), icon: 'Lightbulb', onClick: () => openExternal(featureRequestUrl()) },
     { sep: true },
     { label: t('Privacy'), icon: 'Shield', onClick: () => openLegal('privacy', t('Privacy policy')) },
     { label: t('Terms of use'), icon: 'FileText', onClick: () => openLegal('terms', t('Terms of use')) },

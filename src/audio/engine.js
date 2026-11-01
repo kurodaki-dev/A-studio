@@ -2,7 +2,7 @@ import { INSTRUMENTS } from './instruments.js';
 import { PPQ, BEAT, BAR, MIXER_SIZE } from '../constants.js';
 import { patternLength, songLength, getPattern, currentPattern, clipLength } from '../store.js';
 import { getBuffer, loadBuffer } from '../samples.js';
-import { getPlugin, paramValues, loadPluginModule, pluginReady, processorName, pluginInstruments } from '../plugins.js';
+import { getPlugin, paramValues, loadPluginModule, pluginReady, processorName, allPlugins } from '../plugins.js';
 import { encodeWav } from '../wav.js';
 
 // Fader position to linear gain. 0.8 is 0 dB, like FL Studio's mixer.
@@ -38,7 +38,7 @@ export function createGraph(ctx, dest) {
   masterVol.connect(limiter);
   limiter.connect(dest);
   limiter.connect(masterAn);
-  G.inserts[0] = { in: masterIn, pan: masterPan, vol: masterVol, an: masterAn };
+  G.inserts[0] = { in: masterIn, pan: masterPan, vol: masterVol, an: masterAn, fxSig: '', fxNodes: [] };
 
   const rev = ctx.createConvolver();
   rev.buffer = impulse(ctx);
@@ -80,7 +80,7 @@ export function createGraph(ctx, dest) {
     sr.connect(rev);
     vol.connect(sd);
     sd.connect(del);
-    G.inserts[i] = { in: inp, pan, vol, an, sr, sd };
+    G.inserts[i] = { in: inp, pan, vol, an, sr, sd, fxSig: '', fxNodes: [] };
   }
   return G;
 }
@@ -90,12 +90,55 @@ function setParam(G, param, v, smooth) {
   else param.value = v;
 }
 
+// Effect plugins of an insert: in -> fx 1 -> fx 2 ... -> pan. Rebuilt when the slots change.
+function syncEffects(G, ins, m) {
+  const slots = (m.fx || []).filter((f) => f && f.on !== false).map((f) => ({ f, p: getPlugin(f.plugin) })).filter((x) => x.p && x.p.type === 'effect');
+  const ready = slots.filter((x) => {
+    if (pluginReady(G.ctx, x.p)) return true;
+    loadPluginModule(G.ctx, x.p).then((ok) => ok && G.onModuleLoaded && G.onModuleLoaded());
+    return false;
+  });
+  const sig = ready.map((x) => processorName(x.p)).join('|');
+  if (sig !== ins.fxSig) {
+    ins.in.disconnect();
+    for (const e of ins.fxNodes || []) e.node.disconnect();
+    ins.fxNodes = ready.map((x) => {
+      const params = paramValues(x.p, x.f.params);
+      const node = new AudioWorkletNode(G.ctx, processorName(x.p), { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params } });
+      node.port.onmessage = (e) => {
+        if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(x.p, e.data.message);
+      };
+      return { node, slot: x.f, params: JSON.stringify(params) };
+    });
+    let prev = ins.in;
+    for (const e of ins.fxNodes) {
+      prev.connect(e.node);
+      prev = e.node;
+    }
+    prev.connect(ins.pan);
+    ins.fxSig = sig;
+  } else {
+    // Same chain: only push parameter changes.
+    ins.fxNodes.forEach((e, i) => {
+      const x = ready[i];
+      const values = paramValues(x.p, x.f.params);
+      const json = JSON.stringify(values);
+      if (json !== e.params) {
+        e.params = json;
+        e.node.port.postMessage({ type: 'params', values });
+      }
+      e.slot = x.f;
+    });
+  }
+}
+
 export function syncGraph(G, project, smooth) {
   const mx = project.mixer;
   const anySolo = mx.some((m, i) => i > 0 && m.solo);
   mx.forEach((m, i) => {
     const ins = G.inserts[i];
     if (!ins) return;
+    syncEffects(G, ins, m);
     const muted = m.mute || (i > 0 && anySolo && !m.solo);
     setParam(G, ins.vol.gain, muted ? 0 : faderGain(m.vol), smooth);
     setParam(G, ins.pan.pan, m.pan, smooth);
@@ -390,6 +433,7 @@ export class Engine {
       this.ctx = new AC({ latencyHint: 'interactive' });
       this.G = createGraph(this.ctx, this.ctx.destination);
       this.G.onPluginError = (p, msg) => this.onPluginError && this.onPluginError(p, msg);
+      this.G.onModuleLoaded = () => this.sync();
       syncGraph(this.G, this.store.project, false);
       this.preloadPlugins();
     }
@@ -400,7 +444,48 @@ export class Engine {
   // Load every installed plugin into the audio thread so the first note plays.
   preloadPlugins() {
     if (!this.ctx) return;
-    for (const p of pluginInstruments()) loadPluginModule(this.ctx, p);
+    for (const p of allPlugins()) loadPluginModule(this.ctx, p);
+  }
+
+  // Channel outside the project used to preview an instrument, routed to the master.
+  previewChannel(instrument) {
+    this.init();
+    const id = '__preview_' + instrument;
+    if (!this.G.channels.has(id)) {
+      const ctx = this.ctx;
+      const ch = { in: ctx.createGain(), filt: ctx.createBiquadFilter(), pan: ctx.createStereoPanner(), insert: 0 };
+      ch.in.gain.value = 0.78;
+      ch.filt.frequency.value = 20000;
+      ch.in.connect(ch.filt);
+      ch.filt.connect(ch.pan);
+      ch.pan.connect(this.G.inserts[0].in);
+      this.G.channels.set(id, ch);
+    }
+    return { id, instrument, name: instrument, vol: 0.78, pan: 0, mute: false, insert: 0, params: { pitch: 0, attack: 0, release: 0, cutoff: 1, reso: 0 } };
+  }
+
+  // Play a few notes of an instrument (plugins are loaded first).
+  async previewInstrument(instrument, keys = [60], dur = 0.7) {
+    const c = this.previewChannel(instrument);
+    if (instrument.startsWith('plugin:')) {
+      const p = getPlugin(instrument.slice(7));
+      if (!p || !(await loadPluginModule(this.ctx, p))) return;
+    }
+    for (const k of keys) playNote(this.G, c, this.ctx.currentTime + 0.02, k, 0.8, dur);
+  }
+
+  // Push button of a plugin on a channel.
+  channelButton(channelId, id) {
+    const e = this.G && this.G.pluginNodes.get(channelId);
+    if (e) e.node.port.postMessage({ type: 'button', id });
+  }
+
+  // Push button of an effect in a mixer slot.
+  effectButton(insert, slot, id) {
+    const ins = this.G && this.G.inserts[insert];
+    if (!ins) return;
+    const e = ins.fxNodes.find((x) => x.slot === slot);
+    if (e) e.node.port.postMessage({ type: 'button', id });
   }
 
   sync() {
@@ -599,11 +684,18 @@ export async function renderWav(project, mode) {
   const L = loopLength(project, mode);
   const spt = 60 / (project.bpm * PPQ);
   const sr = 44100;
+  const effects = new Set();
+  for (const m of project.mixer) for (const f of m.fx || []) {
+    const p = getPlugin(f && f.plugin);
+    if (p && p.type === 'effect') effects.add(p);
+  }
   const tail = 3;
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const ctx = new OAC(2, Math.ceil((L * spt + tail) * sr), sr);
   const G = createGraph(ctx, ctx.destination);
   G.offline = true;
+  // Effects must be loaded in this context before the graph is built.
+  await Promise.all([...effects].map((p) => loadPluginModule(ctx, p)));
   syncGraph(G, project, false);
   collectEvents(project, mode, 0, L, (c, n, tt) => {
     playNote(G, c, tt * spt, n.key, n.vel, n.len * spt);

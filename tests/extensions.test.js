@@ -129,3 +129,102 @@ test('the minimal plugin from the documentation works as published', () => {
   render(1200); // release time constant 0.3 s: about 2.3 s to fall under the threshold
   assert.equal(proc.voices.length, 0);
 });
+
+const ex = (f) => readFileSync(new URL('../public/doc/examples/' + f, import.meta.url), 'utf8');
+
+function runEffect(plugin, params, input) {
+  const { proc } = loadProcessor(plugin, { params });
+  const blocks = [];
+  for (let b = 0; b < input.length; b++) {
+    const out = [[new Float32Array(128), new Float32Array(128)]];
+    proc.process([[input[b], input[b]]], out);
+    blocks.push(out[0]);
+  }
+  return { proc, blocks };
+}
+
+test('all control types are parsed in order', () => {
+  const p = parsePlugin(ex('poly-synth.astudio-plugin.js'));
+  assert.deepEqual(p.params.map((c) => c.kind + ':' + c.id), ['choice:wave', 'knob:cutoff', 'knob:reso', 'knob:attack', 'knob:release', 'toggle:sub', 'button:drift']);
+  assert.deepEqual(p.params[0].options, ['saw', 'square', 'triangle', 'sine']);
+  const v = paramValues(p, { wave: 2.7, sub: 0.4, drift: 5 });
+  assert.equal(v.wave, 3);
+  assert.equal(v.sub, 0);
+  assert.equal('drift' in v, false, 'buttons hold no stored value');
+});
+
+test('effect plugins need registerEffect and are typed', () => {
+  const p = parsePlugin(ex('bitcrusher.astudio-plugin.js'));
+  assert.equal(p.type, 'effect');
+  assert.throws(() => parsePlugin('/* @astudio-plugin\n * @id e\n * @name E\n * @type effect\n */ registerVoice(class {})'), /registerEffect/);
+});
+
+test('the bitcrusher effect changes the sound', () => {
+  const p = parsePlugin(ex('bitcrusher.astudio-plugin.js'));
+  const input = Array.from({ length: 4 }, (_, b) => Float32Array.from({ length: 128 }, (_, i) => Math.sin((b * 128 + i) / 9) * 0.5));
+  const { blocks } = runEffect(p, paramValues(p, { bits: 2, rate: 8, mix: 1 }), input);
+  const distinct = new Set(blocks.flatMap((o) => [...o[0]].map((x) => x.toFixed(4))));
+  assert.ok(distinct.size <= 5, 'quantized to a few levels');
+});
+
+test('the stereo delay echoes and its Clear button empties the buffer', () => {
+  const p = parsePlugin(ex('stereo-delay.astudio-plugin.js'));
+  const params = paramValues(p, { time: 20, mix: 1, feedback: 0.5, pingpong: 0 });
+  const impulse = new Float32Array(128);
+  impulse[0] = 1;
+  const silent = () => new Float32Array(128);
+  const { proc, blocks } = runEffect(p, params, [impulse, ...Array.from({ length: 12 }, silent)]);
+  const peakAfter = Math.max(...blocks.slice(5).flatMap((o) => [...o[0]].map(Math.abs)));
+  assert.ok(peakAfter > 0.05, 'echo heard after the dry sound');
+  proc.port.onmessage({ data: { type: 'button', id: 'clear' } });
+  const out = [[new Float32Array(128), new Float32Array(128)]];
+  proc.process([[silent(), silent()]], out);
+  assert.equal(Math.max(...out[0][0].map(Math.abs)), 0);
+});
+
+test('a broken effect lets the sound through and reports once', () => {
+  const p = parsePlugin('/* @astudio-plugin\n * @id bad-fx\n * @name Bad FX\n * @type effect\n */ registerEffect(class { process() { throw new Error("fx boom"); } });');
+  const input = [Float32Array.from({ length: 128 }, () => 0.25), Float32Array.from({ length: 128 }, () => 0.25)];
+  const { proc, blocks } = runEffect(p, {}, input);
+  assert.equal(blocks[1][0][10], 0.25);
+  assert.equal(proc.port.posted.length, 1);
+  assert.match(proc.port.posted[0].message, /fx boom/);
+});
+
+test('the poly synth example plays, reacts to its button and stops', () => {
+  const p = parsePlugin(ex('poly-synth.astudio-plugin.js'));
+  const { proc, render } = loadProcessor(p, { params: paramValues(p, {}), events: [{ id: 1, frame: 0, key: 57, freq: 220, vel: 1, dur: 0.2 }] });
+  assert.ok(render(20) > 0.01);
+  const before = proc.voices[0].inst.drift;
+  proc.port.onmessage({ data: { type: 'button', id: 'drift' } });
+  assert.notEqual(proc.voices[0].inst.drift, before);
+  render(2000);
+  assert.equal(proc.voices.length, 0);
+});
+
+test('every example plugin parses', () => {
+  for (const f of ['supersaw', 'fm-bell', 'noise-snare', 'poly-synth', 'bitcrusher', 'stereo-delay']) parsePlugin(ex(f + '.astudio-plugin.js'));
+});
+
+test('the plugin editor templates are valid and make sound', async () => {
+  const { INSTRUMENT_TEMPLATE, EFFECT_TEMPLATE } = await import('../src/ui/pluginEditor.js');
+  const inst = parsePlugin(INSTRUMENT_TEMPLATE);
+  assert.deepEqual(inst.params.map((c) => c.kind), ['choice', 'knob', 'knob', 'toggle']);
+  const { render } = loadProcessor(inst, { params: paramValues(inst, {}), events: [{ id: 1, frame: 0, key: 60, freq: 261.63, vel: 1, dur: 0.1 }] });
+  assert.ok(render(20) > 0.01);
+  const fx = parsePlugin(EFFECT_TEMPLATE);
+  assert.equal(fx.type, 'effect');
+  const input = [Float32Array.from({ length: 128 }, (_, i) => Math.sin(i / 5) * 0.5)];
+  const { blocks } = runEffect(fx, paramValues(fx, {}), input);
+  assert.ok(Math.max(...blocks[0][0].map(Math.abs)) > 0.1);
+});
+
+test('the effect example from the documentation works as published', () => {
+  const html = readFileSync(new URL('../public/doc/index.html', import.meta.url), 'utf8');
+  const block = /<h3>Effects<\/h3>\s*<pre><code>([\s\S]*?)<\/code><\/pre>/.exec(html)[1];
+  const p = parsePlugin(block.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+  assert.equal(p.type, 'effect');
+  const input = [Float32Array.from({ length: 128 }, () => 0.9)];
+  const { blocks } = runEffect(p, paramValues(p, {}), input);
+  assert.ok(Math.abs(blocks[0][0][0] - Math.tanh(3.6)) < 1e-6);
+});

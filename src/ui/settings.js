@@ -1,14 +1,15 @@
 import { h, btn, icon, openModal, alertBox, confirmBox, dropdown, hint } from './dom.js';
 import { t, lang, LANGS, setLang } from '../i18n.js';
 import { allThemes, currentTheme, applyTheme, installTheme, removeTheme } from '../themes.js';
-import { pluginInstruments, installPlugin, removePlugin } from '../plugins.js';
+import { allPlugins, installPlugin, removePlugin } from '../plugins.js';
+import { openPluginEditor } from './pluginEditor.js';
 import { pickFile } from '../platform.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from '../update.js';
 import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
 import { APP_VERSION } from '../version.js';
 
 // Settings window. section: 'general' | 'extensions' scrolls to that part.
-export function openSettings({ section = 'general', onExtensionsChange } = {}) {
+export function openSettings({ section = 'general', onExtensionsChange, engine } = {}) {
   const body = h('div', { class: 'settings' });
   const m = openModal({ title: t('Settings'), body, wide: true });
 
@@ -38,6 +39,17 @@ export function openSettings({ section = 'general', onExtensionsChange } = {}) {
     }
   }
 
+  function editor(code) {
+    openPluginEditor({
+      code,
+      onInstalled: () => {
+        onExtensionsChange && onExtensionsChange();
+        render();
+      },
+      onTry: (p) => engine && engine.previewInstrument('plugin:' + p.id, [60, 64, 67], 0.8),
+    });
+  }
+
   function row(label, control, help) {
     return h('div', { class: 'set-row' },
       h('div', { class: 'set-label' }, h('span', null, label), help ? h('small', null, help) : null),
@@ -47,7 +59,7 @@ export function openSettings({ section = 'general', onExtensionsChange } = {}) {
 
   function render() {
     const themes = allThemes();
-    const plugins = pluginInstruments();
+    const plugins = allPlugins();
     body.replaceChildren(
       h('section', { class: 'set-sec', id: 'set-general' },
         h('h3', null, icon('Settings', 16), t('General')),
@@ -84,8 +96,9 @@ export function openSettings({ section = 'general', onExtensionsChange } = {}) {
         plugins.length
           ? h('div', { class: 'set-list' }, plugins.map((p) =>
               h('div', { class: 'set-item' },
-                icon('AudioLines', 16),
-                h('span', { class: 'set-item-name static' }, p.name, h('small', null, [p.version, p.author].filter(Boolean).join(' · '))),
+                icon(p.type === 'effect' ? 'AudioWaveform' : 'AudioLines', 16),
+                h('span', { class: 'set-item-name static' }, p.name, h('small', null, [p.type === 'effect' ? t('effect') : t('instrument'), p.version, p.author].filter(Boolean).join(' · '))),
+                btn('Pencil', t('Edit'), () => editor(p.code)),
                 btn('Trash', t('Delete'), async () => {
                   if (await confirmBox(t('Delete plugin'), p.name + '. ' + t('Channels using it will go silent.'), t('Delete'))) {
                     removePlugin(p.id);
@@ -98,6 +111,7 @@ export function openSettings({ section = 'general', onExtensionsChange } = {}) {
           : h('p', { class: 'empty' }, t('No plugin installed. A plugin is a JavaScript file that generates the sound of an instrument; see the documentation to write one.')),
         h('div', { class: 'set-actions' },
           h('button', { class: 'b tb', type: 'button', onClick: () => importFile('plugin') }, icon('Upload', 16), t('Install a plugin')),
+          h('button', { class: 'b tb', type: 'button', onClick: () => editor() }, icon('Pencil', 16), t('Write a plugin')),
           h('button', { class: 'b tb', type: 'button', onClick: () => openExternal(DOCS_URL + '#plugins') }, icon('BookOpen', 16), t('How to create plugins and themes')),
         ),
       ),

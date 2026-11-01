@@ -1,6 +1,5 @@
 import { h, btn, icon, hint, openMenu, openModal, confirmBox, alertBox } from './dom.js';
 import { startDrag } from './dnd.js';
-import { makeChannel, defaultParams } from '../store.js';
 import { CATALOG, CATEGORIES } from '../audio/catalog.js';
 import { listProjects, deleteProject } from '../persist.js';
 import { listSamples, importFiles, deleteSamples, onSamplesChange } from '../samples.js';
@@ -25,29 +24,9 @@ export function createSidebar(engine, actions) {
     h('div', { class: 'side-search-wrap' }, search),
     tree,
   );
-  const previewChannels = new Map();
 
   function previewInstrument(inst) {
-    let c = previewChannels.get(inst.id);
-    if (!c) {
-      c = makeChannel(inst.id, inst.name, 0);
-      c.id = '__preview_' + inst.id;
-      c.params = defaultParams();
-      previewChannels.set(inst.id, c);
-    }
-    engine.init();
-    if (!engine.G.channels.has(c.id)) {
-      const ctx = engine.ctx;
-      const ch = { in: ctx.createGain(), filt: ctx.createBiquadFilter(), pan: ctx.createStereoPanner(), insert: 0 };
-      ch.in.gain.value = 0.78;
-      ch.filt.frequency.value = 20000;
-      ch.in.connect(ch.filt);
-      ch.filt.connect(ch.pan);
-      ch.pan.connect(engine.G.inserts[0].in);
-      engine.G.channels.set(c.id, ch);
-    }
-    const v = engine.noteOn(c, PREVIEW_KEY[inst.cat] || 60, 0.8);
-    setTimeout(() => engine.noteOff(v), inst.cat === 'drums' ? 50 : 700);
+    engine.previewInstrument(inst.id, [PREVIEW_KEY[inst.cat] || 60], inst.cat === 'drums' ? 0.05 : 0.7);
   }
 
   // Row with tap (preview or open) and drag (horizontal move or long press).

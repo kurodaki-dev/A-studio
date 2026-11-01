@@ -61,6 +61,7 @@ import {
   BookOpen,
   Bug,
   ExternalLink,
+  Lightbulb,
 } from 'lucide';
 import { t } from '../i18n.js';
 
@@ -69,7 +70,7 @@ const ICONS = {
   ZoomIn, ZoomOut, Piano, SlidersVertical, LayoutList, Grid3x3, FolderOpen, Save, Download, Upload, Plus, Minus,
   X, Copy, ClipboardPaste, CopyPlus, Trash, Settings, Drum, AudioLines, AudioWaveform, Guitar, Wind, Bell,
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Metronome, FilePlus, Share2, Info,
-  Shield, FileText, Cookie, ListMusic, Volume2, Music, ArrowUp, ArrowDown, Check, Palette, Puzzle, BookOpen, Bug, ExternalLink,
+  Shield, FileText, Cookie, ListMusic, Volume2, Music, ArrowUp, ArrowDown, Check, Palette, Puzzle, BookOpen, Bug, ExternalLink, Lightbulb,
 };
 
 export function icon(name, size = 18) {

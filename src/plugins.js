@@ -12,8 +12,50 @@ const clampNum = (v, a, b, d) => (Number.isFinite(v) ? Math.max(a, Math.min(b, v
 // Reads the header comment (no code is executed on the main thread):
 //   @astudio-plugin
 //   @id my-synth        @name My Synth        @version 1.0.0
-//   @author Me          @category synth
-//   @param cutoff "Cutoff" 0 1 0.5
+//   @author Me          @category synth       @type instrument | effect
+//   @param cutoff "Cutoff" 0 1 0.5         knob
+//   @toggle mono "Mono" 0                   switch, value 0 or 1
+//   @choice wave "Wave" saw|square|sine 0   list, value = index
+//   @button random "Randomize"              push button
+const ID = '[a-zA-Z][a-zA-Z0-9_]{0,30}';
+const LABEL = '"([^"\\r\\n]{1,30})"';
+const NUM = '(-?\\d+(?:\\.\\d+)?)';
+const CONTROL_RES = [
+  ['knob', new RegExp('^@param[ \\t]+(' + ID + ')[ \\t]+' + LABEL + '[ \\t]+' + NUM + '[ \\t]+' + NUM + '[ \\t]+' + NUM)],
+  ['toggle', new RegExp('^@toggle[ \\t]+(' + ID + ')[ \\t]+' + LABEL + '(?:[ \\t]+([01]))?')],
+  ['choice', new RegExp('^@choice[ \\t]+(' + ID + ')[ \\t]+' + LABEL + '[ \\t]+([^ \\t\\r\\n]+)(?:[ \\t]+(\\d+))?')],
+  ['button', new RegExp('^@button[ \\t]+(' + ID + ')[ \\t]+' + LABEL)],
+];
+export const MAX_CONTROLS = 12;
+
+function parseControls(head) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of head.split(/\r?\n/)) {
+    const line = raw.replace(/^\s*\*?\s*/, '');
+    for (const [kind, re] of CONTROL_RES) {
+      const m = re.exec(line);
+      if (!m || seen.has(m[1]) || out.length >= MAX_CONTROLS) continue;
+      if (kind === 'knob') {
+        const min = Number(m[3]);
+        const max = Number(m[4]);
+        if (!(max > min)) continue;
+        out.push({ kind, id: m[1], name: m[2], min, max, def: clampNum(Number(m[5]), min, max, min) });
+      } else if (kind === 'toggle') {
+        out.push({ kind, id: m[1], name: m[2], min: 0, max: 1, def: m[3] === '1' ? 1 : 0 });
+      } else if (kind === 'choice') {
+        const options = m[3].split('|').map((x) => x.slice(0, 20)).filter(Boolean).slice(0, 16);
+        if (options.length < 2) continue;
+        out.push({ kind, id: m[1], name: m[2], options, min: 0, max: options.length - 1, def: clampNum(Number(m[4] || 0), 0, options.length - 1, 0) });
+      } else {
+        out.push({ kind, id: m[1], name: m[2], min: 0, max: 1e9, def: 0 });
+      }
+      seen.add(m[1]);
+    }
+  }
+  return out;
+}
+
 export function parsePlugin(code) {
   if (typeof code !== 'string' || !code.trim()) throw new Error('The file is empty');
   if (code.length > MAX_CODE) throw new Error('The plugin is larger than 256 KB');
@@ -27,22 +69,17 @@ export function parsePlugin(code) {
   if (!/^[a-z0-9-]{1,40}$/.test(id)) throw new Error('@id must use a to z, 0 to 9 and "-" only');
   const name = tag('name').slice(0, 40);
   if (!name) throw new Error('@name is required');
-  if (!/registerVoice\s*\(/.test(code)) throw new Error('The plugin must call registerVoice(YourVoiceClass)');
-  const params = [];
-  const re = /@param[ \t]+([a-zA-Z][a-zA-Z0-9_]{0,30})[ \t]+"([^"\r\n]{1,30})"[ \t]+(-?[\d.]+)[ \t]+(-?[\d.]+)[ \t]+(-?[\d.]+)/g;
-  let m;
-  while ((m = re.exec(head)) && params.length < 8) {
-    const min = Number(m[3]);
-    const max = Number(m[4]);
-    if (!(max > min)) continue;
-    params.push({ id: m[1], name: m[2], min, max, def: clampNum(Number(m[5]), min, max, min) });
-  }
+  const type = tag('type') === 'effect' ? 'effect' : 'instrument';
+  if (type === 'instrument' && !/registerVoice\s*\(/.test(code)) throw new Error('An instrument must call registerVoice(YourVoiceClass)');
+  if (type === 'effect' && !/registerEffect\s*\(/.test(code)) throw new Error('An effect must call registerEffect(YourEffectClass)');
+  const params = parseControls(head);
   const cat = tag('category');
   return {
     id,
     name,
     version: tag('version').slice(0, 20) || '1.0.0',
     author: tag('author').slice(0, 60),
+    type,
     category: CATS.includes(cat) ? cat : 'synth',
     oneShot: /@oneshot\b/i.test(head),
     params,
@@ -70,7 +107,9 @@ function read() {
 
 let cache = read();
 
-export const pluginInstruments = () => cache;
+export const allPlugins = () => cache;
+export const pluginInstruments = () => cache.filter((p) => p.type === 'instrument');
+export const pluginEffects = () => cache.filter((p) => p.type === 'effect');
 export const getPlugin = (id) => cache.find((p) => p.id === id) || null;
 
 export function installPlugin(code) {
@@ -94,7 +133,12 @@ export function removePlugin(id) {
 // Parameter values of a channel, completed with the plugin defaults.
 export function paramValues(plugin, stored) {
   const out = {};
-  for (const p of plugin.params) out[p.id] = clampNum(stored && stored[p.id], p.min, p.max, p.def);
+  for (const p of plugin.params) {
+    if (p.kind === 'button') continue;
+    let v = clampNum(stored && stored[p.id], p.min, p.max, p.def);
+    if (p.kind !== 'knob') v = Math.round(v);
+    out[p.id] = v;
+  }
   return out;
 }
 
@@ -109,6 +153,75 @@ export const processorName = (p) => 'astudio-' + p.id + '-' + hash(p.code);
 // The worklet module: host code, then the plugin code, then the processor.
 // Exported for tests.
 export function moduleSource(p) {
+  return p.type === 'effect' ? effectSource(p) : instrumentSource(p);
+}
+
+// Effects process the sound of a mixer insert: process(inL, inR, outL, outR, params).
+function effectSource(p) {
+  return `"use strict";
+let __Effect = null;
+function registerEffect(E) { if (typeof E === 'function') __Effect = E; }
+${p.code}
+;
+registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const o = (options && options.processorOptions) || {};
+    this.params = Object.assign({}, o.params || {});
+    this.zero = new Float32Array(128);
+    this.reported = false;
+    this.fx = null;
+    if (!__Effect) this.fail('registerEffect was not called');
+    else {
+      try { this.fx = new __Effect({ sampleRate, params: this.params }); } catch (err) { this.fail(err); }
+    }
+    this.port.onmessage = (e) => {
+      const m = e.data;
+      if (!m || typeof m !== 'object') return;
+      if (m.type === 'params' && m.values && typeof m.values === 'object') {
+        for (const k of Object.keys(m.values)) if (typeof m.values[k] === 'number') this.params[k] = m.values[k];
+      } else if (m.type === 'button' && typeof m.id === 'string') {
+        this.params[m.id] = (this.params[m.id] || 0) + 1;
+        try { if (this.fx && this.fx.button) this.fx.button(m.id, this.params); } catch (err) { this.fail(err); this.fx = null; }
+      }
+    };
+  }
+  fail(err) {
+    if (this.reported) return;
+    this.reported = true;
+    this.port.postMessage({ type: 'error', message: String((err && err.message) || err) });
+  }
+  process(inputs, outputs) {
+    const out = outputs[0];
+    const oL = out[0];
+    const oR = out[1] || out[0];
+    const n = oL.length;
+    const inp = inputs[0] || [];
+    const iL = inp[0] || this.zero.subarray(0, n);
+    const iR = inp[1] || iL;
+    if (this.fx) {
+      try { this.fx.process(iL, iR, oL, oR, this.params); } catch (err) { this.fail(err); this.fx = null; }
+    }
+    if (!this.fx) {
+      // Bypass: a broken effect lets the sound through unchanged.
+      oL.set(iL);
+      if (oR !== oL) oR.set(iR);
+    }
+    for (let i = 0; i < n; i++) {
+      let a = oL[i];
+      oL[i] = a === a ? (a < -4 ? -4 : a > 4 ? 4 : a) : 0;
+      if (oR !== oL) {
+        a = oR[i];
+        oR[i] = a === a ? (a < -4 ? -4 : a > 4 ? 4 : a) : 0;
+      }
+    }
+    return true;
+  }
+});
+`;
+}
+
+function instrumentSource(p) {
   return `"use strict";
 let __Voice = null;
 function registerVoice(V) { if (typeof V === 'function') __Voice = V; }
@@ -139,6 +252,11 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
       for (const q of this.queue) if (q.id === m.id) q.dur = 0;
     } else if (m.type === 'params' && m.values && typeof m.values === 'object') {
       for (const k of Object.keys(m.values)) if (typeof m.values[k] === 'number') this.params[k] = m.values[k];
+    } else if (m.type === 'button' && typeof m.id === 'string') {
+      this.params[m.id] = (this.params[m.id] || 0) + 1;
+      for (const v of this.voices) {
+        try { if (v.inst.button) v.inst.button(m.id, this.params); } catch (err) { this.fail(err); }
+      }
     } else if (m.type === 'stop') {
       this.voices = [];
       this.queue = [];
