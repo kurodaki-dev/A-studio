@@ -7,7 +7,9 @@ import { createRack } from './ui/rack.js';
 import { createPianoRoll } from './ui/pianoroll.js';
 import { createPlaylist } from './ui/playlist.js';
 import { createMixer } from './ui/mixer.js';
-import { createBrowser } from './ui/browser.js';
+import { createSidebar } from './ui/sidebar.js';
+import { addSampler } from './ui/rack.js';
+import { initSamples, onSamplesChange, getSampleMeta, getBuffer, loadBuffer } from './samples.js';
 import { openChannelSettings } from './ui/channelSettings.js';
 import { loadCurrent, saveCurrent, saveProject, loadProject, listProjects } from './persist.js';
 import { saveFile, pickFile } from './platform.js';
@@ -46,6 +48,12 @@ const actions = {
       alertBox('Ouverture impossible', String(e.message || e));
     }
   },
+  addSampler(id) {
+    addSampler(id);
+  },
+  toggleSidebar(on) {
+    setSidebar(on);
+  },
 };
 
 const panels = {
@@ -53,8 +61,8 @@ const panels = {
   piano: createPianoRoll(engine),
   playlist: createPlaylist(engine, actions),
   mixer: createMixer(engine),
-  browser: createBrowser(engine, actions),
 };
+const sidebar = createSidebar(engine, actions);
 
 // Toolbar
 const hintEl = h('div', { class: 'hint', 'aria-live': 'polite' });
@@ -100,16 +108,24 @@ const railDefs = [
   ['rack', 'Grid3x3', 'Channel rack'],
   ['piano', 'Piano', 'Piano roll'],
   ['mixer', 'SlidersVertical', 'Mixer'],
-  ['browser', 'FolderOpen', 'Navigateur'],
 ];
 const railBtns = railDefs.map(([id, ic, label]) => {
   const b = h('button', { class: 'rail-btn', type: 'button', title: label, 'aria-label': label, onClick: () => showPanel(id) }, icon(ic, 20), h('span', null, label.split(' ')[0]));
   b.dataset.panel = id;
   return b;
 });
-const rail = h('nav', { class: 'rail' }, railBtns);
+const browserBtn = h('button', { class: 'rail-btn', type: 'button', title: 'Navigateur (F8)', 'aria-label': 'Navigateur', onClick: () => setSidebar(!ui.sidebar) }, icon('FolderOpen', 20), h('span', null, 'Navigateur'));
+const rail = h('nav', { class: 'rail' }, browserBtn, h('div', { class: 'rail-sep' }), railBtns);
 const stage = h('main', { class: 'stage' }, Object.values(panels).map((p) => p.el));
-document.getElementById('app').append(topbar, h('div', { class: 'body' }, rail, stage));
+const body = h('div', { class: 'body' }, rail, sidebar.el, stage);
+document.getElementById('app').append(topbar, body);
+
+function setSidebar(on) {
+  ui.sidebar = on;
+  body.classList.toggle('side-open', on);
+  browserBtn.classList.toggle('on', on);
+}
+setSidebar(window.innerWidth >= 900);
 
 function showPanel(id) {
   ui.panel = id;
@@ -272,7 +288,7 @@ function doSave() {
   try {
     saveProject(store.project);
     hint('Projet enregistré : ' + store.project.name);
-    panels.browser.refresh();
+    sidebar.refresh();
     store.emit();
     return true;
   } catch {
@@ -402,7 +418,20 @@ store.subscribe(() => {
   dirty = true;
   engine.sync();
   scheduleSave();
+  preloadSamples();
 });
+
+// Decode the samples used by the project so they play from the first note.
+function preloadSamples() {
+  const p = store.project;
+  for (const c of p.channels) if (c.instrument === 'sampler' && c.sample && getSampleMeta(c.sample) && !getBuffer(c.sample)) loadBuffer(c.sample);
+  for (const c of p.playlist.clips) if (c.type === 'audio' && getSampleMeta(c.sampleId) && !getBuffer(c.sampleId)) loadBuffer(c.sampleId);
+}
+onSamplesChange(() => {
+  dirty = true;
+  preloadSamples();
+});
+initSamples();
 
 let saveTimer = null;
 function scheduleSave() {
@@ -447,7 +476,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'F5') showPanel('playlist');
   else if (e.key === 'F6') showPanel('rack');
   else if (e.key === 'F7') showPanel('piano');
-  else if (e.key === 'F8') showPanel('browser');
+  else if (e.key === 'F8') setSidebar(!ui.sidebar);
   else if (e.key === 'F9') showPanel('mixer');
   else if (k === 'l' && !mod) setSongMode(!ui.songMode);
   else if (ui.panel === 'piano' && panels.piano.keydown(e)) return;

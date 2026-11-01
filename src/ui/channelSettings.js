@@ -3,6 +3,7 @@ import { knob } from './controls.js';
 import { store, getChannel } from '../store.js';
 import { CATALOG, CATEGORIES } from '../audio/catalog.js';
 import { cutoffHz } from '../audio/engine.js';
+import { getSampleMeta } from '../samples.js';
 
 export function openChannelSettings(id, engine) {
   const c = getChannel(store.project, id);
@@ -14,6 +15,7 @@ export function openChannelSettings(id, engine) {
   };
   const name = h('input', { class: 'input', type: 'text', value: c.name, maxlength: 80, onInput: (e) => set(() => { c.name = e.target.value || 'Canal'; }) });
   const inst = h('select', { class: 'sel', onChange: (e) => set(() => { c.instrument = e.target.value; engine.preview(c, 60); }) },
+    c.sample ? h('optgroup', { label: 'Sample' }, h('option', { value: 'sampler', selected: c.instrument === 'sampler' }, 'Sampler : ' + ((getSampleMeta(c.sample) || {}).name || 'sample absent'))) : null,
     CATEGORIES.map((cat) => h('optgroup', { label: cat.name }, CATALOG.filter((x) => x.cat === cat.id).map((x) => h('option', { value: x.id, selected: x.id === c.instrument }, x.name)))),
   );
   const insert = h('select', { class: 'sel', onChange: (e) => set(() => { c.insert = Number(e.target.value); }) },

@@ -1,5 +1,7 @@
 import { h, btn, icon, hint, openMenu } from './dom.js';
 import { attachPointer, fitCanvas } from './pointer.js';
+import { registerDrop } from './dnd.js';
+import { createChannel, samplerChannel } from './rack.js';
 import { store, currentPattern, notesOf, notesFor, patternLength, getChannel } from '../store.js';
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, NKEYS, SNAPS, snapTicks, noteName, isBlack, clamp } from '../constants.js';
@@ -250,6 +252,13 @@ export function createPianoRoll(engine) {
       g.strokeStyle = '#e6eaec';
       g.lineWidth = 1;
       g.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0));
+    }
+    if (overlay && overlay.type === 'drop') {
+      g.fillStyle = 'rgba(240,153,58,0.2)';
+      g.fillRect(gx, yAt(overlay.key), W - gx, view.rowH);
+      g.strokeStyle = '#f0993a';
+      g.lineWidth = 2;
+      g.strokeRect(xAt(overlay.t) + 1, yAt(overlay.key) + 1, Math.max(6, ui.lastLen * view.px) - 2, view.rowH - 2);
     }
     if (overlay && overlay.type === 'slice') {
       g.strokeStyle = '#f0993a';
@@ -634,6 +643,42 @@ export function createPianoRoll(engine) {
       }
       clampView();
       draw();
+    },
+  });
+
+  // Drop from the browser: the channel is created (or reused for a sample)
+  // and a note is placed where the finger is released.
+  const dropSpot = (p) => (regionAt(p) === 'grid' ? { type: 'drop', key: clamp(keyAt(p.y), 0, NKEYS - 1), t: Math.max(0, snapFloor(tickAt(p.x))) } : null);
+  registerDrop({
+    el: cv,
+    accepts: (item) => item.kind === 'sample' || item.kind === 'instrument',
+    over(item, p) {
+      overlay = dropSpot(p);
+      draw();
+    },
+    leave() {
+      overlay = null;
+      draw();
+    },
+    drop(item, p) {
+      const spot = dropSpot(p);
+      overlay = null;
+      store.commit();
+      const proj = store.project;
+      const c = item.kind === 'sample' ? samplerChannel(proj, item.id) : createChannel(proj, item.id);
+      if (!c) {
+        store.undoStack.pop();
+        return draw();
+      }
+      ui.prChannel = c.id;
+      clearSel();
+      if (spot) {
+        const n = { t: spot.t, len: ui.lastLen, key: spot.key, vel: ui.lastVel };
+        notesFor(currentPattern(proj), c.id).push(n);
+      }
+      store.emit();
+      if (spot) engine.preview(c, spot.key, ui.lastVel, 0.4);
+      hint(c.name + (spot ? ' : note ' + noteName(spot.key) + ' ajoutée' : ' ajouté au rack'));
     },
   });
 

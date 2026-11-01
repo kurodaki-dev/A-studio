@@ -80,11 +80,22 @@ export function patternLength(pat) {
   return Math.max((pat.minBars || 1) * BAR, Math.ceil(patternEnd(pat) / BAR) * BAR);
 }
 
+// Length of a playlist clip in ticks. Pattern clips default to their pattern
+// length and repeat it when stretched. Audio clips store their own length.
+export function clipLength(proj, c) {
+  if (c.len) return c.len;
+  if (c.type === 'audio') return BAR;
+  return patternLength(getPattern(proj, c.patternId));
+}
+
+export function clipValid(proj, c) {
+  return c.type === 'audio' ? typeof c.sampleId === 'string' : !!getPattern(proj, c.patternId);
+}
+
 export function songLength(proj) {
   let end = 0;
   for (const c of proj.playlist.clips) {
-    const p = getPattern(proj, c.patternId);
-    if (p) end = Math.max(end, c.start + patternLength(p));
+    if (clipValid(proj, c)) end = Math.max(end, c.start + clipLength(proj, c));
   }
   return Math.max(BAR, Math.ceil(end / BAR) * BAR);
 }
@@ -122,6 +133,7 @@ export function normalizeProject(raw) {
     pan: num(c.pan, 0, -1, 1),
     mute: !!c.mute,
     insert: Math.round(num(c.insert, 0, 0, MIXER_SIZE - 1)),
+    sample: typeof c.sample === 'string' ? c.sample.slice(0, 80) : undefined,
     params: {
       pitch: Math.round(num(c.params?.pitch, 0, -24, 24)),
       attack: num(c.params?.attack, 0, 0, 2),
@@ -165,13 +177,22 @@ export function normalizeProject(raw) {
   }
   if (raw.playlist && Array.isArray(raw.playlist.clips)) {
     p.playlist.clips = raw.playlist.clips
-      .filter((c) => c && getPattern(p, c.patternId))
-      .map((c) => ({
-        id: str(c.id, newId('k')),
-        patternId: c.patternId,
-        track: Math.round(num(c.track, 0, 0, TRACKS - 1)),
-        start: Math.max(0, Math.round(num(c.start, 0, 0, 1e9))),
-      }));
+      .filter((c) => c && (c.type === 'audio' ? typeof c.sampleId === 'string' : getPattern(p, c.patternId)))
+      .map((c) => {
+        const clip = {
+          id: str(c.id, newId('k')),
+          track: Math.round(num(c.track, 0, 0, TRACKS - 1)),
+          start: Math.max(0, Math.round(num(c.start, 0, 0, 1e9))),
+        };
+        if (c.type === 'audio') {
+          clip.type = 'audio';
+          clip.sampleId = c.sampleId.slice(0, 80);
+          clip.name = str(c.name, 'Sample');
+        } else clip.patternId = c.patternId;
+        const len = Math.round(num(c.len, 0, 0, BAR * 4096));
+        if (len >= 1) clip.len = len;
+        return clip;
+      });
   }
   if (Array.isArray(raw.mixer)) {
     p.mixer.forEach((m, i) => {
