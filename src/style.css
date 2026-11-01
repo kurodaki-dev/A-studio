@@ -517,6 +517,6 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .rack-name.sampler { border-left-color: #5d7f96; }
 .rack-name.missing { color: var(--red); }
 
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .sidebar { width: 200px; }
 }
