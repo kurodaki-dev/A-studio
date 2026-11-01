@@ -8,6 +8,10 @@ export function bugReportUrl() {
   return REPO_URL + '/issues/new?template=bug_report.yml&version=' + encodeURIComponent(APP_VERSION);
 }
 
+export function featureRequestUrl() {
+  return REPO_URL + '/issues/new?template=feature_request.yml';
+}
+
 // Open a web page outside the app (system browser on Android, new tab on the web).
 export function openExternal(url) {
   if (isNative()) window.location.href = url;

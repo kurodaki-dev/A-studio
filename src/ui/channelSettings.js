@@ -1,5 +1,6 @@
 import { h, openModal, dropdown } from './dom.js';
-import { pluginInstruments, getPlugin, paramValues } from '../plugins.js';
+import { pluginInstruments, getPlugin } from '../plugins.js';
+import { pluginControls } from './pluginControls.js';
 import { knob } from './controls.js';
 import { store, getChannel } from '../store.js';
 import { CATALOG, CATEGORIES } from '../audio/catalog.js';
@@ -42,19 +43,16 @@ export function openChannelSettings(id, engine) {
   const pitch = h('input', { type: 'range', class: 'range', min: -24, max: 24, step: 1, value: c.params.pitch, onInput: (e) => set(() => { c.params.pitch = Number(e.target.value); showPitch(); }) });
   const showPitch = () => { pitchOut.textContent = (c.params.pitch > 0 ? '+' : '') + c.params.pitch + t(' semitones'); };
   showPitch();
-  // Knobs declared by a code plugin with @param.
+  // Controls declared by a code plugin in its header.
   function pluginKnobs() {
     const plugin = c.instrument.startsWith('plugin:') ? getPlugin(c.instrument.slice(7)) : null;
     if (!plugin || !plugin.params.length) return null;
-    const values = paramValues(plugin, c.pluginParams);
     return h('div', null,
       h('div', { class: 'field' }, h('span', null, plugin.name)),
-      h('div', { class: 'knobs' }, plugin.params.map((p) =>
-        h('label', { class: 'kl big' },
-          knob({ value: values[p.id], min: p.min, max: p.max, def: p.def, size: 36, label: p.name, format: (v) => (Math.abs(v) >= 100 ? Math.round(v) : v.toFixed(2)), onInput: (v) => set(() => { c.pluginParams = { ...paramValues(plugin, c.pluginParams), [p.id]: v }; }) }),
-          h('span', null, p.name),
-        ),
-      )),
+      pluginControls(plugin, c.pluginParams, {
+        onChange: (values) => set(() => { c.pluginParams = values; }),
+        onButton: (bid) => engine.channelButton(c.id, bid),
+      }),
     );
   }
   const sec = (v) => (v < 1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s');

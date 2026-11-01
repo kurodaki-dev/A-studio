@@ -1,3 +1,4 @@
+import { openFxDialog } from './fxDialog.js';
 import { h, promptText } from './dom.js';
 import { knob, fader, led } from './controls.js';
 import { store } from '../store.js';
@@ -11,7 +12,7 @@ const dbText = (v) => {
   return (db > 0 ? '+' : '') + db.toFixed(1) + ' dB';
 };
 
-export function createMixer(engine) {
+export function createMixer(engine, onShowPlugins) {
   const strips = h('div', { class: 'mixer-strips' });
   const el = h('div', { class: 'panel mixer' },
     h('div', { class: 'ptools' }, h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Mixer'), h('span', { class: 'rack-info' }, t('Drag vertically to adjust, double tap to reset')))),
@@ -39,6 +40,7 @@ export function createMixer(engine) {
       const del = i === 0 ? null : knob({ value: m.delay, size: 22, label: t('Delay ') + m.name, onStart: () => store.commit(), onInput: (v) => { m.delay = v; store.emit(); } });
       const mute = led(!m.mute, t('Insert enabled'), () => store.change(() => { m.mute = !m.mute; }));
       const solo = i === 0 ? null : h('button', { class: 'b tb solo', type: 'button', title: 'Solo', onClick: () => store.change(() => { m.solo = !m.solo; }) }, 'S');
+      const fxBtn = h('button', { class: 'b tb fxbtn', type: 'button', title: t('Effects'), onClick: () => openFxDialog(i, engine, onShowPlugins) }, 'FX');
       const strip = h('div', { class: 'strip' + (i === 0 ? ' master' : '') },
         h('div', { class: 'strip-num' }, i === 0 ? 'M' : String(i)),
         name,
@@ -49,8 +51,9 @@ export function createMixer(engine) {
         h('label', { class: 'kl' }, pan, h('span', null, 'Pan')),
         h('div', { class: 'strip-fader' }, meter, fd),
         h('div', { class: 'strip-btns' }, mute, solo),
+        fxBtn,
       );
-      return { m, i, strip, meter, fd, pan, rev, del, mute, solo, peak: 0 };
+      return { m, i, strip, meter, fd, pan, rev, del, mute, solo, fxBtn, peak: 0 };
     });
     strips.replaceChildren(...items.map((x) => x.strip));
     patch();
@@ -65,6 +68,9 @@ export function createMixer(engine) {
       if (it.del) it.del.update(m.delay);
       it.mute.update(!m.mute);
       if (it.solo) it.solo.classList.toggle('on', m.solo);
+      const n = (m.fx || []).filter((f) => f.on !== false).length;
+      it.fxBtn.textContent = n ? 'FX ' + n : 'FX';
+      it.fxBtn.classList.toggle('on', n > 0);
     }
   }
 

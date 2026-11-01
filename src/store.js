@@ -29,8 +29,11 @@ export function makeMixer() {
     solo: false,
     reverb: 0,
     delay: 0,
+    fx: [],
   }));
 }
+
+export const FX_SLOTS = 4;
 
 export function newProject() {
   const defs = [
@@ -118,6 +121,11 @@ export function nextPatternIndex(proj) {
 const num = (v, def, a, b) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, a, b) : def);
 const str = (v, def) => (typeof v === 'string' && v.length ? v.slice(0, 80) : def);
 
+function cleanParams(o) {
+  if (!o || typeof o !== 'object') return undefined;
+  return Object.fromEntries(Object.entries(o).filter(([k, v]) => /^[a-zA-Z][a-zA-Z0-9_]{0,30}$/.test(k) && Number.isFinite(v)).slice(0, 16));
+}
+
 // Validate and complete a project loaded from storage or a file.
 export function normalizeProject(raw) {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.channels) || !Array.isArray(raw.patterns)) {
@@ -135,10 +143,7 @@ export function normalizeProject(raw) {
     mute: !!c.mute,
     insert: Math.round(num(c.insert, 0, 0, MIXER_SIZE - 1)),
     sample: typeof c.sample === 'string' ? c.sample.slice(0, 80) : undefined,
-    pluginParams:
-      c.pluginParams && typeof c.pluginParams === 'object'
-        ? Object.fromEntries(Object.entries(c.pluginParams).filter(([k, v]) => /^[a-zA-Z][a-zA-Z0-9_]{0,30}$/.test(k) && Number.isFinite(v)).slice(0, 8))
-        : undefined,
+    pluginParams: cleanParams(c.pluginParams),
     params: {
       pitch: Math.round(num(c.params?.pitch, 0, -24, 24)),
       attack: num(c.params?.attack, 0, 0, 2),
@@ -210,6 +215,12 @@ export function normalizeProject(raw) {
       m.solo = !!r.solo;
       m.reverb = num(r.reverb, 0, 0, 1);
       m.delay = num(r.delay, 0, 0, 1);
+      m.fx = Array.isArray(r.fx)
+        ? r.fx
+            .filter((f) => f && typeof f.plugin === 'string' && /^[a-z0-9-]{1,40}$/.test(f.plugin))
+            .slice(0, FX_SLOTS)
+            .map((f) => ({ plugin: f.plugin, on: f.on !== false, params: cleanParams(f.params) || {} }))
+        : [];
     });
   }
   return p;
