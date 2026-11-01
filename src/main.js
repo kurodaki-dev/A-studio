@@ -12,8 +12,8 @@ import { openChannelSettings } from './ui/channelSettings.js';
 import { loadCurrent, saveCurrent, saveProject, loadProject, listProjects } from './persist.js';
 import { saveFile, pickFile } from './platform.js';
 import { BAR, STEP, clamp } from './constants.js';
-
-const VERSION = '1.0.0';
+import { APP_VERSION } from './version.js';
+import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from './update.js';
 
 // Restore the last session
 const saved = loadCurrent();
@@ -359,9 +359,9 @@ function about() {
   openModal({
     title: 'À propos',
     body: h('div', { class: 'about' },
-      h('p', null, h('strong', null, 'A Studio'), ' version ' + VERSION),
+      h('p', null, h('strong', null, 'A Studio'), ' version ' + APP_VERSION),
       h('p', null, 'Station de création musicale pour Android. Les sons sont produits par synthèse en temps réel, sans échantillons.'),
-      h('p', null, 'Vos projets restent sur cet appareil. L’application ne se connecte à aucun serveur et ne collecte aucune donnée.'),
+      h('p', null, 'Vos projets restent sur cet appareil. L’application ne collecte aucune donnée. Sa seule connexion sert à vérifier sur GitHub si une nouvelle version existe, et elle peut être désactivée dans le menu.'),
       h('p', null, 'Logiciel libre sous licence MIT. A Studio est un projet indépendant, sans lien avec Image Line ni avec FL Studio.'),
       h('p', null, 'Icônes : Lucide (licence ISC).'),
     ),
@@ -378,6 +378,16 @@ function mainMenu(anchor) {
     { label: 'Importer un fichier projet', icon: 'Upload', onClick: importProject },
     { label: 'Exporter le fichier projet', icon: 'Share2', onClick: exportProject },
     { label: ui.songMode ? 'Exporter le morceau en WAV' : 'Exporter le motif en WAV', icon: 'Download', onClick: exportWav },
+    ...(updatesSupported()
+      ? [
+          { sep: true },
+          { label: 'Rechercher une mise à jour', icon: 'Download', onClick: () => checkForUpdate({ silent: false }) },
+          { label: 'Vérifier au démarrage', checked: autoCheckEnabled(), onClick: () => {
+            setAutoCheck(!autoCheckEnabled());
+            hint(autoCheckEnabled() ? 'Vérification au démarrage activée' : 'Vérification au démarrage désactivée');
+          } },
+        ]
+      : []),
     { sep: true },
     { label: 'Confidentialité', icon: 'Shield', onClick: () => openLegal('confidentialite', 'Politique de confidentialité') },
     { label: 'Conditions d’utilisation', icon: 'FileText', onClick: () => openLegal('conditions', 'Conditions d’utilisation') },
@@ -448,3 +458,5 @@ window.addEventListener('keydown', (e) => {
 
 showPanel('rack');
 requestAnimationFrame(frame);
+
+if (updatesSupported() && autoCheckEnabled()) setTimeout(() => checkForUpdate({ silent: true }), 3000);

@@ -17,7 +17,7 @@
 </header>
 <main>
 <h1>Politique de confidentialité</h1>
-<p class="updated">Dernière mise à jour : 1er novembre 2026</p>
+<p class="updated">Dernière mise à jour : 1er novembre 2026 (ajout de la vérification des mises à jour)</p>
 
 <p>A Studio est une application de création musicale publiée par Kurodaki. Cette page explique quelles données l'application traite et ce qu'elle en fait.</p>
 
@@ -25,7 +25,7 @@
 <ul>
   <li>L'application ne collecte aucune donnée personnelle.</li>
   <li>Elle ne demande pas de compte, ne contient pas de publicité et n'utilise aucun outil de mesure d'audience.</li>
-  <li>L'application ne se connecte à aucun serveur. Une règle de sécurité intégrée bloque tout chargement de ressource extérieure.</li>
+  <li>La seule connexion de l'application sert à vérifier sur GitHub si une nouvelle version existe. Elle n'envoie aucune information vous concernant et peut être désactivée.</li>
   <li>Vos projets restent sur votre appareil.</li>
 </ul>
 
@@ -38,12 +38,17 @@
 </table>
 <p>Ces données ne quittent pas l'appareil. Nous n'y avons pas accès. Vous pouvez tout effacer depuis les réglages Android (Applications, A Studio, Stockage, Effacer les données) ou en désinstallant l'application.</p>
 
+<h2>Vérification des mises à jour</h2>
+<p>Au démarrage, l'application Android demande à GitHub quelle est la dernière version publiée (adresse <code>api.github.com/repos/kurodaki-dev/A-studio/releases/latest</code>). Cette requête ne contient ni identifiant, ni cookie, ni information sur vos projets ou votre appareil. Comme pour toute connexion à internet, GitHub reçoit l'adresse IP du téléphone, qu'il traite selon sa <a href="https://docs.github.com/fr/site-policy/privacy-policies/github-general-privacy-statement">déclaration de confidentialité</a>. Nous ne recevons rien.</p>
+<p>Si une version plus récente existe, l'application vous la propose. Le téléchargement ne démarre que si vous touchez « Télécharger » : le fichier s'ouvre alors dans votre navigateur, depuis la page des versions du projet sur GitHub.</p>
+<p>Vous pouvez couper la vérification automatique dans le menu, option « Vérifier au démarrage ». La vérification manuelle reste disponible avec « Rechercher une mise à jour ».</p>
+
 <h2>Fichiers que vous exportez</h2>
 <p>Quand vous exportez un fichier WAV ou un fichier projet, l'application ouvre le menu de partage d'Android. C'est vous qui choisissez où le fichier part (un dossier, une application de stockage, une messagerie). L'application n'envoie rien d'elle même. Le service que vous choisissez applique sa propre politique de confidentialité.</p>
 <p>Quand vous importez un fichier projet, l'application lit uniquement le fichier que vous sélectionnez.</p>
 
 <h2>Permissions Android</h2>
-<p>L'application n'accède ni au micro, ni aux contacts, ni à la localisation, ni à vos fichiers (hors ceux que vous choisissez d'importer). Elle déclare la permission réseau standard d'Android, car le moteur d'affichage intégré (WebView) en a besoin pour afficher les pages de l'application. Elle ne s'en sert pour aucune connexion : sa politique de sécurité de contenu (Content Security Policy) interdit tout chargement en dehors de l'application elle même. Cette permission n'apparaît pas comme une demande à l'installation.</p>
+<p>L'application n'accède ni au micro, ni aux contacts, ni à la localisation, ni à vos fichiers (hors ceux que vous choisissez d'importer). Elle déclare la permission réseau standard d'Android, utilisée uniquement pour la vérification des mises à jour décrite plus haut. Sa politique de sécurité de contenu (Content Security Policy) interdit toute autre connexion. Cette permission n'apparaît pas comme une demande à l'installation.</p>
 
 <h2>Site web sur GitHub Pages</h2>
 <p>Ces pages et la version web de l'application sont hébergées par GitHub Pages. La version web fonctionne comme l'application : les projets sont enregistrés dans le stockage local de votre navigateur et ne sont envoyés nulle part. GitHub, en tant qu'hébergeur, peut traiter des données techniques de connexion comme l'adresse IP pour assurer le service et sa sécurité. Ce traitement relève de GitHub, décrit dans sa <a href="https://docs.github.com/fr/site-policy/privacy-policies/github-general-privacy-statement">déclaration de confidentialité</a>.</p>
