@@ -1,6 +1,8 @@
 import { h, openModal, alertBox } from './ui/dom.js';
+import { registerPlugin } from '@capacitor/core';
 import { isNative } from './platform.js';
 import { APP_BUILD, APP_VERSION, LATEST_URL, newerRelease } from './version.js';
+import { t, fmtNum } from './i18n.js';
 
 const PREF_KEY = 'astudio:autoUpdateCheck';
 
@@ -34,23 +36,65 @@ async function fetchLatest() {
   return res.json();
 }
 
+const AppUpdater = registerPlugin('AppUpdater');
+
+// Download inside the app, then open the Android installer.
+async function installUpdate(rel) {
+  try {
+    const { allowed } = await AppUpdater.canInstall();
+    if (!allowed) {
+      openModal({
+        title: t('Permission needed'),
+        body: h('p', null, t('Android asks you to allow A Studio to install updates. Turn on “Allow from this source”, come back, then tap Download again.')),
+        actions: [
+          { label: t('Cancel') },
+          { label: t('Open settings'), primary: true, onClick: () => AppUpdater.openInstallSettings() },
+        ],
+      });
+      return;
+    }
+  } catch {
+    window.location.href = rel.url;
+    return;
+  }
+  const bar = h('div', { class: 'progress-fill' });
+  const label = h('p', null, t('Downloading...'));
+  const m = openModal({ title: t('Update'), body: h('div', null, label, h('div', { class: 'progress' }, bar)), actions: [] });
+  const sub = await AppUpdater.addListener('progress', ({ received, total }) => {
+    const pct = total > 0 ? Math.round((received / total) * 100) : 0;
+    bar.style.width = pct + '%';
+    label.textContent = t('Downloading...') + ' ' + (total > 0 ? pct + '%' : fmtNum(received / 1048576) + ' MB');
+  });
+  try {
+    await AppUpdater.downloadAndInstall({ url: rel.url });
+    label.textContent = t('Confirm the install in the Android window. A Studio restarts with the new version once you tap Open.');
+    bar.style.width = '100%';
+    setTimeout(() => m.close(), 4000);
+  } catch (e) {
+    m.close();
+    alertBox(t('Update'), t('The download failed: ') + String((e && e.message) || e));
+  } finally {
+    sub.remove();
+  }
+}
+
 function showUpdate(rel) {
   const notes = rel.notes
     .replace(/\*\*/g, '')
     .replace(/^#+\s*/gm, '')
     .trim();
-  const sizeMb = rel.size ? ' (' + (rel.size / 1048576).toFixed(1).replace('.', ',') + ' Mo)' : '';
+  const sizeMb = rel.size ? ' (' + fmtNum(rel.size / 1048576) + t(' MB)') : '';
   openModal({
-    title: 'Mise à jour disponible',
+    title: t('Update available'),
     body: h('div', { class: 'about' },
-      h('p', null, 'Version installée : ', h('strong', null, APP_VERSION)),
-      h('p', null, 'Nouvelle version : ', h('strong', null, rel.version), sizeMb),
+      h('p', null, t('Installed version: '), h('strong', null, APP_VERSION)),
+      h('p', null, t('New version: '), h('strong', null, rel.version), sizeMb),
       notes ? h('pre', { class: 'notes' }, notes.slice(0, 2000)) : null,
-      h('p', null, 'Le fichier s’ouvre dans votre navigateur. Une fois téléchargé, touchez le pour l’installer par dessus la version actuelle. Vos projets sont conservés.'),
+      h('p', null, t('The update downloads inside the app, then Android asks you to confirm the install. Your projects are kept.')),
     ),
     actions: [
-      { label: 'Plus tard' },
-      { label: 'Télécharger', primary: true, onClick: () => { window.location.href = rel.url; } },
+      { label: t('Later') },
+      { label: t('Download'), primary: true, onClick: () => { installUpdate(rel); } },
     ],
   });
 }
@@ -58,14 +102,14 @@ function showUpdate(rel) {
 // silent: no message when up to date or offline (startup check).
 export async function checkForUpdate({ silent }) {
   if (!updatesSupported()) {
-    if (!silent) alertBox('Mises à jour', 'La version web est toujours à jour. Les mises à jour concernent l’application Android.');
+    if (!silent) alertBox(t('Updates'), t('The web version is always up to date. Updates apply to the Android app.'));
     return;
   }
   try {
     const rel = newerRelease(await fetchLatest(), APP_BUILD);
     if (rel) showUpdate(rel);
-    else if (!silent) alertBox('Mises à jour', 'A Studio est à jour (version ' + APP_VERSION + ').');
+    else if (!silent) alertBox(t('Updates'), t('A Studio is up to date (version ') + APP_VERSION + ').');
   } catch {
-    if (!silent) alertBox('Mises à jour', 'Impossible de joindre GitHub. Vérifiez votre connexion et réessayez.');
+    if (!silent) alertBox(t('Updates'), t('Could not reach GitHub. Check your connection and try again.'));
   }
 }

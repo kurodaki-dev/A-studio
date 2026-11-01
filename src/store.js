@@ -1,5 +1,6 @@
 import { BAR, STEP, MIXER_SIZE, TRACKS, PATTERN_COLORS, NKEYS, clamp } from './constants.js';
-import { INSTRUMENT_IDS } from './audio/catalog.js';
+import { isInstrumentId } from './audio/catalog.js';
+import { t } from './i18n.js';
 
 let counter = 0;
 export function newId(prefix) {
@@ -16,12 +17,12 @@ export function makeChannel(instrument, name, insert = 0) {
 }
 
 export function makePattern(index) {
-  return { id: newId('p'), name: 'Motif ' + index, color: (index - 1) % PATTERN_COLORS.length, minBars: 1, notes: {} };
+  return { id: newId('p'), name: t('Pattern ') + index, color: (index - 1) % PATTERN_COLORS.length, minBars: 1, notes: {} };
 }
 
 export function makeMixer() {
   return Array.from({ length: MIXER_SIZE }, (_, i) => ({
-    name: i === 0 ? 'Master' : 'Insert ' + i,
+    name: i === 0 ? 'Master' : t('Insert ') + i,
     vol: 0.8,
     pan: 0,
     mute: false,
@@ -35,21 +36,21 @@ export function newProject() {
   const defs = [
     ['kick', 'Kick'],
     ['clap', 'Clap'],
-    ['hat', 'Charleston'],
-    ['snare', 'Caisse claire'],
+    ['hat', t('Hat')],
+    ['snare', t('Snare')],
     ['piano', 'Piano'],
   ];
   const channels = defs.map(([inst, name], i) => makeChannel(inst, name, i + 1));
   const pat = makePattern(1);
   return {
     version: 1,
-    name: 'Sans titre',
+    name: t('Untitled'),
     bpm: 130,
     channels,
     patterns: [pat],
     currentPattern: pat.id,
     playlist: {
-      tracks: Array.from({ length: TRACKS }, (_, i) => ({ name: 'Piste ' + (i + 1), mute: false })),
+      tracks: Array.from({ length: TRACKS }, (_, i) => ({ name: t('Track ') + (i + 1), mute: false })),
       clips: [],
     },
     mixer: makeMixer(),
@@ -108,7 +109,7 @@ export function isStepChannel(notes) {
 export function nextPatternIndex(proj) {
   let max = 0;
   for (const p of proj.patterns) {
-    const m = /^Motif (\d+)$/.exec(p.name);
+    const m = /^(?:Motif|Pattern) (\d+)$/.exec(p.name);
     if (m) max = Math.max(max, Number(m[1]));
   }
   return Math.max(max, proj.patterns.length) + 1;
@@ -120,15 +121,15 @@ const str = (v, def) => (typeof v === 'string' && v.length ? v.slice(0, 80) : de
 // Validate and complete a project loaded from storage or a file.
 export function normalizeProject(raw) {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.channels) || !Array.isArray(raw.patterns)) {
-    throw new Error('Fichier de projet invalide');
+    throw new Error(t('Invalid project file'));
   }
   const p = newProject();
-  p.name = str(raw.name, 'Sans titre');
+  p.name = str(raw.name, t('Untitled'));
   p.bpm = num(raw.bpm, 130, 10, 522);
   p.channels = raw.channels.slice(0, 64).map((c, i) => ({
     id: str(c.id, newId('c')),
-    name: str(c.name, 'Canal ' + (i + 1)),
-    instrument: INSTRUMENT_IDS.includes(c.instrument) ? c.instrument : 'piano',
+    name: str(c.name, t('Channel ') + (i + 1)),
+    instrument: isInstrumentId(c.instrument) ? c.instrument : 'piano',
     vol: num(c.vol, 0.78, 0, 1),
     pan: num(c.pan, 0, -1, 1),
     mute: !!c.mute,
@@ -158,7 +159,7 @@ export function normalizeProject(raw) {
     }
     return {
       id: str(pt.id, newId('p')),
-      name: str(pt.name, 'Motif ' + (i + 1)),
+      name: str(pt.name, t('Pattern ') + (i + 1)),
       color: Math.round(num(pt.color, i % PATTERN_COLORS.length, 0, PATTERN_COLORS.length - 1)),
       minBars: Math.round(num(pt.minBars, 1, 1, 64)),
       notes,

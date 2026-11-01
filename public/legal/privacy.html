@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy, A Studio</title>
+<link rel="stylesheet" href="legal.css">
+</head>
+<body>
+<header>
+  <a href="../index.html">A STUDIO</a>
+  <nav>
+    <a href="privacy.html">Privacy</a>
+    <a href="terms.html">Terms of use</a>
+    <a href="cookies.html">Cookies</a>
+    <a href="../doc/">Documentation</a>
+  </nav>
+</header>
+<main>
+<h1>Privacy policy</h1>
+<p class="updated">Last updated: November 1, 2026. <a href="fr/confidentialite.html">Version française</a></p>
+
+<p>A Studio is a music production app published by Kurodaki. This page explains what data the app handles and what it does with it.</p>
+
+<h2>Summary</h2>
+<ul>
+  <li>The app collects no personal data.</li>
+  <li>No account, no ads, no analytics.</li>
+  <li>Its only connection asks GitHub whether a new version exists and downloads it when you accept. It sends nothing about you and the check can be turned off.</li>
+  <li>Your projects, samples, plugins and themes stay on your device.</li>
+</ul>
+
+<h2>Data stored on your device</h2>
+<table>
+  <tr><th>Data</th><th>Why</th><th>How long</th></tr>
+  <tr><td>The open project (notes, patterns, mixer settings, tempo)</td><td>Restore your work when you reopen the app</td><td>Until you open another project or clear the app data</td></tr>
+  <tr><td>Projects you save, with their name and save date</td><td>Let you reopen them</td><td>Until you delete them in the browser panel</td></tr>
+  <tr><td>Audio files and sample packs you import (content, name, folder, length)</td><td>Play and use them in your projects</td><td>Until you delete them in the browser panel</td></tr>
+  <tr><td>Plugins and themes you install (JSON files)</td><td>Use them in the app</td><td>Until you delete them in Settings</td></tr>
+  <tr><td>Your preferences: language, theme, update check</td><td>Respect your choices</td><td>Until you clear the app data</td></tr>
+</table>
+<p>This data never leaves the device and we have no access to it. You can erase everything from Android settings (Apps, A Studio, Storage, Clear data) or by uninstalling the app.</p>
+
+<h2>Update check</h2>
+<p>At startup the Android app asks GitHub for the latest published version (<code>api.github.com/repos/kurodaki-dev/A-studio/releases/latest</code>). The request contains no identifier, no cookie and nothing about your projects or device. Like any internet connection, GitHub receives the phone's IP address, which it handles under its <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">privacy statement</a>. We receive nothing.</p>
+<p>If a newer version exists, the app offers it. The download only starts when you tap Download: the app fetches the APK from this project's GitHub releases, then opens the Android installer, which asks you to confirm. Only release addresses of this project are accepted.</p>
+<p>You can turn off the startup check in Settings. The manual check stays available.</p>
+
+<h2>Files you export or import</h2>
+<p>When you export a WAV or project file, the app opens the Android share menu and you choose where the file goes. The app sends nothing by itself; the service you pick applies its own privacy policy.</p>
+<p>When you import a project, audio files, a ZIP pack, a plugin or a theme, the app only reads the files you select and copies them into its storage on the device.</p>
+
+<h2>Plugins and themes</h2>
+<p>Plugins and themes are files you choose to install. They only contain settings (sounds and colors); no code from them is run. They stay on your device.</p>
+
+<h2>Bug reports</h2>
+<p>The Report a bug button opens this project's new issue page on GitHub in your browser, with the app version filled in. Nothing is sent until you submit the issue yourself, and what you submit is public on GitHub.</p>
+
+<h2>Android permissions</h2>
+<p>The app does not access the microphone, contacts, location or your files (other than those you choose to import). It declares the standard network permission, used only to check for and download updates; its Content Security Policy blocks every other connection from the interface. It also declares the permission to install apps, used only to open the Android installer with a downloaded update; Android asks you to allow it the first time.</p>
+
+<h2>Website on GitHub Pages</h2>
+<p>These pages and the web version of the app are hosted by GitHub Pages. The web version works like the app: projects are stored in your browser and sent nowhere. As the host, GitHub may process technical connection data such as IP addresses to run and secure the service, under its own privacy statement.</p>
+
+<h2>Children</h2>
+<p>The app collects no data from anyone, children included.</p>
+
+<h2>Your rights</h2>
+<p>Under the GDPR you have rights of access, rectification and erasure. Since we hold no data about you, there is nothing to send or delete on our side. Data on your device is under your control. You can also file a complaint with your data protection authority (in France, the CNIL: <a href="https://www.cnil.fr">cnil.fr</a>).</p>
+
+<h2>Changes</h2>
+<p>If the app changes how it handles data, this page is updated before the new version is published, with a new date at the top.</p>
+
+<h2>Contact</h2>
+<p>Open an issue on the project repository: <a href="https://github.com/kurodaki-dev/A-studio/issues">github.com/kurodaki-dev/A-studio/issues</a>.</p>
+</main>
+</body>
+</html>

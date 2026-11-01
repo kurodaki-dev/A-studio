@@ -5,20 +5,22 @@ import { CATALOG, CATEGORIES } from '../audio/catalog.js';
 import { listProjects, deleteProject } from '../persist.js';
 import { listSamples, importFiles, deleteSamples, onSamplesChange } from '../samples.js';
 import { addChannel } from './rack.js';
+import { pluginInstruments } from '../plugins.js';
+import { t, fmtNum } from '../i18n.js';
 
 const PREVIEW_KEY = { drums: 60, bass: 36, keys: 60, synth: 60, strings: 55, winds: 67, mallets: 72 };
 
 // FL Studio style browser: a tree beside the editors. Items can be dragged
 // onto the playlist, the piano roll or the channel rack.
 export function createSidebar(engine, actions) {
-  const open = new Set(['samples', 'builtin']);
-  const search = h('input', { class: 'input side-search', type: 'search', placeholder: 'Rechercher', 'aria-label': 'Rechercher dans le navigateur', onInput: () => build() });
+  const open = new Set(['samples', 'builtin', 'plugins']);
+  const search = h('input', { class: 'input side-search', type: 'search', placeholder: t('Search'), 'aria-label': t('Search the browser'), onInput: () => build() });
   const tree = h('div', { class: 'side-tree', role: 'tree' });
-  const el = h('aside', { class: 'sidebar', 'aria-label': 'Navigateur' },
+  const el = h('aside', { class: 'sidebar', 'aria-label': t('Browser') },
     h('div', { class: 'side-head' },
-      h('span', { class: 'ptitle' }, 'Navigateur'),
-      btn('Upload', 'Importer des samples ou un pack ZIP', () => importDialog()),
-      btn('ChevronLeft', 'Fermer le navigateur', () => actions.toggleSidebar(false), 'ghost'),
+      h('span', { class: 'ptitle' }, t('Browser')),
+      btn('Upload', t('Import samples or a ZIP pack'), () => importDialog()),
+      btn('ChevronLeft', t('Close browser'), () => actions.toggleSidebar(false), 'ghost'),
     ),
     h('div', { class: 'side-search-wrap' }, search),
     tree,
@@ -110,7 +112,7 @@ export function createSidebar(engine, actions) {
     const root = { folders: new Map(), items: [] };
     for (const s of samples) {
       let node = root;
-      for (const part of (s.folder || 'Importés').split('/')) {
+      for (const part of (s.folder || t('Imported')).split('/')) {
         if (!node.folders.has(part)) node.folders.set(part, { folders: new Map(), items: [] });
         node = node.folders.get(part);
       }
@@ -123,9 +125,9 @@ export function createSidebar(engine, actions) {
       for (const [name, child] of [...node.folders.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'))) {
         const key = 'samples/' + path + name;
         rows.push(folderRow(key, name, depth, count(child), (anchor) => openMenu(anchor, [
-          { label: 'Supprimer ce dossier', icon: 'Trash', onClick: async () => {
+          { label: t('Delete this folder'), icon: 'Trash', onClick: async () => {
             const list = ids(child);
-            if (await confirmBox('Supprimer des samples', list.length + ' sample(s) du dossier « ' + name + ' » seront supprimés de cet appareil. Les canaux et clips qui les utilisent deviendront muets.', 'Supprimer')) deleteSamples(list);
+            if (await confirmBox(t('Delete samples'), list.length + t(' sample(s) from the folder “') + name + t('” will be deleted from this device. Channels and clips using them will go silent.'), t('Delete'))) deleteSamples(list);
           } },
         ])));
         if (q || open.has(key)) walk(child, path + name + '/', depth + 1);
@@ -137,12 +139,12 @@ export function createSidebar(engine, actions) {
           depth,
           item: { kind: 'sample', id: s.id, name: s.name },
           onTap: () => engine.previewSample(s.id),
-          extra: h('span', { class: 'side-count' }, s.duration ? s.duration.toFixed(1).replace('.', ',') + ' s' : ''),
+          extra: h('span', { class: 'side-count' }, s.duration ? fmtNum(s.duration) + ' s' : ''),
           onMenu: (anchor) => openMenu(anchor, [
-            { label: 'Écouter', icon: 'Play', onClick: () => engine.previewSample(s.id) },
-            { label: 'Ajouter au rack', icon: 'Plus', onClick: () => actions.addSampler(s.id) },
-            { label: 'Supprimer', icon: 'Trash', onClick: async () => {
-              if (await confirmBox('Supprimer le sample', '« ' + s.name + ' » sera supprimé de cet appareil.', 'Supprimer')) deleteSamples([s.id]);
+            { label: t('Preview'), icon: 'Play', onClick: () => engine.previewSample(s.id) },
+            { label: t('Add to rack'), icon: 'Plus', onClick: () => actions.addSampler(s.id) },
+            { label: t('Delete'), icon: 'Trash', onClick: async () => {
+              if (await confirmBox(t('Delete sample'), '« ' + s.name + t('” will be deleted from this device.'), t('Delete'))) deleteSamples([s.id]);
             } },
           ]),
         }));
@@ -158,17 +160,17 @@ export function createSidebar(engine, actions) {
     const rows = [];
 
     const projects = listProjects().filter((p) => match(p.name));
-    rows.push(folderRow('projects', 'Projets', 0, projects.length));
+    rows.push(folderRow('projects', t('Projects'), 0, projects.length));
     if (q || open.has('projects')) {
-      if (!projects.length) rows.push(h('div', { class: 'side-empty' }, 'Aucun projet enregistré'));
+      if (!projects.length) rows.push(h('div', { class: 'side-empty' }, t('No saved project')));
       for (const pr of projects) {
         rows.push(itemRow({
           label: pr.name, iconName: 'FileText', depth: 1,
           onTap: () => actions.openProject(pr.name),
           onMenu: (anchor) => openMenu(anchor, [
-            { label: 'Ouvrir', icon: 'FolderOpen', onClick: () => actions.openProject(pr.name) },
-            { label: 'Supprimer', icon: 'Trash', onClick: async () => {
-              if (await confirmBox('Supprimer le projet', 'Le projet « ' + pr.name + ' » sera supprimé de cet appareil.', 'Supprimer')) {
+            { label: t('Open'), icon: 'FolderOpen', onClick: () => actions.openProject(pr.name) },
+            { label: t('Delete'), icon: 'Trash', onClick: async () => {
+              if (await confirmBox(t('Delete project'), t('Project “') + pr.name + t('” will be deleted from this device.'), t('Delete'))) {
                 deleteProject(pr.name);
                 build();
               }
@@ -179,14 +181,33 @@ export function createSidebar(engine, actions) {
     }
 
     const samples = listSamples().filter((s) => match(s.name) || match(s.folder));
-    rows.push(folderRow('samples', 'Mes samples', 0, samples.length));
+    rows.push(folderRow('samples', t('My samples'), 0, samples.length));
     if (q || open.has('samples')) {
       if (!listSamples().length) {
-        rows.push(h('div', { class: 'side-empty' }, 'Importez des fichiers audio ou un pack ZIP avec le bouton d’import en haut.'));
+        rows.push(h('div', { class: 'side-empty' }, t('Import audio files or a ZIP pack with the import button above.')));
       } else rows.push(...sampleTree(samples, q));
     }
 
-    rows.push(folderRow('builtin', 'Sons intégrés', 0, CATALOG.length));
+    const plugins = pluginInstruments().filter((p) => match(p.name));
+    if (pluginInstruments().length) {
+      rows.push(folderRow('plugins', t('Plugins'), 0, plugins.length));
+      if (q || open.has('plugins')) {
+        for (const p of plugins) {
+          const inst = { id: 'plugin:' + p.id, name: p.name, cat: p.category };
+          rows.push(itemRow({
+            label: p.name, iconName: 'Puzzle', depth: 1,
+            item: { kind: 'instrument', id: inst.id, name: p.name },
+            onTap: () => previewInstrument(inst),
+            onMenu: (anchor) => openMenu(anchor, [
+              { label: t('Preview'), icon: 'Play', onClick: () => previewInstrument(inst) },
+              { label: t('Add to rack'), icon: 'Plus', onClick: () => addChannel(inst.id, engine) },
+            ]),
+          }));
+        }
+      }
+    }
+
+    rows.push(folderRow('builtin', t('Built in sounds'), 0, CATALOG.length));
     if (q || open.has('builtin')) {
       for (const cat of CATEGORIES) {
         const insts = CATALOG.filter((x) => x.cat === cat.id && match(x.name));
@@ -200,8 +221,8 @@ export function createSidebar(engine, actions) {
               item: { kind: 'instrument', id: inst.id, name: inst.name },
               onTap: () => previewInstrument(inst),
               onMenu: (anchor) => openMenu(anchor, [
-                { label: 'Écouter', icon: 'Play', onClick: () => previewInstrument(inst) },
-                { label: 'Ajouter au rack', icon: 'Plus', onClick: () => addChannel(inst.id, engine) },
+                { label: t('Preview'), icon: 'Play', onClick: () => previewInstrument(inst) },
+                { label: t('Add to rack'), icon: 'Plus', onClick: () => addChannel(inst.id, engine) },
               ]),
             }));
           }
@@ -216,19 +237,19 @@ export function createSidebar(engine, actions) {
     input.addEventListener('change', async () => {
       const files = [...(input.files || [])];
       if (!files.length) return;
-      const status = h('p', null, 'Import en cours...');
+      const status = h('p', null, t('Importing...'));
       const m = openModal({ title: 'Import', body: status, actions: [] });
       try {
-        const r = await importFiles(files, (done, total) => { status.textContent = 'Import en cours : ' + done + ' / ' + total; });
+        const r = await importFiles(files, (done, total) => { status.textContent = t('Importing: ') + done + ' / ' + total; });
         m.close();
         open.add('samples');
         build();
-        if (r.added) hint(r.added + ' sample(s) importé(s)');
-        if (r.skipped) alertBox('Import', r.added + ' sample(s) importé(s). ' + r.skipped + ' fichier(s) ignoré(s) : format non reconnu ou fichier illisible.');
-        else if (!r.added) alertBox('Import', 'Aucun fichier audio trouvé.');
+        if (r.added) hint(r.added + t(' sample(s) imported'));
+        if (r.skipped) alertBox('Import', r.added + t(' sample(s) imported. ') + r.skipped + t(' file(s) skipped: unknown format or unreadable file.'));
+        else if (!r.added) alertBox('Import', t('No audio file found.'));
       } catch (e) {
         m.close();
-        alertBox('Import impossible', String((e && e.message) || e));
+        alertBox(t('Import failed'), String((e && e.message) || e));
       }
     });
     input.click();

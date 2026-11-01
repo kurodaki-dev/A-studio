@@ -520,3 +520,36 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 @media (max-width: 900px) {
   .sidebar { width: 200px; }
 }
+
+/* Dropdown (replaces the native select) */
+.dd { justify-content: space-between; min-width: 140px; max-width: 220px; text-align: left; }
+.dd-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd .ic { color: var(--dim); }
+.chan-dd { min-width: 150px; }
+.field .dd { max-width: none; width: 100%; }
+.menu-header { padding: 6px 10px 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Settings */
+.settings { display: flex; flex-direction: column; gap: 14px; }
+.set-sec { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel2); padding: 10px 12px; }
+.set-sec h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; color: var(--accent); }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.set-row:first-of-type { border-top: 0; }
+.set-label { display: flex; flex-direction: column; gap: 2px; }
+.set-label small, .set-item small { color: var(--dim); font-size: 11px; }
+.set-control { display: flex; align-items: center; }
+.set-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.switch input { width: 18px; height: 18px; accent-color: var(--accent); }
+.set-list { display: flex; flex-direction: column; gap: 3px; }
+.set-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.set-item.on { border-color: var(--accent); }
+.set-item-name { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 34px; justify-content: center; background: transparent; border: 0; text-align: left; cursor: pointer; padding: 0 4px; }
+.set-item-name.static { cursor: default; }
+.swatches { display: flex; flex: none; }
+.swatches i { width: 14px; height: 22px; border: 1px solid var(--line); }
+.set-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+
+/* Progress */
+.progress { height: 10px; background: var(--input); border: 1px solid var(--line); margin-top: 8px; }
+.progress-fill { height: 100%; width: 0; background: var(--accent); }

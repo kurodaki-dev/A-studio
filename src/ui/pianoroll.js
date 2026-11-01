@@ -1,10 +1,13 @@
-import { h, btn, icon, hint, openMenu } from './dom.js';
+import { h, btn, icon, hint, openMenu, dropdown } from './dom.js';
 import { attachPointer, fitCanvas } from './pointer.js';
 import { registerDrop } from './dnd.js';
+import { currentTheme } from '../themes.js';
+import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
 import { createChannel, samplerChannel } from './rack.js';
 import { store, currentPattern, notesOf, notesFor, patternLength, getChannel } from '../store.js';
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, NKEYS, SNAPS, snapTicks, noteName, isBlack, clamp } from '../constants.js';
+import { t } from '../i18n.js';
 
 const KEYS_W = 58;
 const RULER_H = 22;
@@ -41,7 +44,8 @@ export function createPianoRoll(engine) {
   const cv = h('canvas', { class: 'cv', 'aria-label': 'Piano roll' });
   const wrap = h('div', { class: 'cvwrap' }, cv);
   const view = { px: 1, rowH: 18, sx: 0, sy: (NKEYS - 1 - 79) * 18 };
-  let W = 0;
+  let W = 0; // right edge of the grid (the vertical scrollbar sits after it)
+  let CW = 0;
   let H = 0;
   let dpr = 1;
   let g = null;
@@ -51,45 +55,45 @@ export function createPianoRoll(engine) {
   let overlay = null; // box or slice preview
 
   // Toolbar
-  const chanSel = h('select', { class: 'sel', 'aria-label': 'Canal', onChange: (e) => { ui.prChannel = e.target.value; clearSel(); store.emit(); } });
+  const chanSel = dropdown({ options: [], value: null, label: t('Channel'), cls: 'chan-dd', onChange: (v) => { ui.prChannel = v; clearSel(); store.emit(); } });
   const toolDefs = [
-    ['draw', 'Pencil', 'Dessiner'],
-    ['paint', 'Paintbrush', 'Pinceau'],
-    ['delete', 'Eraser', 'Supprimer'],
-    ['select', 'SquareDashed', 'Sélection'],
-    ['slice', 'Scissors', 'Couper'],
-    ['hand', 'Hand', 'Déplacer la vue'],
+    ['draw', 'Pencil', t('Draw')],
+    ['paint', 'Paintbrush', t('Paint')],
+    ['delete', 'Eraser', t('Delete')],
+    ['select', 'SquareDashed', t('Select')],
+    ['slice', 'Scissors', t('Slice')],
+    ['hand', 'Hand', t('Pan view')],
   ];
   const toolBtns = toolDefs.map(([id, ic, label]) => {
     const b = btn(ic, label, () => {
       ui.prTool = id;
-      hint('Outil : ' + label);
+      hint(t('Tool: ') + label);
       refreshTools();
     });
     b.dataset.tool = id;
     return b;
   });
-  const snapBtn = h('button', { class: 'b tb snap', type: 'button', title: 'Magnétisme', onClick: (e) => {
+  const snapBtn = h('button', { class: 'b tb snap', type: 'button', title: t('Snap'), onClick: (e) => {
     openMenu(e.currentTarget, SNAPS.map((s) => ({ label: s.label, checked: ui.prSnap === s.id, onClick: () => { ui.prSnap = s.id; refreshTools(); } })));
   } }, icon('Magnet', 16), h('span', { class: 'snap-label' }));
-  const velBtn = btn('AudioLines', 'Afficher les vélocités', () => { showVel = !showVel; refreshTools(); draw(); });
+  const velBtn = btn('AudioLines', t('Show velocities'), () => { showVel = !showVel; refreshTools(); draw(); });
 
   const bar = h('div', { class: 'ptools' },
     h('div', { class: 'grp' }, chanSel),
     h('div', { class: 'grp' }, toolBtns),
     h('div', { class: 'grp' }, snapBtn),
     h('div', { class: 'grp' },
-      btn('Copy', 'Copier', () => copySel()),
-      btn('ClipboardPaste', 'Coller', () => paste()),
-      btn('CopyPlus', 'Dupliquer', () => duplicate()),
-      btn('Trash', 'Supprimer la sélection', () => deleteSel()),
-      btn('ArrowUp', 'Monter d’un demi ton', () => transpose(1)),
-      btn('ArrowDown', 'Descendre d’un demi ton', () => transpose(-1)),
-      btn('Menu', 'Plus d’actions', (e) => moreMenu(e.currentTarget)),
+      btn('Copy', t('Copy'), () => copySel()),
+      btn('ClipboardPaste', t('Paste'), () => paste()),
+      btn('CopyPlus', t('Duplicate'), () => duplicate()),
+      btn('Trash', t('Delete selection'), () => deleteSel()),
+      btn('ArrowUp', t('Up one semitone'), () => transpose(1)),
+      btn('ArrowDown', t('Down one semitone'), () => transpose(-1)),
+      btn('Menu', t('More actions'), (e) => moreMenu(e.currentTarget)),
     ),
     h('div', { class: 'grp' },
-      btn('ZoomOut', 'Zoom arrière', () => zoomX(1 / 1.4, gridX0() + (W - KEYS_W) / 2)),
-      btn('ZoomIn', 'Zoom avant', () => zoomX(1.4, gridX0() + (W - KEYS_W) / 2)),
+      btn('ZoomOut', t('Zoom out'), () => zoomX(1 / 1.4, gridX0() + (W - KEYS_W) / 2)),
+      btn('ZoomIn', t('Zoom in'), () => zoomX(1.4, gridX0() + (W - KEYS_W) / 2)),
       velBtn,
     ),
   );
@@ -106,16 +110,15 @@ export function createPianoRoll(engine) {
     if (!getChannel(p, ui.prChannel)) ui.prChannel = p.channels[0] ? p.channels[0].id : null;
     const sig = p.channels.map((c) => c.id + c.name).join('|');
     if (chanSel.dataset.sig !== sig) {
-      chanSel.replaceChildren(...p.channels.map((c) => h('option', { value: c.id }, c.name)));
+      chanSel.setOptions(p.channels.map((c) => ({ value: c.id, label: c.name })), ui.prChannel);
       chanSel.dataset.sig = sig;
-    }
-    if (ui.prChannel) chanSel.value = ui.prChannel;
+    } else chanSel.setValue(ui.prChannel);
   }
 
   // Geometry
   const gridX0 = () => KEYS_W;
   const gridY0 = () => RULER_H;
-  const gridY1 = () => H - (showVel ? VEL_H : 0);
+  const gridY1 = () => H - SB - (showVel ? VEL_H : 0);
   const tickAt = (x) => (x - KEYS_W + view.sx) / view.px;
   const xAt = (t) => KEYS_W + t * view.px - view.sx;
   const keyAt = (y) => NKEYS - 1 - Math.floor((y - RULER_H + view.sy) / view.rowH);
@@ -131,7 +134,32 @@ export function createPianoRoll(engine) {
     view.sx = Math.max(0, view.sx);
   }
 
+  // Scrollbar geometry: horizontal under everything, vertical right of the grid.
+  const hView = () => W - KEYS_W;
+  const hTotal = () => Math.max((patternLength(pat()) + 2 * BAR) * view.px, view.sx + hView());
+  const vView = () => gridY1() - RULER_H;
+  const vTotal = () => NKEYS * view.rowH;
+
+  function scrollbarDown(p, st) {
+    const horiz = st.region === 'hscroll';
+    const a = horiz ? KEYS_W : RULER_H;
+    const b = horiz ? W : gridY1();
+    const th = thumb(a, b, horiz ? hView() : vView(), horiz ? hTotal() : vTotal(), horiz ? view.sx : view.sy);
+    const at = horiz ? p.x : p.y;
+    st.grab = at >= th.pos && at <= th.pos + th.size ? at - th.pos : th.size / 2;
+    scrollbarMove(p, st);
+  }
+
+  function scrollbarMove(p, st) {
+    if (st.region === 'hscroll') view.sx = scrollAt(KEYS_W, W, hView(), hTotal(), p.x - st.grab);
+    else view.sy = scrollAt(RULER_H, gridY1(), vView(), vTotal(), p.y - st.grab);
+    clampView();
+    draw();
+  }
+
   function regionAt(p) {
+    if (p.y >= H - SB) return p.x >= KEYS_W ? 'hscroll' : 'corner';
+    if (p.x >= W) return p.y >= RULER_H && p.y < gridY1() ? 'vscroll' : 'corner';
     if (p.y < RULER_H) return p.x < KEYS_W ? 'corner' : 'ruler';
     if (showVel && p.y >= gridY1()) return p.x < KEYS_W ? 'corner' : 'vel';
     if (p.x < KEYS_W) return 'keys';
@@ -171,6 +199,17 @@ export function createPianoRoll(engine) {
   // Drawing
   function draw() {
     if (!g) return;
+    const th = currentTheme();
+    const E = th.editor;
+    C.bg = th.colors.panel;
+    C.white = E.gridWhite;
+    C.black = E.gridBlack;
+    C.note = E.note;
+    C.sel = E.noteSelected;
+    C.play = E.playhead;
+    C.ruler = E.ruler;
+    C.rulerText = th.colors.dim;
+    C.velBg = th.colors.input;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = C.bg;
     g.fillRect(0, 0, W, H);
@@ -364,7 +403,7 @@ export function createPianoRoll(engine) {
       g.fillRect(0, y0, W, 2);
       g.fillStyle = C.rulerText;
       g.font = '10px system-ui, sans-serif';
-      g.fillText('Vélocité', 6, y0 + 14);
+      g.fillText(t('Velocity'), 6, y0 + 14);
       g.save();
       g.beginPath();
       g.rect(gx, y0 + 2, W - gx, VEL_H - 2);
@@ -381,6 +420,15 @@ export function createPianoRoll(engine) {
       }
       g.restore();
     }
+
+    // Scrollbars
+    const sbc = { track: th.colors.input, thumb: th.colors.dim };
+    drawScrollbar(g, true, KEYS_W, H - SB, W - KEYS_W, SB, hView(), hTotal(), view.sx, sbc);
+    drawScrollbar(g, false, W, RULER_H, gridY1() - RULER_H, SB, vView(), vTotal(), view.sy, sbc);
+    g.fillStyle = th.colors.panel2;
+    g.fillRect(0, H - SB, KEYS_W, SB);
+    g.fillRect(W, 0, CW - W, RULER_H);
+    g.fillRect(W, gridY1(), CW - W, H - gridY1());
   }
 
   // Editing helpers
@@ -439,13 +487,13 @@ export function createPianoRoll(engine) {
         st.lastKey = pr.n.key;
         preview(pr.n.key, pr.n.vel);
       }
-      hint(noteName(pr.n.key) + '  position ' + fmtPos(pr.n.t));
+      hint(noteName(pr.n.key) + t('  position ') + fmtPos(pr.n.t));
     } else {
       const end0 = pr.t0 + pr.len0;
       const dLen = snapRound(end0 + dtRaw) - end0;
       for (const o of st.group) o.n.len = Math.max(minLen(), o.len0 + dLen);
       ui.lastLen = pr.n.len;
-      hint('Longueur ' + fmtLen(pr.n.len));
+      hint(t('Length ') + fmtLen(pr.n.len));
     }
     store.emit();
   }
@@ -470,6 +518,7 @@ export function createPianoRoll(engine) {
   attachPointer(cv, {
     down(p, st) {
       st.region = regionAt(p);
+      if (st.region === 'hscroll' || st.region === 'vscroll') return scrollbarDown(p, st);
       if (!channel()) return;
       if (st.region === 'keys') {
         const k = keyAt(p.y);
@@ -497,7 +546,7 @@ export function createPianoRoll(engine) {
           ui.lastLen = hit.n.len;
           ui.lastVel = hit.n.vel;
           preview(hit.n.key, hit.n.vel);
-          hint(noteName(hit.n.key) + '  longueur ' + fmtLen(hit.n.len));
+          hint(noteName(hit.n.key) + t('  length ') + fmtLen(hit.n.len));
         } else {
           store.commit();
           clearSel();
@@ -517,7 +566,7 @@ export function createPianoRoll(engine) {
       }
     },
     dragStart(p0, p, st) {
-      if (st.region === 'keys' || st.region === 'vel' || st.region === 'ruler' || st.region === 'corner') return;
+      if (st.region !== 'grid') return;
       if (!channel()) return;
       if (st.erasing) return;
       const tool = ui.prTool;
@@ -556,6 +605,7 @@ export function createPianoRoll(engine) {
       store.emit();
     },
     dragMove(p, st) {
+      if (st.region === 'hscroll' || st.region === 'vscroll') return scrollbarMove(p, st);
       if (st.region === 'keys') {
         const k = keyAt(p.y);
         if (k !== pressedKey) keyDown(k);
@@ -604,7 +654,7 @@ export function createPianoRoll(engine) {
       } else if (st.mode === 'box') {
         overlay = null;
         const count = selected().length;
-        hint(count + (count > 1 ? ' notes sélectionnées' : ' note sélectionnée'));
+        hint(count + (count > 1 ? t(' notes selected') : t(' note selected')));
         draw();
       }
     },
@@ -615,7 +665,7 @@ export function createPianoRoll(engine) {
       if (hit) {
         store.commit();
         removeNote(hit.n);
-        hint('Note supprimée');
+        hint(t('Note deleted'));
         store.emit();
       }
     },
@@ -678,7 +728,7 @@ export function createPianoRoll(engine) {
       }
       store.emit();
       if (spot) engine.preview(c, spot.key, ui.lastVel, 0.4);
-      hint(c.name + (spot ? ' : note ' + noteName(spot.key) + ' ajoutée' : ' ajouté au rack'));
+      hint(c.name + (spot ? t(': note ') + noteName(spot.key) + t(' added') : t(' added to the rack')));
     },
   });
 
@@ -732,7 +782,7 @@ export function createPianoRoll(engine) {
     if (best) {
       for (const n of pool) if (Math.abs(xAt(n.t) - xAt(best.t)) < 1) n.vel = v;
       ui.lastVel = v;
-      hint('Vélocité ' + Math.round(v * 100) + '%');
+      hint(t('Velocity ') + Math.round(v * 100) + '%');
       store.emit();
     }
   }
@@ -749,7 +799,7 @@ export function createPianoRoll(engine) {
     const src = sel.length ? sel : notes();
     if (!src.length) return;
     ui.clipboard = src.map((n) => ({ t: n.t, len: n.len, key: n.key, vel: n.vel }));
-    hint(src.length + (src.length > 1 ? ' notes copiées' : ' note copiée'));
+    hint(src.length + (src.length > 1 ? t(' notes copied') : t(' note copied')));
   }
 
   function paste() {
@@ -758,7 +808,7 @@ export function createPianoRoll(engine) {
     clearSel();
     const arr = editNotes();
     for (const n of ui.clipboard) arr.push({ ...n, s: true });
-    hint('Notes collées, faites les glisser pour les placer');
+    hint(t('Notes pasted, drag them into place'));
     store.emit();
   }
 
@@ -822,30 +872,31 @@ export function createPianoRoll(engine) {
 
   function moreMenu(anchor) {
     openMenu(anchor, [
-      { label: 'Tout sélectionner', onClick: selectAll },
-      { label: 'Désélectionner', onClick: () => { clearSel(); store.emit(); } },
+      { label: t('Select all'), onClick: selectAll },
+      { label: t('Deselect'), onClick: () => { clearSel(); store.emit(); } },
       { sep: true },
-      { label: 'Quantifier les débuts', onClick: quantize },
-      { label: 'Monter d’une octave', icon: 'ChevronsUp', onClick: () => transpose(12) },
-      { label: 'Descendre d’une octave', icon: 'ChevronsDown', onClick: () => transpose(-12) },
+      { label: t('Quantize note starts'), onClick: quantize },
+      { label: t('Up one octave'), icon: 'ChevronsUp', onClick: () => transpose(12) },
+      { label: t('Down one octave'), icon: 'ChevronsDown', onClick: () => transpose(-12) },
       { sep: true },
-      { label: 'Effacer les notes du canal', icon: 'Trash', onClick: clearAll },
+      { label: t('Clear channel notes'), icon: 'Trash', onClick: clearAll },
     ]);
   }
 
-  function fmtPos(t) {
-    return Math.floor(t / BAR) + 1 + ':' + String(Math.floor((t % BAR) / STEP) + 1).padStart(2, '0') + ':' + String(Math.round(t % STEP)).padStart(2, '0');
+  function fmtPos(tk) {
+    return Math.floor(tk / BAR) + 1 + ':' + String(Math.floor((tk % BAR) / STEP) + 1).padStart(2, '0') + ':' + String(Math.round(tk % STEP)).padStart(2, '0');
   }
 
-  function fmtLen(t) {
-    if (t % BAR === 0) return t / BAR + (t / BAR > 1 ? ' mesures' : ' mesure');
-    if (t % BEAT === 0) return t / BEAT + (t / BEAT > 1 ? ' temps' : ' temps');
-    if (t % STEP === 0) return t / STEP + (t / STEP > 1 ? ' pas' : ' pas');
-    return t + ' ticks';
+  function fmtLen(tk) {
+    if (tk % BAR === 0) return tk / BAR + (tk / BAR > 1 ? t(' bars') : t(' bar'));
+    if (tk % BEAT === 0) return tk / BEAT + (tk / BEAT > 1 ? t(' beats') : t(' beats'));
+    if (tk % STEP === 0) return tk / STEP + (tk / STEP > 1 ? t(' steps') : t(' steps'));
+    return tk + ' ticks';
   }
 
   fitCanvas(cv, (w, hh, r) => {
-    W = w;
+    CW = w;
+    W = w - SB;
     H = hh;
     dpr = r;
     g = cv.getContext('2d');

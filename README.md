@@ -1,123 +1,115 @@
-# A Studio
+<div align="center">
 
-Station de création musicale pour Android, construite sur le modèle de FL Studio : channel rack, piano roll, playlist, mixer et navigateur de sons. Les sons sont produits par synthèse en temps réel, sans échantillons.
+<img src="public/icon.svg" width="128" height="128" alt="A Studio icon">
 
-## Télécharger l'APK
+# A Studio for Android
 
-Lien direct vers la dernière version : https://github.com/kurodaki-dev/A-studio/releases/latest/download/A-Studio.apk
+**A Studio is an open source music production studio for Android, built on the FL Studio workflow.**<br>
+Channel rack, piano roll, playlist, mixer and a browser for your own samples, in your pocket.
 
-Sur le téléphone, autorisez l'installation depuis cette source quand Android le demande. L'application s'affiche en paysage.
+<a href="https://github.com/kurodaki-dev/A-studio/releases/latest/download/A-Studio.apk"><img src="https://img.shields.io/github/v/release/kurodaki-dev/A-studio?style=for-the-badge&label=Download%20APK&logo=android&logoColor=white&color=2f383d" alt="Download the APK"></a>
+<a href="https://kurodaki-dev.github.io/A-studio/"><img src="https://img.shields.io/badge/Try%20it-in%20the%20browser-2f383d?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Try it in the browser"></a>
+<a href="https://kurodaki-dev.github.io/A-studio/doc/"><img src="https://img.shields.io/badge/Read%20the-docs-2f383d?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Documentation"></a>
 
-### Mises à jour
+<img src="https://img.shields.io/badge/engine-Web%20Audio-f0993a" alt="engine Web Audio">
+<img src="https://img.shields.io/badge/UI-JavaScript%20·%20Capacitor-0a7bbb" alt="UI JavaScript and Capacitor">
+<img src="https://img.shields.io/badge/min-Android%207%20(API%2024)-0a7bbb" alt="min Android 7">
+<img src="https://img.shields.io/badge/target-Android%2016%20(API%2036)-0a7bbb" alt="target Android 16">
+<img src="https://img.shields.io/badge/license-MIT-0a7bbb" alt="license MIT">
+<img src="https://img.shields.io/badge/status-beta-8e9ba1" alt="status beta">
 
-Chaque modification poussée sur `main` publie automatiquement une nouvelle version (`v1.0.<numéro>`) dans les Releases. Au démarrage, l'application vérifie s'il en existe une plus récente et propose de la télécharger. La nouvelle version s'installe par dessus l'ancienne et garde les projets. Menu : « Rechercher une mise à jour » pour vérifier à la main, « Vérifier au démarrage » pour couper la vérification automatique.
+[Features](#features) · [Piano roll](#piano-roll) · [Browser and samples](#browser-and-samples) · [Plugins and themes](#plugins-and-themes) · [Updates](#updates) · [Privacy](#privacy) · [Building](#building)
 
-## Fonctions
+</div>
 
-**Channel rack**
-- 16 pas par mesure, groupes de 4 en deux couleurs comme dans FL Studio, glisser le doigt pour remplir ou vider plusieurs pas.
-- Par canal : témoin d'activation, panoramique, volume, insert du mixer, menu (piano roll, paramètres, renommer, cloner, déplacer, supprimer).
-- Un canal qui contient des notes de piano roll affiche un aperçu à la place des pas.
+## Features
 
-**Piano roll**
-- Outils : dessiner, pinceau, supprimer, sélection, couper, déplacer la vue.
-- Dessiner : toucher une case vide pose une note avec la dernière longueur utilisée. Toucher une note reprend sa longueur et sa vélocité pour les notes suivantes. Glisser une note la déplace, glisser son bord droit la redimensionne.
-- Appui long sur une note pour la supprimer (équivalent du clic droit, qui fonctionne aussi à la souris).
-- Magnétisme de 1/6 de pas à la mesure, ou aucun.
-- Notes des autres canaux affichées en fantôme, couloir de vélocité, clavier jouable à gauche, notes nommées comme dans FL Studio (le do central est C5).
-- Copier, coller, dupliquer, supprimer la sélection, transposer d'un demi ton ou d'une octave, quantifier.
-- Deux doigts : glisser pour faire défiler, pincer pour zoomer (horizontalement ou verticalement selon l'orientation des doigts).
+- **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert.
+- **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize.
+- **Playlist**: PAT and SONG modes, 16 tracks, pattern clips and audio clips, stretch any clip from its right edge.
+- **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, mute, solo and level meters.
+- **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.
+- **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples.
+- **Projects**: autosave, saved projects, `.astudio` import and export, WAV export of a pattern or the whole song, undo and redo.
+- **Settings**: English or French interface, themes, plugins, update check.
+- Scrollbars and two finger gestures for navigation, landscape full screen layout, keyboard shortcuts on tablets.
 
-**Playlist**
-- Mode PAT (lecture du motif courant) ou SONG (lecture de la playlist).
-- 16 pistes, clips de motifs avec aperçu des notes, clips audio avec forme d'onde, magnétisme mesure, temps ou pas, coupure du son par piste.
-- Étirer un clip : glisser son bord droit. Un clip de motif étiré répète le motif, un clip audio est coupé ou prolongé.
+## Piano roll
 
-**Navigateur**
-- Panneau à gauche, comme dans FL Studio, à ouvrir ou fermer avec le bouton Navigateur (F8). Recherche par nom.
-- Dossiers : Projets, Mes samples, Sons intégrés.
-- Import de fichiers audio (WAV, MP3, OGG, FLAC, M4A, AIFF) et de packs ZIP, dont l'arborescence est conservée. Les samples restent sur l'appareil.
-- Toucher un élément pour l'écouter. Glisser vers la droite (ou appui long) pour le déposer :
-  - sur une piste de la playlist : clip audio ;
-  - dans le piano roll : canal Sampler et note à l'endroit du dépôt ;
-  - dans le channel rack : canal Sampler.
-- Les sons intégrés se déposent de la même façon et créent un canal.
+The piano roll follows FL Studio: tap to place a note with the last used length, tap a note to reuse its length and velocity, drag to move, drag the right edge to resize, long press (or right click) to delete. Middle C is named `C5`, as in FL Studio. See the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#piano-roll) for every tool.
 
-**Mixer**
-- Master et 16 inserts : fader, panoramique, réverbération, écho, coupure, solo, vumètre.
+## Browser and samples
 
-**Sons intégrés et sampler**
-- Batterie : kick, caisse claire, clap, charleston fermé et ouvert, crash, tom, rimshot, cloche à vache.
-- Claviers : piano, piano électrique, orgue.
-- Basses : basse synthé, basse 808.
-- Synthés : lead, nappe, pluck.
-- Cordes : ensemble de cordes, guitare.
-- Vents : flûte, cuivres.
-- Percussions mélodiques : marimba, cloche.
-- Canal Sampler : joue un sample importé, à sa hauteur d'origine sur C5, transposé sur les autres notes.
-- Par canal : transposition, attaque, relâchement, filtre et résonance.
+Import audio files (WAV, MP3, OGG, FLAC, M4A, AIFF) or whole ZIP sample packs from the browser. Folders inside a pack are kept and everything stays on the device. Drag an item to the right (or long press it) and drop it:
 
-**Projets**
-- Sauvegarde automatique du projet en cours, projets enregistrés sur l'appareil.
-- Export et import de fichiers `.astudio`, export WAV 16 bits 44,1 kHz du motif ou du morceau. Un fichier `.astudio` ne contient pas les samples : sur un autre appareil, importez aussi le pack.
-- Annuler et rétablir.
+- on a playlist track to make an audio clip,
+- in the piano roll to create a Sampler channel and place a note,
+- in the channel rack to create a Sampler channel.
 
-Raccourcis clavier (tablette avec clavier ou navigateur) : espace pour lecture et pause, F5 playlist, F6 channel rack, F7 piano roll, F8 ouvre ou ferme le navigateur, F9 mixer, L pour basculer PAT et SONG, Ctrl+Z et Ctrl+Y. Dans le piano roll : P dessiner, B pinceau, D supprimer, E sélection, C couper, Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+B dupliquer, Ctrl+Q quantifier, flèches pour transposer.
+## Plugins and themes
 
-## Données personnelles
+Both are JSON files you can write yourself and install from **Menu, Plugins and themes**.
 
-L'application ne collecte rien. Pas de compte, pas de publicité, pas de mesure d'audience. Sa seule connexion interroge GitHub pour savoir si une nouvelle version existe, sans rien envoyer sur l'utilisateur, et peut être désactivée. Les projets restent dans le stockage local de l'appareil. Détails dans [la politique de confidentialité](public/legal/confidentialite.html), [les conditions d'utilisation](public/legal/conditions.html) et [la politique des cookies](public/legal/cookies.html). Aucun bandeau cookies n'est nécessaire, car l'application ne dépose aucun cookie et n'utilise que le stockage strictement nécessaire.
+- **Plugins** add instruments: oscillators, envelope, filter and LFO. No code from a plugin is ever run; every value is checked and clamped.
+- **Themes** change the interface and editor colors with hex values only.
 
-## Développement
+The format, every field and ready to install examples are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
 
-Prérequis : Node.js 22, JDK 21, Android SDK (plateforme 36).
+## Updates
+
+Every push to `main` builds a signed APK and publishes a release `v1.0.<run number>`. At startup the app checks the latest release; when you tap Download it fetches the APK and opens the Android installer, which asks you to confirm. Tap Open at the end to restart on the new version. Your projects are kept. The startup check can be turned off in Settings.
+
+## Privacy
+
+A Studio collects no personal data: no account, no ads, no analytics. Projects, samples, plugins and themes stay on the device. The only connection asks GitHub for the latest release. See the [privacy policy](https://kurodaki-dev.github.io/A-studio/legal/privacy.html), [terms of use](https://kurodaki-dev.github.io/A-studio/legal/terms.html) and [cookie policy](https://kurodaki-dev.github.io/A-studio/legal/cookies.html). No cookie banner is needed: the app sets no cookies and only uses strictly necessary local storage.
+
+## Building
+
+Requirements: Node.js 22, JDK 21, Android SDK (platform 36).
 
 ```bash
 npm install
-npm run dev          # version web sur http://localhost:5173
-npm test             # tests unitaires
-npm run build        # construit dist/
-npx cap sync android # copie dist/ dans le projet Android
+npm run dev          # web version on http://localhost:5173
+npm test             # unit tests
+npm run build        # builds dist/
+npx cap sync android # copies dist/ into the Android project
 cd android && ./gradlew assembleDebug
 ```
 
-L'APK se trouve ensuite dans `android/app/build/outputs/apk/debug/`.
+### Releases
 
-### Publication
+- `.github/workflows/android.yml` builds a signed APK on every push to `main` and publishes a release. Pull requests build a test APK only.
+- `.github/workflows/pages.yml` publishes the web version, the documentation (`/doc`) and the legal pages on GitHub Pages.
 
-- Chaque push sur `main` construit l'APK signé et publie une release `v1.0.<numéro du run>` (workflow `.github/workflows/android.yml`). Les notes de version sont générées à partir des commits.
-- Les pull requests construisent un APK de test, sans release.
-- Le workflow `.github/workflows/pages.yml` publie la version web et les pages légales sur GitHub Pages. À activer une fois dans Settings, Pages, Source : GitHub Actions.
+Android only installs an update signed with the same key as the installed app. The key is never committed; the workflow reads it from two repository secrets:
 
-**Clé de signature.** Android n'installe une mise à jour que si elle est signée avec la même clé que la version installée. La clé n'est jamais dans le dépôt : le workflow la lit dans deux secrets (Settings, Secrets and variables, Actions) :
-
-| Secret | Contenu |
+| Secret | Content |
 |---|---|
-| `ANDROID_KEYSTORE` | Le fichier `.jks` encodé en base64 (`base64 -w0 astudio.jks`) |
-| `ANDROID_KEYSTORE_PASSWORD` | Le mot de passe du fichier et de la clé (alias `astudio`) |
+| `ANDROID_KEYSTORE` | The `.jks` file encoded in base64 (`base64 -w0 astudio.jks`) |
+| `ANDROID_KEYSTORE_PASSWORD` | Password of the file and of the key (alias `astudio`) |
 
-Sans ces secrets, le workflow s'arrête sur `main` au lieu de publier un APK impossible à mettre à jour. Gardez une copie de la clé en lieu sûr : si elle est perdue, les utilisateurs devront désinstaller l'application pour passer à une nouvelle clé.
-
-Build signé en local :
-
-```bash
-APP_BUILD=1 APP_VERSION=1.0.1 ANDROID_KEYSTORE_FILE=/chemin/astudio.jks ANDROID_KEYSTORE_PASSWORD=... \
-  ./gradlew assembleRelease
-```
-
-## Structure
+### Project structure
 
 ```
 src/
-  audio/      catalogue, instruments synthétisés, moteur (séquenceur, mixer, export)
-  ui/         channel rack, piano roll, playlist, mixer, navigateur, contrôles
-  store.js    modèle de projet, annuler et rétablir
-public/legal/ confidentialité, conditions, cookies
-android/      projet Capacitor
+  audio/        instrument catalog, synthesized instruments, engine (sequencer, mixer, export)
+  ui/           channel rack, piano roll, playlist, mixer, browser, settings, controls
+  locales/      translations (English is the source language)
+  plugins.js    plugin validation and synth
+  themes.js     themes
+  samples.js    sample storage (IndexedDB) and ZIP import
+public/
+  doc/          documentation site and plugin and theme examples
+  legal/        privacy, terms and cookie pages (English, French in legal/fr)
+android/        Capacitor project, including the in app updater
 ```
 
-## Licence
+## Contributing
 
-MIT. Icônes : [Lucide](https://lucide.dev), le jeu d'icônes utilisé par shadcn/ui (licence ISC).
+Bug reports and ideas are welcome: [open an issue](https://github.com/kurodaki-dev/A-studio/issues/new/choose). The **Report a bug** button in the app opens the form with your version filled in.
 
-A Studio est un projet indépendant, sans lien avec Image Line Software. FL Studio est une marque de Image Line Software.
+## License
+
+MIT. Icons: [Lucide](https://lucide.dev), the icon set used by shadcn/ui (ISC license).
+
+A Studio is an independent project, not affiliated with Image Line Software. FL Studio is a trademark of Image Line Software.

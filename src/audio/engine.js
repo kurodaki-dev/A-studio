@@ -2,6 +2,7 @@ import { INSTRUMENTS } from './instruments.js';
 import { PPQ, BEAT, BAR, MIXER_SIZE } from '../constants.js';
 import { patternLength, songLength, getPattern, currentPattern, clipLength } from '../store.js';
 import { getBuffer, loadBuffer } from '../samples.js';
+import { pluginInstrument } from '../plugins.js';
 import { encodeWav } from '../wav.js';
 
 // Fader position to linear gain. 0.8 is 0 dB, like FL Studio's mixer.
@@ -201,7 +202,8 @@ export function playNote(G, channel, t, key, vel, dur) {
   const ch = G.channels.get(channel.id);
   if (!ch) return null;
   if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel);
-  const inst = INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
+  const inst = channel.instrument.startsWith('plugin:') ? pluginInstrument(channel.instrument.slice(7)) : INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
+  if (!inst) return null;
   const p = channel.params;
   const f = 440 * Math.pow(2, (key + (p.pitch || 0) - 69) / 12);
   const vg = ctx.createGain();

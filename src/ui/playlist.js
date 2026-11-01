@@ -1,46 +1,52 @@
 import { h, btn, icon, hint, openMenu } from './dom.js';
 import { attachPointer, fitCanvas } from './pointer.js';
 import { registerDrop } from './dnd.js';
+import { currentTheme } from '../themes.js';
+import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
 import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId } from '../store.js';
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, PPQ, TRACKS, PATTERN_COLORS, clamp } from '../constants.js';
 import { getSampleMeta, getBuffer, loadBuffer, waveform } from '../samples.js';
 import { createChannel } from './rack.js';
+import { t } from '../i18n.js';
 
 const HEAD_W = 92;
 const RULER_H = 22;
 const AUDIO_COLOR = '#5d7f96';
 const SNAPS = [
-  { id: 'bar', label: 'Mesure', ticks: BAR },
-  { id: 'beat', label: 'Temps', ticks: BEAT },
-  { id: 'step', label: 'Pas', ticks: STEP },
+  { id: 'bar', label: t('Bar'), ticks: BAR },
+  { id: 'beat', label: t('Beat'), ticks: BEAT },
+  { id: 'step', label: t('Step'), ticks: STEP },
 ];
 
 export function createPlaylist(engine) {
   const cv = h('canvas', { class: 'cv', 'aria-label': 'Playlist' });
   const wrap = h('div', { class: 'cvwrap' }, cv);
   const view = { px: 0.12, rowH: 40, sx: 0, sy: 0 };
+  // W and H are the grid edges; the scrollbars use the strips after them.
   let W = 0;
   let H = 0;
+  let CW = 0;
+  let CH = 0;
   let dpr = 1;
   let g = null;
   let dropHover = null; // { track, tick, len }
 
   const toolDefs = [
-    ['draw', 'Pencil', 'Dessiner'],
-    ['delete', 'Eraser', 'Supprimer'],
-    ['hand', 'Hand', 'Déplacer la vue'],
+    ['draw', 'Pencil', t('Draw')],
+    ['delete', 'Eraser', t('Delete')],
+    ['hand', 'Hand', t('Pan view')],
   ];
   const toolBtns = toolDefs.map(([id, ic, label]) => {
     const b = btn(ic, label, () => {
       ui.plTool = id;
-      hint('Outil : ' + label);
+      hint(t('Tool: ') + label);
       refresh();
     });
     b.dataset.tool = id;
     return b;
   });
-  const snapBtn = h('button', { class: 'b tb snap', type: 'button', title: 'Magnétisme', onClick: (e) => {
+  const snapBtn = h('button', { class: 'b tb snap', type: 'button', title: t('Snap'), onClick: (e) => {
     openMenu(e.currentTarget, SNAPS.map((s) => ({ label: s.label, checked: ui.plSnap === s.id, onClick: () => { ui.plSnap = s.id; refresh(); } })));
   } }, icon('Magnet', 16), h('span', { class: 'snap-label' }));
   const patLabel = h('span', { class: 'rack-info' });
@@ -49,8 +55,8 @@ export function createPlaylist(engine) {
     h('div', { class: 'grp' }, toolBtns),
     h('div', { class: 'grp' }, snapBtn),
     h('div', { class: 'grp' },
-      btn('ZoomOut', 'Zoom arrière', () => zoomX(1 / 1.4, HEAD_W + (W - HEAD_W) / 2)),
-      btn('ZoomIn', 'Zoom avant', () => zoomX(1.4, HEAD_W + (W - HEAD_W) / 2)),
+      btn('ZoomOut', t('Zoom out'), () => zoomX(1 / 1.4, HEAD_W + (W - HEAD_W) / 2)),
+      btn('ZoomIn', t('Zoom in'), () => zoomX(1.4, HEAD_W + (W - HEAD_W) / 2)),
     ),
   );
   const el = h('div', { class: 'panel pl' }, bar, wrap);
@@ -59,7 +65,7 @@ export function createPlaylist(engine) {
     toolBtns.forEach((b) => b.classList.toggle('on', b.dataset.tool === ui.plTool));
     snapBtn.querySelector('.snap-label').textContent = (SNAPS.find((s) => s.id === ui.plSnap) || SNAPS[0]).label;
     const pat = getPattern(store.project, store.project.currentPattern);
-    patLabel.textContent = pat ? 'Motif à placer : ' + pat.name : '';
+    patLabel.textContent = pat ? t('Pattern to place: ') + pat.name : '';
   }
 
   const snap = () => (SNAPS.find((s) => s.id === ui.plSnap) || SNAPS[0]).ticks;
@@ -72,6 +78,26 @@ export function createPlaylist(engine) {
   function clampView() {
     view.sx = Math.max(0, view.sx);
     view.sy = clamp(view.sy, 0, Math.max(0, TRACKS * view.rowH - (H - RULER_H)));
+  }
+
+  const hView = () => W - HEAD_W;
+  const hTotal = () => Math.max((songLength(store.project) + 4 * BAR) * view.px, view.sx + hView());
+  const vView = () => H - RULER_H;
+  const vTotal = () => TRACKS * view.rowH;
+
+  function scrollbarDown(p, st) {
+    const horiz = st.region === 'hscroll';
+    const th = horiz ? thumb(HEAD_W, W, hView(), hTotal(), view.sx) : thumb(RULER_H, H, vView(), vTotal(), view.sy);
+    const at = horiz ? p.x : p.y;
+    st.grab = at >= th.pos && at <= th.pos + th.size ? at - th.pos : th.size / 2;
+    scrollbarMove(p, st);
+  }
+
+  function scrollbarMove(p, st) {
+    if (st.region === 'hscroll') view.sx = scrollAt(HEAD_W, W, hView(), hTotal(), p.x - st.grab);
+    else view.sy = scrollAt(RULER_H, H, vView(), vTotal(), p.y - st.grab);
+    clampView();
+    draw();
   }
 
   function clipAt(p) {
@@ -133,7 +159,7 @@ export function createPlaylist(engine) {
       if (getSampleMeta(c.sampleId)) loadBuffer(c.sampleId);
       else {
         g.fillStyle = '#f2f4f5';
-        g.fillText('Sample absent', x + 4, y + view.rowH - 10);
+        g.fillText(t('Missing sample'), x + 4, y + view.rowH - 10);
       }
       return;
     }
@@ -153,8 +179,10 @@ export function createPlaylist(engine) {
   function draw() {
     if (!g) return;
     const p = store.project;
+    const th = currentTheme();
+    const E = th.editor;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#262e32';
+    g.fillStyle = th.colors.panel;
     g.fillRect(0, 0, W, H);
     const t0 = Math.max(0, tickAt(HEAD_W));
     const t1 = tickAt(W);
@@ -165,7 +193,7 @@ export function createPlaylist(engine) {
     for (let tr = 0; tr < TRACKS; tr++) {
       const y = yAt(tr);
       if (y > H || y + view.rowH < RULER_H) continue;
-      g.fillStyle = tr % 2 ? '#2f3a3f' : '#344147';
+      g.fillStyle = tr % 2 ? E.trackB : E.trackA;
       g.fillRect(HEAD_W, y, W - HEAD_W, view.rowH);
       g.fillStyle = 'rgba(0,0,0,0.3)';
       g.fillRect(HEAD_W, y + view.rowH - 1, W - HEAD_W, 1);
@@ -218,13 +246,13 @@ export function createPlaylist(engine) {
       g.strokeRect(x + 1, y + 2, Math.max(8, dropHover.len * view.px) - 2, view.rowH - 4);
     }
     if (ui.songMode && (engine.playing || engine.pos > 0)) {
-      g.fillStyle = '#f0993a';
+      g.fillStyle = E.playhead;
       g.fillRect(Math.round(xAt(engine.position())), RULER_H, 1, H - RULER_H);
     }
     g.restore();
 
     // Ruler
-    g.fillStyle = '#2b3337';
+    g.fillStyle = E.ruler;
     g.fillRect(0, 0, W, RULER_H);
     g.save();
     g.beginPath();
@@ -237,7 +265,7 @@ export function createPlaylist(engine) {
       g.fillStyle = '#5d6a70';
       g.fillRect(x, 10, 1, RULER_H - 10);
       if (b % every === 0) {
-        g.fillStyle = '#aab6bb';
+        g.fillStyle = th.colors.dim;
         g.fillText(String(b + 1), x + 4, 9);
       }
     }
@@ -246,7 +274,7 @@ export function createPlaylist(engine) {
     g.fillRect(Math.max(HEAD_W, xAt(end)), 0, W, RULER_H);
     if (ui.songMode && (engine.playing || engine.pos > 0)) {
       const x = Math.round(xAt(engine.position()));
-      g.fillStyle = '#f0993a';
+      g.fillStyle = E.playhead;
       g.beginPath();
       g.moveTo(x - 5, RULER_H - 8);
       g.lineTo(x + 5, RULER_H - 8);
@@ -267,20 +295,28 @@ export function createPlaylist(engine) {
       const y = yAt(tr);
       if (y > H || y + view.rowH < RULER_H) continue;
       const t = p.playlist.tracks[tr];
-      g.fillStyle = '#3a454b';
+      g.fillStyle = th.colors.panel2;
       g.fillRect(0, y, HEAD_W, view.rowH);
       g.fillStyle = 'rgba(0,0,0,0.35)';
       g.fillRect(0, y + view.rowH - 1, HEAD_W, 1);
-      g.fillStyle = t.mute ? '#3b4448' : '#8fcf6a';
+      g.fillStyle = t.mute ? th.colors.panel3 : th.colors.green;
       g.fillRect(8, y + view.rowH / 2 - 5, 10, 10);
-      g.fillStyle = t.mute ? '#7c878c' : '#d5dcdf';
+      g.fillStyle = t.mute ? th.colors.dim : th.colors.text;
       g.fillText(t.name, 26, y + view.rowH / 2);
     }
     g.restore();
     g.fillStyle = '#151a1d';
     g.fillRect(HEAD_W - 1, RULER_H, 1, H - RULER_H);
-    g.fillStyle = '#2b3337';
+    g.fillStyle = E.ruler;
     g.fillRect(0, 0, HEAD_W, RULER_H);
+
+    const sbc = { track: th.colors.input, thumb: th.colors.dim };
+    drawScrollbar(g, true, HEAD_W, H, W - HEAD_W, SB, hView(), hTotal(), view.sx, sbc);
+    drawScrollbar(g, false, W, RULER_H, H - RULER_H, SB, vView(), vTotal(), view.sy, sbc);
+    g.fillStyle = th.colors.panel2;
+    g.fillRect(0, H, HEAD_W, CH - H);
+    g.fillRect(W, 0, CW - W, RULER_H);
+    g.fillRect(W, H, CW - W, CH - H);
   }
 
   function placeClip(p) {
@@ -299,20 +335,23 @@ export function createPlaylist(engine) {
   }
 
   function regionAt(p) {
+    if (p.y >= H) return p.x >= HEAD_W && p.x < W ? 'hscroll' : 'corner';
+    if (p.x >= W) return p.y >= RULER_H ? 'vscroll' : 'corner';
     if (p.y < RULER_H) return p.x < HEAD_W ? 'corner' : 'ruler';
     if (p.x < HEAD_W) return 'head';
     return 'grid';
   }
 
-  function fmtLen(t) {
-    if (t % BAR === 0) return t / BAR + (t / BAR > 1 ? ' mesures' : ' mesure');
-    if (t % BEAT === 0) return t / BEAT + ' temps';
-    return Math.round(t / STEP) + ' pas';
+  function fmtLen(tk) {
+    if (tk % BAR === 0) return tk / BAR + (tk / BAR > 1 ? t(' bars') : t(' bar'));
+    if (tk % BEAT === 0) return tk / BEAT + t(' beats');
+    return Math.round(tk / STEP) + t(' steps');
   }
 
   attachPointer(cv, {
     down(p, st) {
       st.region = regionAt(p);
+      if (st.region === 'hscroll' || st.region === 'vscroll') return scrollbarDown(p, st);
       if (st.region === 'ruler') seek(p);
       if (st.region === 'grid' && (ui.plTool === 'delete' || st.button === 2)) {
         store.commit();
@@ -338,7 +377,7 @@ export function createPlaylist(engine) {
         engine.previewSample(hit.c.sampleId);
       } else if (hit) {
         store.project.currentPattern = hit.c.patternId;
-        hint('Motif sélectionné : ' + getPattern(store.project, hit.c.patternId).name);
+        hint(t('Selected pattern: ') + getPattern(store.project, hit.c.patternId).name);
         store.emit();
       } else {
         store.commit();
@@ -371,6 +410,7 @@ export function createPlaylist(engine) {
       store.emit();
     },
     dragMove(p, st) {
+      if (st.region === 'hscroll' || st.region === 'vscroll') return scrollbarMove(p, st);
       if (st.region === 'ruler') return seek(p);
       if (st.erasing) {
         const hit = clipAt(p);
@@ -394,7 +434,7 @@ export function createPlaylist(engine) {
         const end = st.clip.start + st.len0 + (tickAt(p.x) - tickAt(st.p0.x));
         const len = Math.max(snap(), Math.round((end - st.clip.start) / snap()) * snap());
         st.clip.len = len;
-        hint('Longueur du clip : ' + fmtLen(len));
+        hint(t('Clip length: ') + fmtLen(len));
         store.emit();
       }
     },
@@ -404,7 +444,7 @@ export function createPlaylist(engine) {
       if (hit) {
         store.commit();
         removeClip(hit.c);
-        hint('Clip supprimé');
+        hint(t('Clip deleted'));
         store.emit();
       }
     },
@@ -438,7 +478,7 @@ export function createPlaylist(engine) {
   // Drop from the browser: a sample becomes an audio clip, an instrument a new channel.
   function dropSpot(item, p) {
     const tr = trackAt(p.y);
-    if (p.x < HEAD_W || p.y < RULER_H || tr < 0 || tr >= TRACKS) return null;
+    if (p.x < HEAD_W || p.y < RULER_H || p.x >= W || p.y >= H || tr < 0 || tr >= TRACKS) return null;
     const tick = Math.max(0, Math.floor(tickAt(p.x) / snap()) * snap());
     let len = BAR;
     if (item.kind === 'sample') {
@@ -463,7 +503,7 @@ export function createPlaylist(engine) {
       dropHover = null;
       if (item.kind === 'instrument') {
         store.change((proj) => createChannel(proj, item.id));
-        hint(item.name + ' ajouté au rack');
+        hint(item.name + t(' added to the rack'));
         return;
       }
       const spot = dropSpot(item, p);
@@ -472,7 +512,7 @@ export function createPlaylist(engine) {
         proj.playlist.clips.push({ id: newId('k'), type: 'audio', sampleId: item.id, name: item.name, track: spot.track, start: spot.tick, len: spot.len });
       });
       loadBuffer(item.id);
-      hint(item.name + ' placé sur la ' + store.project.playlist.tracks[spot.track].name);
+      hint(item.name + t(' placed on ') + store.project.playlist.tracks[spot.track].name);
     },
   });
 
@@ -491,8 +531,10 @@ export function createPlaylist(engine) {
   }
 
   fitCanvas(cv, (w, hh, r) => {
-    W = w;
-    H = hh;
+    CW = w;
+    CH = hh;
+    W = w - SB;
+    H = hh - SB;
     dpr = r;
     g = cv.getContext('2d');
     clampView();

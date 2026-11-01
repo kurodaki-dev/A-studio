@@ -6,6 +6,7 @@ import { STEP, BAR, clamp } from '../constants.js';
 import { CATALOG, CATEGORIES, instrumentName } from '../audio/catalog.js';
 import { getSampleMeta } from '../samples.js';
 import { registerDrop } from './dnd.js';
+import { t } from '../i18n.js';
 
 export function addChannelMenu(anchor, engine, onAdded) {
   const items = [];
@@ -50,14 +51,14 @@ export function samplerChannel(p, sampleId) {
 export function addChannel(instId, engine, onAdded) {
   if (store.project.channels.length >= 64) return;
   store.change((p) => createChannel(p, instId));
-  hint(instrumentName(instId) + ' ajouté au rack');
+  hint(instrumentName(instId) + t(' added to the rack'));
   onAdded && onAdded();
 }
 
 export function addSampler(sampleId) {
   let c = null;
   store.change((p) => { c = samplerChannel(p, sampleId); });
-  if (c) hint(c.name + ' ajouté au rack');
+  if (c) hint(c.name + t(' added to the rack'));
 }
 
 export function createRack(engine, actions) {
@@ -66,11 +67,11 @@ export function createRack(engine, actions) {
   const head = h('div', { class: 'ptools' },
     h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Channel rack'), stepsInfo),
     h('div', { class: 'grp' },
-      btn('Minus', 'Retirer une mesure', () => changeBars(-1)),
-      btn('Plus', 'Ajouter une mesure', () => changeBars(1)),
+      btn('Minus', t('Remove a bar'), () => changeBars(-1)),
+      btn('Plus', t('Add a bar'), () => changeBars(1)),
     ),
   );
-  const addBtn = h('button', { class: 'b tb rack-add', type: 'button', onClick: (e) => addChannelMenu(e.currentTarget, engine) }, icon('Plus', 16), 'Ajouter un canal');
+  const addBtn = h('button', { class: 'b tb rack-add', type: 'button', onClick: (e) => addChannelMenu(e.currentTarget, engine) }, icon('Plus', 16), t('Add channel'));
   const scroller = h('div', { class: 'rack-scroll' }, list, addBtn);
   const el = h('div', { class: 'panel rack' }, head, scroller);
   let rows = [];
@@ -98,10 +99,10 @@ export function createRack(engine, actions) {
     rows = p.channels.map((c, ci) => {
       const notes = notesOf(pat, c.id);
       const stepMode = isStepChannel(notes);
-      const mute = led(!c.mute, 'Canal actif', () => store.change(() => { c.mute = !c.mute; }));
+      const mute = led(!c.mute, t('Channel enabled'), () => store.change(() => { c.mute = !c.mute; }));
       const pan = knob({
-        value: c.pan, min: -1, max: 1, def: 0, size: 22, label: 'Panoramique ' + c.name,
-        format: (v) => (Math.abs(v) < 0.01 ? 'Centre' : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? 'gauche' : 'droite')),
+        value: c.pan, min: -1, max: 1, def: 0, size: 22, label: t('Pan ') + c.name,
+        format: (v) => (Math.abs(v) < 0.01 ? t('Center') : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? 'gauche' : 'droite')),
         onStart: () => store.commit(),
         onInput: (v) => { c.pan = v; store.emit(); },
       });
@@ -110,9 +111,9 @@ export function createRack(engine, actions) {
         onStart: () => store.commit(),
         onInput: (v) => { c.vol = v; store.emit(); },
       });
-      const ins = h('button', { class: 'rack-ins', type: 'button', title: 'Insert du mixer', onClick: (e) => insertMenu(e.currentTarget, c) }, c.insert === 0 ? 'M' : String(c.insert));
+      const ins = h('button', { class: 'rack-ins', type: 'button', title: t('Mixer insert'), onClick: (e) => insertMenu(e.currentTarget, c) }, c.insert === 0 ? 'M' : String(c.insert));
       const missing = c.instrument === 'sampler' && !getSampleMeta(c.sample);
-      const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: missing ? 'Sample absent de cet appareil' : instrumentName(c.instrument), onClick: (e) => channelMenu(e.currentTarget, c, ci) }, c.name);
+      const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: missing ? t('Sample missing on this device') : instrumentName(c.instrument), onClick: (e) => channelMenu(e.currentTarget, c, ci) }, c.name);
       let body;
       let stepEls = [];
       if (stepMode) {
@@ -124,7 +125,7 @@ export function createRack(engine, actions) {
         }
         attachSteps(body, c);
       } else {
-        body = h('canvas', { class: 'mini', title: 'Ouvrir dans le piano roll', onClick: () => actions.openPianoRoll(c.id) });
+        body = h('canvas', { class: 'mini', title: t('Open in piano roll'), onClick: () => actions.openPianoRoll(c.id) });
       }
       const row = h('div', { class: 'rack-row' + (ui.prChannel === c.id ? ' current' : '') }, mute, pan, vol, ins, name, body);
       return { c, row, mute, pan, vol, body, stepEls, stepMode };
@@ -223,7 +224,7 @@ export function createRack(engine, actions) {
       } else drawMini(r.body, notes);
     }
     const bars = patternLength(pat) / BAR;
-    stepsInfo.textContent = pat.name + ', ' + bars + (bars > 1 ? ' mesures' : ' mesure');
+    stepsInfo.textContent = pat.name + ', ' + bars + (bars > 1 ? t(' bars') : t(' bar'));
   }
 
   function signature() {
@@ -247,30 +248,30 @@ export function createRack(engine, actions) {
     const p = store.project;
     openMenu(anchor, [
       { label: 'Piano roll', icon: 'Piano', onClick: () => actions.openPianoRoll(c.id) },
-      { label: 'Paramètres du canal', icon: 'Settings', onClick: () => actions.channelSettings(c.id) },
-      { label: 'Renommer', icon: 'Pencil', onClick: async () => {
-        const v = await promptText('Renommer le canal', c.name);
+      { label: t('Channel settings'), icon: 'Settings', onClick: () => actions.channelSettings(c.id) },
+      { label: t('Rename'), icon: 'Pencil', onClick: async () => {
+        const v = await promptText(t('Rename channel'), c.name);
         if (v) store.change(() => { c.name = v; });
       } },
-      { label: 'Cloner', icon: 'Copy', onClick: () => store.change((pp) => {
+      { label: t('Clone'), icon: 'Copy', onClick: () => store.change((pp) => {
         const copy = JSON.parse(JSON.stringify(c));
         copy.id = makeChannel(c.instrument, c.name).id;
         copy.name = c.name + ' 2';
         pp.channels.splice(index + 1, 0, copy);
       }) },
       { sep: true },
-      { label: 'Monter', icon: 'ChevronUp', disabled: index === 0, onClick: () => store.change((pp) => {
+      { label: t('Move up'), icon: 'ChevronUp', disabled: index === 0, onClick: () => store.change((pp) => {
         pp.channels.splice(index - 1, 0, pp.channels.splice(index, 1)[0]);
       }) },
-      { label: 'Descendre', icon: 'ChevronDown', disabled: index === p.channels.length - 1, onClick: () => store.change((pp) => {
+      { label: t('Move down'), icon: 'ChevronDown', disabled: index === p.channels.length - 1, onClick: () => store.change((pp) => {
         pp.channels.splice(index + 1, 0, pp.channels.splice(index, 1)[0]);
       }) },
       { sep: true },
-      { label: 'Vider les notes de ce motif', icon: 'Eraser', onClick: () => store.change((pp) => {
+      { label: t('Clear notes in this pattern'), icon: 'Eraser', onClick: () => store.change((pp) => {
         currentPattern(pp).notes[c.id] = [];
       }) },
-      { label: 'Supprimer le canal', icon: 'Trash', onClick: async () => {
-        if (!(await confirmBox('Supprimer le canal', 'Le canal « ' + c.name + ' » et ses notes dans tous les motifs seront supprimés.', 'Supprimer'))) return;
+      { label: t('Delete channel'), icon: 'Trash', onClick: async () => {
+        if (!(await confirmBox(t('Delete channel'), t('Channel “') + c.name + t('” and its notes in every pattern will be deleted.'), t('Delete')))) return;
         store.change((pp) => {
           pp.channels = pp.channels.filter((x) => x.id !== c.id);
           for (const pt of pp.patterns) delete pt.notes[c.id];
