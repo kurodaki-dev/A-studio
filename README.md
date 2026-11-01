@@ -18,9 +18,24 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 <img src="https://img.shields.io/badge/license-MIT-0a7bbb" alt="license MIT">
 <img src="https://img.shields.io/badge/status-beta-8e9ba1" alt="status beta">
 
-[Features](#features) · [Piano roll](#piano-roll) · [Browser and samples](#browser-and-samples) · [Plugins and themes](#plugins-and-themes) · [Updates](#updates) · [Privacy](#privacy) · [Building](#building)
+[Screenshots](#screenshots) · [Features](#features) · [Piano roll](#piano-roll) · [Browser and samples](#browser-and-samples) · [Plugins and themes](#plugins-and-themes) · [Updates](#updates) · [Privacy](#privacy) · [Building](#building)
 
 </div>
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/channel-rack.png" width="49%" alt="Channel rack with a drum pattern">
+  <img src="docs/screenshots/piano-roll.png" width="49%" alt="Piano roll with chords">
+</p>
+<p align="center">
+  <img src="docs/screenshots/playlist-browser.png" width="49%" alt="Playlist with the browser panel open">
+  <img src="docs/screenshots/mixer.png" width="49%" alt="Mixer with the master and inserts">
+</p>
+<p align="center">
+  <img src="docs/screenshots/settings.png" width="49%" alt="Settings with themes and plugins">
+</p>
+<p align="center"><sub>Channel rack, piano roll, playlist with the browser, mixer and settings, captured from the app in landscape.</sub></p>
 
 ## Features
 
