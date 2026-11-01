@@ -2,7 +2,7 @@ import { INSTRUMENTS } from './instruments.js';
 import { PPQ, BEAT, BAR, MIXER_SIZE } from '../constants.js';
 import { patternLength, songLength, getPattern, currentPattern, clipLength } from '../store.js';
 import { getBuffer, loadBuffer } from '../samples.js';
-import { pluginInstrument } from '../plugins.js';
+import { getPlugin, paramValues, loadPluginModule, pluginReady, processorName, pluginInstruments } from '../plugins.js';
 import { encodeWav } from '../wav.js';
 
 // Fader position to linear gain. 0.8 is 0 dB, like FL Studio's mixer.
@@ -21,7 +21,7 @@ function impulse(ctx, seconds = 2.2, decay = 3) {
 }
 
 export function createGraph(ctx, dest) {
-  const G = { ctx, channels: new Map(), inserts: [] };
+  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0 };
   const masterIn = ctx.createGain();
   const masterPan = ctx.createStereoPanner();
   const masterVol = ctx.createGain();
@@ -133,6 +133,22 @@ export function syncGraph(G, project, smooth) {
       G.channels.delete(id);
     }
   }
+  // Plugin nodes: drop the ones whose channel is gone or changed instrument, push parameter changes.
+  for (const [id, entry] of G.pluginNodes) {
+    const c = project.channels.find((x) => x.id === id) || (id.startsWith('__preview_') ? { instrument: entry.instrument } : null);
+    const plugin = c && c.instrument && c.instrument.startsWith('plugin:') ? getPlugin(c.instrument.slice(7)) : null;
+    if (!plugin || processorName(plugin) !== entry.name) {
+      entry.node.disconnect();
+      G.pluginNodes.delete(id);
+      continue;
+    }
+    const values = paramValues(plugin, c.pluginParams);
+    const json = JSON.stringify(values);
+    if (json !== entry.params) {
+      entry.params = json;
+      entry.node.port.postMessage({ type: 'params', values });
+    }
+  }
 }
 
 // Start one note. dur = Infinity holds it until releaseVoice().
@@ -197,13 +213,51 @@ export function playAudioClip(G, clip, t, offset, dur) {
   return voice;
 }
 
+// Worklet node that runs a code plugin for one channel.
+function pluginNode(G, channel, ch) {
+  const plugin = getPlugin(channel.instrument.slice(7));
+  if (!plugin) return null;
+  const name = processorName(plugin);
+  let entry = G.pluginNodes.get(channel.id);
+  if (entry && entry.name === name) return entry.node;
+  if (!pluginReady(G.ctx, plugin)) {
+    loadPluginModule(G.ctx, plugin);
+    return null;
+  }
+  if (entry) entry.node.disconnect();
+  const params = paramValues(plugin, channel.pluginParams);
+  const node = new AudioWorkletNode(G.ctx, name, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params } });
+  node.port.onmessage = (e) => {
+    if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(plugin, e.data.message);
+  };
+  node.connect(ch.in);
+  entry = { node, name, instrument: channel.instrument, params: JSON.stringify(params) };
+  G.pluginNodes.set(channel.id, entry);
+  return node;
+}
+
+function playPlugin(G, channel, ch, t, key, vel, dur) {
+  const k = key + (channel.params.pitch || 0);
+  const ev = { type: 'note', id: ++G.noteId, frame: Math.round(t * G.ctx.sampleRate), key: k, freq: 440 * Math.pow(2, (k - 69) / 12), vel, dur };
+  if (G.offline) {
+    // Offline export: events go to the node at creation, see renderWav.
+    if (!G.pluginEvents.has(channel.id)) G.pluginEvents.set(channel.id, []);
+    G.pluginEvents.get(channel.id).push(ev);
+    return null;
+  }
+  const node = pluginNode(G, channel, ch);
+  if (!node) return null;
+  node.port.postMessage(ev);
+  return { plugin: true, node, id: ev.id, end: Number.isFinite(dur) ? t + dur + 2 : Infinity };
+}
+
 export function playNote(G, channel, t, key, vel, dur) {
   const ctx = G.ctx;
   const ch = G.channels.get(channel.id);
   if (!ch) return null;
   if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel);
-  const inst = channel.instrument.startsWith('plugin:') ? pluginInstrument(channel.instrument.slice(7)) : INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
-  if (!inst) return null;
+  if (channel.instrument.startsWith('plugin:')) return playPlugin(G, channel, ch, t, key, vel, dur);
+  const inst = INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
   const p = channel.params;
   const f = 440 * Math.pow(2, (key + (p.pitch || 0) - 69) / 12);
   const vg = ctx.createGain();
@@ -241,6 +295,11 @@ export function playNote(G, channel, t, key, vel, dur) {
 
 export function releaseVoice(ctx, voice, fast = false) {
   if (!voice || voice.ended) return;
+  if (voice.plugin) {
+    voice.node.port.postMessage({ type: 'off', id: voice.id });
+    voice.ended = true;
+    return;
+  }
   const now = ctx.currentTime;
   if (voice.end <= now) return;
   if (voice.oneShot && !fast) return;
@@ -330,10 +389,18 @@ export class Engine {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC({ latencyHint: 'interactive' });
       this.G = createGraph(this.ctx, this.ctx.destination);
+      this.G.onPluginError = (p, msg) => this.onPluginError && this.onPluginError(p, msg);
       syncGraph(this.G, this.store.project, false);
+      this.preloadPlugins();
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
+  }
+
+  // Load every installed plugin into the audio thread so the first note plays.
+  preloadPlugins() {
+    if (!this.ctx) return;
+    for (const p of pluginInstruments()) loadPluginModule(this.ctx, p);
   }
 
   sync() {
@@ -388,6 +455,7 @@ export class Engine {
     this.playing = false;
     if (this.ctx) for (const v of this.voices) releaseVoice(this.ctx, v, true);
     this.voices.clear();
+    if (this.G) for (const e of this.G.pluginNodes.values()) e.node.port.postMessage({ type: 'stop' });
   }
 
   setPosition(tick) {
@@ -462,7 +530,7 @@ export class Engine {
   track(v) {
     this.voices.add(v);
     if (this.voices.size > 256) {
-      for (const x of this.voices) if (x.ended) this.voices.delete(x);
+      for (const x of this.voices) if (x.ended || x.end < this.ctx.currentTime - 1) this.voices.delete(x);
     }
   }
 
@@ -523,6 +591,11 @@ export async function renderWav(project, mode) {
   for (const c of project.channels) if (c.instrument === 'sampler' && c.sample) ids.add(c.sample);
   if (mode === 'song') for (const c of project.playlist.clips) if (c.type === 'audio') ids.add(c.sampleId);
   await Promise.all([...ids].map((id) => loadBuffer(id)));
+  const plugins = new Map();
+  for (const c of project.channels) {
+    const p = c.instrument.startsWith('plugin:') ? getPlugin(c.instrument.slice(7)) : null;
+    if (p) plugins.set(c.id, p);
+  }
   const L = loopLength(project, mode);
   const spt = 60 / (project.bpm * PPQ);
   const sr = 44100;
@@ -530,12 +603,25 @@ export async function renderWav(project, mode) {
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const ctx = new OAC(2, Math.ceil((L * spt + tail) * sr), sr);
   const G = createGraph(ctx, ctx.destination);
+  G.offline = true;
   syncGraph(G, project, false);
   collectEvents(project, mode, 0, L, (c, n, tt) => {
     playNote(G, c, tt * spt, n.key, n.vel, n.len * spt);
   }, (clip, tt) => {
     playAudioClip(G, clip, tt * spt, 0, clipLength(project, clip) * spt);
   });
+  for (const [cid, p] of plugins) {
+    const events = G.pluginEvents.get(cid);
+    if (!events || !(await loadPluginModule(ctx, p))) continue;
+    const c = project.channels.find((x) => x.id === cid);
+    const node = new AudioWorkletNode(ctx, processorName(p), {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      processorOptions: { params: paramValues(p, c.pluginParams), events },
+    });
+    node.connect(G.channels.get(cid).in);
+  }
   const buf = await ctx.startRendering();
   return encodeWav([buf.getChannelData(0), buf.getChannelData(1)], sr);
 }

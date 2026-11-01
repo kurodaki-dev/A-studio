@@ -12,23 +12,23 @@ export function openSettings({ section = 'general', onExtensionsChange } = {}) {
   const body = h('div', { class: 'settings' });
   const m = openModal({ title: t('Settings'), body, wide: true });
 
-  async function importJson(kind) {
+  async function importFile(kind) {
     const text = await pickFile();
     if (!text) return;
-    let raw;
-    try {
-      raw = JSON.parse(text);
-    } catch {
-      alertBox(t('Install failed'), t('This file is not valid JSON.'));
-      return;
-    }
     try {
       if (kind === 'theme') {
+        let raw;
+        try {
+          raw = JSON.parse(text);
+        } catch {
+          alertBox(t('Install failed'), t('This file is not valid JSON.'));
+          return;
+        }
         const th = installTheme(raw);
         applyTheme(th.id);
         hint(t('Theme installed: ') + th.name);
       } else {
-        const p = installPlugin(raw);
+        const p = installPlugin(text);
         hint(t('Plugin installed: ') + p.name);
       }
       onExtensionsChange && onExtensionsChange();
@@ -75,11 +75,12 @@ export function openSettings({ section = 'general', onExtensionsChange } = {}) {
           ),
         )),
         h('div', { class: 'set-actions' },
-          h('button', { class: 'b tb', type: 'button', onClick: () => importJson('theme') }, icon('Upload', 16), t('Install a theme')),
+          h('button', { class: 'b tb', type: 'button', onClick: () => importFile('theme') }, icon('Upload', 16), t('Install a theme')),
         ),
       ),
       h('section', { class: 'set-sec', id: 'set-plugins' },
         h('h3', null, icon('Puzzle', 16), t('Plugins')),
+        h('p', { class: 'set-note' }, t('Plugin code runs only in the audio thread, without access to your projects, samples, files or the network. Install plugins from people you trust: a badly written plugin can still make the sound stutter.')),
         plugins.length
           ? h('div', { class: 'set-list' }, plugins.map((p) =>
               h('div', { class: 'set-item' },
@@ -94,9 +95,9 @@ export function openSettings({ section = 'general', onExtensionsChange } = {}) {
                 }),
               ),
             ))
-          : h('p', { class: 'empty' }, t('No plugin installed. Plugins are JSON files that describe an instrument; see the documentation to create one.')),
+          : h('p', { class: 'empty' }, t('No plugin installed. A plugin is a JavaScript file that generates the sound of an instrument; see the documentation to write one.')),
         h('div', { class: 'set-actions' },
-          h('button', { class: 'b tb', type: 'button', onClick: () => importJson('plugin') }, icon('Upload', 16), t('Install a plugin')),
+          h('button', { class: 'b tb', type: 'button', onClick: () => importFile('plugin') }, icon('Upload', 16), t('Install a plugin')),
           h('button', { class: 'b tb', type: 'button', onClick: () => openExternal(DOCS_URL + '#plugins') }, icon('BookOpen', 16), t('How to create plugins and themes')),
         ),
       ),

@@ -36,7 +36,7 @@
   <tr><td>The open project (notes, patterns, mixer settings, tempo)</td><td>Restore your work when you reopen the app</td><td>Until you open another project or clear the app data</td></tr>
   <tr><td>Projects you save, with their name and save date</td><td>Let you reopen them</td><td>Until you delete them in the browser panel</td></tr>
   <tr><td>Audio files and sample packs you import (content, name, folder, length)</td><td>Play and use them in your projects</td><td>Until you delete them in the browser panel</td></tr>
-  <tr><td>Plugins and themes you install (JSON files)</td><td>Use them in the app</td><td>Until you delete them in Settings</td></tr>
+  <tr><td>Plugins (JavaScript files) and themes (JSON files) you install</td><td>Use them in the app</td><td>Until you delete them in Settings</td></tr>
   <tr><td>Your preferences: language, theme, update check</td><td>Respect your choices</td><td>Until you clear the app data</td></tr>
 </table>
 <p>This data never leaves the device and we have no access to it. You can erase everything from Android settings (Apps, A Studio, Storage, Clear data) or by uninstalling the app.</p>
@@ -51,7 +51,7 @@
 <p>When you import a project, audio files, a ZIP pack, a plugin or a theme, the app only reads the files you select and copies them into its storage on the device.</p>
 
 <h2>Plugins and themes</h2>
-<p>Plugins and themes are files you choose to install. They only contain settings (sounds and colors); no code from them is run. They stay on your device.</p>
+<p>Plugins and themes are files you choose to install and they stay on your device. A theme only contains colors. A plugin is JavaScript code that generates the sound of an instrument: it runs only in the audio thread (AudioWorklet), which has no access to the app interface, your projects, your samples, your files or the network. It receives notes and returns sound, nothing else.</p>
 
 <h2>Bug reports</h2>
 <p>The Report a bug button opens this project's new issue page on GitHub in your browser, with the app version filled in. Nothing is sent until you submit the issue yourself, and what you submit is public on GitHub.</p>

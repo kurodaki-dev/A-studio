@@ -1,5 +1,5 @@
 import { h, openModal, dropdown } from './dom.js';
-import { pluginInstruments } from '../plugins.js';
+import { pluginInstruments, getPlugin, paramValues } from '../plugins.js';
 import { knob } from './controls.js';
 import { store, getChannel } from '../store.js';
 import { CATALOG, CATEGORIES } from '../audio/catalog.js';
@@ -24,7 +24,13 @@ export function openChannelSettings(id, engine) {
       ...pluginInstruments().map((p) => ({ value: 'plugin:' + p.id, label: p.name, group: t('Plugins') })),
       ...CATEGORIES.flatMap((cat) => CATALOG.filter((x) => x.cat === cat.id).map((x) => ({ value: x.id, label: x.name, group: cat.name }))),
     ],
-    onChange: (v) => set(() => { c.instrument = v; engine.preview(c, 60); }),
+    onChange: (v) => {
+      set(() => { c.instrument = v; });
+      engine.preview(c, 60);
+      // Rebuild the window so the knobs of the new instrument show.
+      modal.close();
+      openChannelSettings(id, engine);
+    },
   });
   const insert = dropdown({
     label: t('Mixer insert'),
@@ -36,6 +42,21 @@ export function openChannelSettings(id, engine) {
   const pitch = h('input', { type: 'range', class: 'range', min: -24, max: 24, step: 1, value: c.params.pitch, onInput: (e) => set(() => { c.params.pitch = Number(e.target.value); showPitch(); }) });
   const showPitch = () => { pitchOut.textContent = (c.params.pitch > 0 ? '+' : '') + c.params.pitch + t(' semitones'); };
   showPitch();
+  // Knobs declared by a code plugin with @param.
+  function pluginKnobs() {
+    const plugin = c.instrument.startsWith('plugin:') ? getPlugin(c.instrument.slice(7)) : null;
+    if (!plugin || !plugin.params.length) return null;
+    const values = paramValues(plugin, c.pluginParams);
+    return h('div', null,
+      h('div', { class: 'field' }, h('span', null, plugin.name)),
+      h('div', { class: 'knobs' }, plugin.params.map((p) =>
+        h('label', { class: 'kl big' },
+          knob({ value: values[p.id], min: p.min, max: p.max, def: p.def, size: 36, label: p.name, format: (v) => (Math.abs(v) >= 100 ? Math.round(v) : v.toFixed(2)), onInput: (v) => set(() => { c.pluginParams = { ...paramValues(plugin, c.pluginParams), [p.id]: v }; }) }),
+          h('span', null, p.name),
+        ),
+      )),
+    );
+  }
   const sec = (v) => (v < 1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s');
   const k = (label, key, max, def, fmt) =>
     h('label', { class: 'kl big' },
@@ -53,7 +74,8 @@ export function openChannelSettings(id, engine) {
       k(t('Filter'), 'cutoff', 1, 1, (v) => Math.round(cutoffHz(v)) + ' Hz'),
       k(t('Resonance'), 'reso', 1, 0, (v) => Math.round(v * 100) + '%'),
     ),
+    pluginKnobs(),
     h('button', { class: 'b tb', type: 'button', onClick: () => engine.preview(c, 60, 0.8, 0.6) }, t('Preview')),
   );
-  openModal({ title: t('Channel settings'), body, wide: true });
+  const modal = openModal({ title: t('Channel settings'), body, wide: true });
 }

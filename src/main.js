@@ -35,6 +35,7 @@ if (saved) {
 }
 
 const engine = new Engine(store, () => (ui.songMode ? 'song' : 'pattern'), () => ui.metronome);
+engine.onPluginError = (p, msg) => alertBox(t('Plugin error'), p.name + ': ' + msg);
 
 const actions = {
   openPianoRoll(id) {
@@ -424,6 +425,7 @@ function mainMenu(anchor) {
 // A theme or plugin was installed, removed or selected.
 function extensionsChanged() {
   sidebar.refresh();
+  engine.preloadPlugins();
   dirty = true;
   for (const p of Object.values(panels)) if (p.redrawMinis) p.redrawMinis();
 }
