@@ -35,6 +35,7 @@ export const CATALOG = [
   { id: 'bell', name: 'Cloche', cat: 'mallets' },
 ];
 
-export const INSTRUMENT_IDS = CATALOG.map((i) => i.id);
-export const instrumentName = (id) => (CATALOG.find((i) => i.id === id) || { name: id }).name;
+// The sampler plays an imported sample. It is created by dropping a sample, not picked from the list.
+export const INSTRUMENT_IDS = [...CATALOG.map((i) => i.id), 'sampler'];
+export const instrumentName = (id) => (id === 'sampler' ? 'Sampler' : (CATALOG.find((i) => i.id === id) || { name: id }).name);
 export const instrumentCat = (id) => (CATALOG.find((i) => i.id === id) || { cat: 'keys' }).cat;

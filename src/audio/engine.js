@@ -1,6 +1,7 @@
 import { INSTRUMENTS } from './instruments.js';
 import { PPQ, BEAT, BAR, MIXER_SIZE } from '../constants.js';
-import { patternLength, songLength, getPattern, currentPattern } from '../store.js';
+import { patternLength, songLength, getPattern, currentPattern, clipLength } from '../store.js';
+import { getBuffer, loadBuffer } from '../samples.js';
 import { encodeWav } from '../wav.js';
 
 // Fader position to linear gain. 0.8 is 0 dB, like FL Studio's mixer.
@@ -134,11 +135,73 @@ export function syncGraph(G, project, smooth) {
 }
 
 // Start one note. dur = Infinity holds it until releaseVoice().
+// Imported sample played as a one shot, pitched from C5.
+function playSampler(G, channel, ch, t, key, vel) {
+  const buf = channel.sample ? getBuffer(channel.sample) : null;
+  if (!buf) {
+    if (channel.sample) loadBuffer(channel.sample);
+    return null;
+  }
+  const ctx = G.ctx;
+  const vg = ctx.createGain();
+  vg.gain.value = vel;
+  vg.connect(ch.in);
+  const s = ctx.createBufferSource();
+  s.buffer = buf;
+  const rate = Math.pow(2, (key + (channel.params.pitch || 0) - 60) / 12);
+  s.playbackRate.value = rate;
+  s.connect(vg);
+  s.start(t);
+  const end = t + buf.duration / rate;
+  s.stop(end);
+  const voice = { vg, sources: [s], rel: 0.05, end, oneShot: true };
+  s.onended = () => {
+    voice.ended = true;
+    try {
+      vg.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+  };
+  return voice;
+}
+
+// Audio clip of the playlist, sent to the master. offset and dur in seconds.
+export function playAudioClip(G, clip, t, offset, dur) {
+  const buf = getBuffer(clip.sampleId);
+  if (!buf) {
+    loadBuffer(clip.sampleId);
+    return null;
+  }
+  if (offset >= buf.duration) return null;
+  const ctx = G.ctx;
+  const vg = ctx.createGain();
+  vg.gain.value = 0.8;
+  vg.connect(G.inserts[0].in);
+  const s = ctx.createBufferSource();
+  s.buffer = buf;
+  s.connect(vg);
+  s.start(t, offset);
+  const end = t + Math.min(dur, buf.duration - offset);
+  s.stop(end);
+  const voice = { vg, sources: [s], rel: 0.02, end, oneShot: true };
+  s.onended = () => {
+    voice.ended = true;
+    try {
+      vg.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+  };
+  return voice;
+}
+
 export function playNote(G, channel, t, key, vel, dur) {
   const ctx = G.ctx;
-  const inst = INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
   const ch = G.channels.get(channel.id);
   if (!ch) return null;
+  if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel);
+  const inst = INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
   const p = channel.params;
   const f = 440 * Math.pow(2, (key + (p.pitch || 0) - 69) / 12);
   const vg = ctx.createGain();
@@ -189,8 +252,9 @@ export function releaseVoice(ctx, voice, fast = false) {
   voice.end = end;
 }
 
-// Calls cb(channel, note, tick) for every note starting in [from, to) of the loop.
-export function collectEvents(project, mode, from, to, cb) {
+// Calls cb(channel, note, tick) for every note starting in [from, to) of the loop,
+// and onAudio(clip, tick) for every audio clip starting in that window.
+export function collectEvents(project, mode, from, to, cb, onAudio) {
   const chans = new Map(project.channels.map((c) => [c.id, c]));
   if (mode === 'pattern') {
     const pat = currentPattern(project);
@@ -204,20 +268,42 @@ export function collectEvents(project, mode, from, to, cb) {
   for (const clip of project.playlist.clips) {
     const track = project.playlist.tracks[clip.track];
     if (track && track.mute) continue;
+    const s = clip.start;
+    if (clip.type === 'audio') {
+      if (s >= from && s < to && onAudio) onAudio(clip, s);
+      continue;
+    }
     const pat = getPattern(project, clip.patternId);
     if (!pat) continue;
     const L = patternLength(pat);
-    const s = clip.start;
-    if (s >= to || s + L <= from) continue;
-    for (const [cid, notes] of Object.entries(pat.notes)) {
-      const c = chans.get(cid);
-      if (!c) continue;
-      for (const n of notes) {
-        const tt = s + n.t;
-        if (n.t < L && tt >= from && tt < to) cb(c, n, tt);
+    const len = clipLength(project, clip);
+    if (s >= to || s + len <= from) continue;
+    // A stretched clip repeats its pattern.
+    const k0 = Math.max(0, Math.floor((from - s) / L));
+    const k1 = Math.floor((Math.min(to, s + len) - s) / L);
+    for (let k = k0; k <= k1; k++) {
+      const base = s + k * L;
+      for (const [cid, notes] of Object.entries(pat.notes)) {
+        const c = chans.get(cid);
+        if (!c) continue;
+        for (const n of notes) {
+          if (n.t >= L) continue;
+          const tt = base + n.t;
+          if (tt >= from && tt < to && tt < s + len) cb(c, n, tt);
+        }
       }
     }
   }
+}
+
+// Audio clips already sounding at a position (playback started inside them).
+export function audioClipsAt(project, pos) {
+  return project.playlist.clips.filter((c) => {
+    if (c.type !== 'audio') return false;
+    const track = project.playlist.tracks[c.track];
+    if (track && track.mute) return false;
+    return c.start < pos && pos < c.start + clipLength(project, c);
+  });
 }
 
 export function loopLength(project, mode) {
@@ -273,6 +359,7 @@ export class Engine {
     this.anchorTick = 0;
     this.nextAbs = 0;
     this.nextPos = this.pos;
+    this.fresh = true;
     clearInterval(this.timer);
     this.timer = setInterval(() => this.schedule(), 25);
     this.schedule();
@@ -309,6 +396,7 @@ export class Engine {
       this.anchorTick = 0;
       this.nextAbs = 0;
       this.nextPos = Math.max(0, tick);
+      this.fresh = true;
     } else this.pos = Math.max(0, tick);
   }
 
@@ -341,9 +429,21 @@ export class Engine {
       const from = this.nextPos;
       const to = from + seg;
       const base = this.nextAbs - from;
+      if (mode === 'song' && this.fresh) {
+        // Resume audio clips that started before this point.
+        for (const clip of audioClipsAt(proj, from)) {
+          const v = playAudioClip(this.G, clip, Math.max(this.tickToTime(this.nextAbs), ctx.currentTime), (from - clip.start) * spt, (clip.start + clipLength(proj, clip) - from) * spt);
+          if (v) this.track(v);
+        }
+      }
+      this.fresh = false;
       collectEvents(proj, mode, from, to, (c, n, tt) => {
         const time = Math.max(this.tickToTime(base + tt), ctx.currentTime);
         const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt);
+        if (v) this.track(v);
+      }, (clip, tt) => {
+        const time = Math.max(this.tickToTime(base + tt), ctx.currentTime);
+        const v = playAudioClip(this.G, clip, time, 0, clipLength(proj, clip) * spt);
         if (v) this.track(v);
       });
       if (this.getMetronome()) {
@@ -384,6 +484,15 @@ export class Engine {
     playNote(this.G, channel, this.ctx.currentTime + 0.005, key, vel, dur);
   }
 
+  // Play an imported sample from the browser, straight to the master.
+  async previewSample(id) {
+    this.init();
+    const buf = getBuffer(id) || (await loadBuffer(id));
+    if (!buf) return;
+    if (this.previewVoice) releaseVoice(this.ctx, this.previewVoice, true);
+    this.previewVoice = playAudioClip(this.G, { sampleId: id }, this.ctx.currentTime + 0.01, 0, Math.min(buf.duration, 30));
+  }
+
   noteOn(channel, key, vel = 0.78) {
     this.init();
     this.sync();
@@ -408,6 +517,10 @@ export class Engine {
 
 // Render the song or the current pattern to a WAV ArrayBuffer.
 export async function renderWav(project, mode) {
+  const ids = new Set();
+  for (const c of project.channels) if (c.instrument === 'sampler' && c.sample) ids.add(c.sample);
+  if (mode === 'song') for (const c of project.playlist.clips) if (c.type === 'audio') ids.add(c.sampleId);
+  await Promise.all([...ids].map((id) => loadBuffer(id)));
   const L = loopLength(project, mode);
   const spt = 60 / (project.bpm * PPQ);
   const sr = 44100;
@@ -418,6 +531,8 @@ export async function renderWav(project, mode) {
   syncGraph(G, project, false);
   collectEvents(project, mode, 0, L, (c, n, tt) => {
     playNote(G, c, tt * spt, n.key, n.vel, n.len * spt);
+  }, (clip, tt) => {
+    playAudioClip(G, clip, tt * spt, 0, clipLength(project, clip) * spt);
   });
   const buf = await ctx.startRendering();
   return encodeWav([buf.getChannelData(0), buf.getChannelData(1)], sr);

@@ -4,6 +4,8 @@ import { store, currentPattern, notesOf, notesFor, patternLength, isStepChannel,
 import { ui } from '../ui-state.js';
 import { STEP, BAR, clamp } from '../constants.js';
 import { CATALOG, CATEGORIES, instrumentName } from '../audio/catalog.js';
+import { getSampleMeta } from '../samples.js';
+import { registerDrop } from './dnd.js';
 
 export function addChannelMenu(anchor, engine, onAdded) {
   const items = [];
@@ -16,23 +18,46 @@ export function addChannelMenu(anchor, engine, onAdded) {
   openMenu(anchor, items);
 }
 
+function freeInsert(p) {
+  const used = new Set(p.channels.map((c) => c.insert));
+  for (let i = 1; i < p.mixer.length; i++) if (!used.has(i)) return i;
+  return 0;
+}
+
+// Mutate the project (caller commits). Returns the new channel or null when the rack is full.
+export function createChannel(p, instId) {
+  if (p.channels.length >= 64) return null;
+  const c = makeChannel(instId, instrumentName(instId), freeInsert(p));
+  p.channels.push(c);
+  ui.prChannel = c.id;
+  return c;
+}
+
+// Reuse the sampler channel of this sample, or create one (caller commits).
+export function samplerChannel(p, sampleId) {
+  let c = p.channels.find((x) => x.instrument === 'sampler' && x.sample === sampleId);
+  if (!c) {
+    if (p.channels.length >= 64) return null;
+    const m = getSampleMeta(sampleId);
+    c = makeChannel('sampler', m ? m.name : 'Sample', freeInsert(p));
+    c.sample = sampleId;
+    p.channels.push(c);
+  }
+  ui.prChannel = c.id;
+  return c;
+}
+
 export function addChannel(instId, engine, onAdded) {
   if (store.project.channels.length >= 64) return;
-  store.change((p) => {
-    const used = new Set(p.channels.map((c) => c.insert));
-    let insert = 0;
-    for (let i = 1; i < p.mixer.length; i++) {
-      if (!used.has(i)) {
-        insert = i;
-        break;
-      }
-    }
-    const c = makeChannel(instId, instrumentName(instId), insert);
-    p.channels.push(c);
-    ui.prChannel = c.id;
-  });
+  store.change((p) => createChannel(p, instId));
   hint(instrumentName(instId) + ' ajouté au rack');
   onAdded && onAdded();
+}
+
+export function addSampler(sampleId) {
+  let c = null;
+  store.change((p) => { c = samplerChannel(p, sampleId); });
+  if (c) hint(c.name + ' ajouté au rack');
 }
 
 export function createRack(engine, actions) {
@@ -86,7 +111,8 @@ export function createRack(engine, actions) {
         onInput: (v) => { c.vol = v; store.emit(); },
       });
       const ins = h('button', { class: 'rack-ins', type: 'button', title: 'Insert du mixer', onClick: (e) => insertMenu(e.currentTarget, c) }, c.insert === 0 ? 'M' : String(c.insert));
-      const name = h('button', { class: 'rack-name', type: 'button', title: instrumentName(c.instrument), onClick: (e) => channelMenu(e.currentTarget, c, ci) }, c.name);
+      const missing = c.instrument === 'sampler' && !getSampleMeta(c.sample);
+      const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: missing ? 'Sample absent de cet appareil' : instrumentName(c.instrument), onClick: (e) => channelMenu(e.currentTarget, c, ci) }, c.name);
       let body;
       let stepEls = [];
       if (stepMode) {
@@ -203,7 +229,7 @@ export function createRack(engine, actions) {
   function signature() {
     const p = store.project;
     const pat = currentPattern(p);
-    return [store.gen, pat.id, stepCount(), ...p.channels.map((c) => [c.id, c.name, c.instrument, c.insert, isStepChannel(notesOf(pat, c.id))].join(':'))].join('|');
+    return [store.gen, pat.id, stepCount(), ...p.channels.map((c) => [c.id, c.name, c.instrument, c.insert, isStepChannel(notesOf(pat, c.id)), c.instrument === 'sampler' && !getSampleMeta(c.sample)].join(':'))].join('|');
   }
 
   function insertMenu(anchor, c) {
@@ -252,6 +278,18 @@ export function createRack(engine, actions) {
       } },
     ]);
   }
+
+  registerDrop({
+    el: scroller,
+    accepts: (item) => item.kind === 'sample' || item.kind === 'instrument',
+    over: () => scroller.classList.add('drop-over'),
+    leave: () => scroller.classList.remove('drop-over'),
+    drop(item) {
+      scroller.classList.remove('drop-over');
+      if (item.kind === 'sample') addSampler(item.id);
+      else addChannel(item.id, engine);
+    },
+  });
 
   return {
     el,

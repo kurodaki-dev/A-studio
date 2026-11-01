@@ -30,12 +30,23 @@ Chaque modification poussée sur `main` publie automatiquement une nouvelle vers
 
 **Playlist**
 - Mode PAT (lecture du motif courant) ou SONG (lecture de la playlist).
-- 16 pistes, clips de motifs avec aperçu des notes, magnétisme mesure, temps ou pas, coupure du son par piste.
+- 16 pistes, clips de motifs avec aperçu des notes, clips audio avec forme d'onde, magnétisme mesure, temps ou pas, coupure du son par piste.
+- Étirer un clip : glisser son bord droit. Un clip de motif étiré répète le motif, un clip audio est coupé ou prolongé.
+
+**Navigateur**
+- Panneau à gauche, comme dans FL Studio, à ouvrir ou fermer avec le bouton Navigateur (F8). Recherche par nom.
+- Dossiers : Projets, Mes samples, Sons intégrés.
+- Import de fichiers audio (WAV, MP3, OGG, FLAC, M4A, AIFF) et de packs ZIP, dont l'arborescence est conservée. Les samples restent sur l'appareil.
+- Toucher un élément pour l'écouter. Glisser vers la droite (ou appui long) pour le déposer :
+  - sur une piste de la playlist : clip audio ;
+  - dans le piano roll : canal Sampler et note à l'endroit du dépôt ;
+  - dans le channel rack : canal Sampler.
+- Les sons intégrés se déposent de la même façon et créent un canal.
 
 **Mixer**
 - Master et 16 inserts : fader, panoramique, réverbération, écho, coupure, solo, vumètre.
 
-**Sons intégrés**
+**Sons intégrés et sampler**
 - Batterie : kick, caisse claire, clap, charleston fermé et ouvert, crash, tom, rimshot, cloche à vache.
 - Claviers : piano, piano électrique, orgue.
 - Basses : basse synthé, basse 808.
@@ -43,14 +54,15 @@ Chaque modification poussée sur `main` publie automatiquement une nouvelle vers
 - Cordes : ensemble de cordes, guitare.
 - Vents : flûte, cuivres.
 - Percussions mélodiques : marimba, cloche.
+- Canal Sampler : joue un sample importé, à sa hauteur d'origine sur C5, transposé sur les autres notes.
 - Par canal : transposition, attaque, relâchement, filtre et résonance.
 
 **Projets**
 - Sauvegarde automatique du projet en cours, projets enregistrés sur l'appareil.
-- Export et import de fichiers `.astudio`, export WAV 16 bits 44,1 kHz du motif ou du morceau.
+- Export et import de fichiers `.astudio`, export WAV 16 bits 44,1 kHz du motif ou du morceau. Un fichier `.astudio` ne contient pas les samples : sur un autre appareil, importez aussi le pack.
 - Annuler et rétablir.
 
-Raccourcis clavier (tablette avec clavier ou navigateur) : espace pour lecture et pause, F5 playlist, F6 channel rack, F7 piano roll, F8 navigateur, F9 mixer, L pour basculer PAT et SONG, Ctrl+Z et Ctrl+Y. Dans le piano roll : P dessiner, B pinceau, D supprimer, E sélection, C couper, Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+B dupliquer, Ctrl+Q quantifier, flèches pour transposer.
+Raccourcis clavier (tablette avec clavier ou navigateur) : espace pour lecture et pause, F5 playlist, F6 channel rack, F7 piano roll, F8 ouvre ou ferme le navigateur, F9 mixer, L pour basculer PAT et SONG, Ctrl+Z et Ctrl+Y. Dans le piano roll : P dessiner, B pinceau, D supprimer, E sélection, C couper, Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+B dupliquer, Ctrl+Q quantifier, flèches pour transposer.
 
 ## Données personnelles
 

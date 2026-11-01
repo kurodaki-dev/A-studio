@@ -23,12 +23,13 @@
 <p>A Studio ne dépose aucun cookie, ni dans l'application Android, ni sur ce site. Il n'y a pas de cookie publicitaire, pas de cookie de mesure d'audience et pas de cookie de réseau social.</p>
 
 <h2>Stockage local</h2>
-<p>L'application utilise le stockage local de l'appareil ou du navigateur (localStorage) pour enregistrer vos projets à votre demande, restaurer le projet en cours quand vous revenez et retenir votre choix sur la vérification des mises à jour.</p>
+<p>L'application utilise le stockage local de l'appareil ou du navigateur (localStorage et IndexedDB) pour enregistrer vos projets à votre demande, restaurer le projet en cours quand vous revenez et retenir votre choix sur la vérification des mises à jour et conserver les samples que vous importez.</p>
 <table>
   <tr><th>Clé</th><th>Contenu</th><th>Finalité</th></tr>
   <tr><td>astudio:current</td><td>Le projet ouvert</td><td>Restaurer votre travail à la réouverture</td></tr>
   <tr><td>astudio:projects</td><td>Les projets enregistrés, avec leur nom et leur date</td><td>Lister et rouvrir vos projets</td></tr>
   <tr><td>astudio:autoUpdateCheck</td><td>Votre choix pour la vérification des mises à jour au démarrage</td><td>Respecter ce choix</td></tr>
+  <tr><td>Base IndexedDB « astudio »</td><td>Les samples que vous importez</td><td>Les utiliser dans vos projets</td></tr>
 </table>
 <p>Ces données ne sont jamais transmises. Elles sont strictement nécessaires au service que vous demandez. Selon les recommandations de la CNIL, ce type de stockage est exempté de consentement. C'est pourquoi l'application n'affiche pas de bandeau cookies : il n'y a rien à accepter ou refuser.</p>
 

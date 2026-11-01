@@ -1,18 +1,22 @@
 import { h, btn, icon, hint, openMenu } from './dom.js';
 import { attachPointer, fitCanvas } from './pointer.js';
-import { store, getPattern, patternLength, songLength, newId } from '../store.js';
+import { registerDrop } from './dnd.js';
+import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId } from '../store.js';
 import { ui } from '../ui-state.js';
-import { BAR, BEAT, STEP, TRACKS, PATTERN_COLORS, clamp } from '../constants.js';
+import { BAR, BEAT, STEP, PPQ, TRACKS, PATTERN_COLORS, clamp } from '../constants.js';
+import { getSampleMeta, getBuffer, loadBuffer, waveform } from '../samples.js';
+import { createChannel } from './rack.js';
 
 const HEAD_W = 92;
 const RULER_H = 22;
+const AUDIO_COLOR = '#5d7f96';
 const SNAPS = [
   { id: 'bar', label: 'Mesure', ticks: BAR },
   { id: 'beat', label: 'Temps', ticks: BEAT },
   { id: 'step', label: 'Pas', ticks: STEP },
 ];
 
-export function createPlaylist(engine, actions) {
+export function createPlaylist(engine) {
   const cv = h('canvas', { class: 'cv', 'aria-label': 'Playlist' });
   const wrap = h('div', { class: 'cvwrap' }, cv);
   const view = { px: 0.12, rowH: 40, sx: 0, sy: 0 };
@@ -20,6 +24,7 @@ export function createPlaylist(engine, actions) {
   let H = 0;
   let dpr = 1;
   let g = null;
+  let dropHover = null; // { track, tick, len }
 
   const toolDefs = [
     ['draw', 'Pencil', 'Dessiner'],
@@ -62,6 +67,7 @@ export function createPlaylist(engine, actions) {
   const xAt = (t) => HEAD_W + t * view.px - view.sx;
   const trackAt = (y) => Math.floor((y - RULER_H + view.sy) / view.rowH);
   const yAt = (tr) => RULER_H + tr * view.rowH - view.sy;
+  const spt = () => 60 / (store.project.bpm * PPQ);
 
   function clampView() {
     view.sx = Math.max(0, view.sx);
@@ -71,14 +77,77 @@ export function createPlaylist(engine, actions) {
   function clipAt(p) {
     const tr = trackAt(p.y);
     const t = tickAt(p.x);
-    const clips = store.project.playlist.clips;
+    const proj = store.project;
+    const clips = proj.playlist.clips;
     for (let i = clips.length - 1; i >= 0; i--) {
       const c = clips[i];
-      if (c.track !== tr) continue;
-      const pat = getPattern(store.project, c.patternId);
-      if (pat && t >= c.start && t < c.start + patternLength(pat)) return c;
+      if (c.track !== tr || !clipValid(proj, c)) continue;
+      const len = clipLength(proj, c);
+      if (t >= c.start && t < c.start + len) {
+        const right = xAt(c.start + len);
+        const w = len * view.px;
+        return { c, edge: p.x >= right - Math.max(8, Math.min(16, w * 0.3)) };
+      }
     }
     return null;
+  }
+
+  function clipName(c) {
+    if (c.type === 'audio') return c.name || (getSampleMeta(c.sampleId) || {}).name || 'Sample';
+    const pat = getPattern(store.project, c.patternId);
+    return pat ? pat.name : '';
+  }
+
+  function drawPatternBody(c, x, y, len) {
+    const pat = getPattern(store.project, c.patternId);
+    const L = patternLength(pat);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const arr of Object.values(pat.notes)) for (const n of arr) { lo = Math.min(lo, n.key); hi = Math.max(hi, n.key); }
+    const top = y + 16;
+    const hh = view.rowH - 20;
+    for (let k = 0; k * L < len; k++) {
+      const bx = x + k * L * view.px;
+      if (k > 0) {
+        g.fillStyle = 'rgba(0,0,0,0.35)';
+        g.fillRect(Math.round(bx), y + 2, 1, view.rowH - 4);
+      }
+      if (lo > hi) continue;
+      const span = Math.max(12, hi - lo + 1);
+      const base = (lo + hi) / 2 - span / 2;
+      g.fillStyle = 'rgba(15,20,22,0.75)';
+      for (const arr of Object.values(pat.notes)) {
+        for (const n of arr) {
+          if (n.t >= L || k * L + n.t >= len) continue;
+          const nx = bx + n.t * view.px;
+          const ny = top + hh - ((n.key - base + 1) / span) * hh;
+          g.fillRect(nx, ny, Math.max(1, Math.min(n.len, len - k * L - n.t) * view.px - 1), Math.max(1.5, hh / span));
+        }
+      }
+    }
+  }
+
+  function drawAudioBody(c, x, y, len) {
+    const buf = getBuffer(c.sampleId);
+    if (!buf) {
+      if (getSampleMeta(c.sampleId)) loadBuffer(c.sampleId);
+      else {
+        g.fillStyle = '#f2f4f5';
+        g.fillText('Sample absent', x + 4, y + view.rowH - 10);
+      }
+      return;
+    }
+    const pk = waveform(c.sampleId, 400);
+    const sampleW = (buf.duration / spt()) * view.px;
+    const mid = y + 16 + (view.rowH - 20) / 2;
+    const amp = (view.rowH - 20) / 2;
+    g.fillStyle = 'rgba(15,20,22,0.75)';
+    const wMax = Math.min(len * view.px, sampleW);
+    for (let px = 0; px < wMax; px += 1) {
+      const i = Math.min(pk.length - 1, Math.floor((px / sampleW) * pk.length));
+      const a = Math.max(0.5, pk[i] * amp);
+      g.fillRect(x + px, mid - a, 1, a * 2);
+    }
   }
 
   function draw() {
@@ -110,15 +179,14 @@ export function createPlaylist(engine, actions) {
     g.font = '11px system-ui, sans-serif';
     g.textBaseline = 'middle';
     for (const c of p.playlist.clips) {
-      const pat = getPattern(p, c.patternId);
-      if (!pat) continue;
-      const L = patternLength(pat);
+      if (!clipValid(p, c)) continue;
+      const len = clipLength(p, c);
       const x = xAt(c.start);
-      const w = L * view.px;
+      const w = len * view.px;
       const y = yAt(c.track);
       if (x > W || x + w < HEAD_W || y > H || y + view.rowH < RULER_H) continue;
       const muted = p.playlist.tracks[c.track] && p.playlist.tracks[c.track].mute;
-      const col = PATTERN_COLORS[pat.color % PATTERN_COLORS.length];
+      const col = c.type === 'audio' ? AUDIO_COLOR : PATTERN_COLORS[getPattern(p, c.patternId).color % PATTERN_COLORS.length];
       g.globalAlpha = muted ? 0.4 : 1;
       g.fillStyle = '#1a2023';
       g.fillRect(x, y + 1, w, view.rowH - 2);
@@ -131,27 +199,23 @@ export function createPlaylist(engine, actions) {
       g.rect(x + 1, y + 2, Math.max(0, w - 2), view.rowH - 4);
       g.clip();
       g.fillStyle = '#f2f4f5';
-      g.fillText(pat.name, x + 4, y + 9);
-      let lo = Infinity;
-      let hi = -Infinity;
-      for (const arr of Object.values(pat.notes)) for (const n of arr) { lo = Math.min(lo, n.key); hi = Math.max(hi, n.key); }
-      if (lo <= hi) {
-        const span = Math.max(12, hi - lo + 1);
-        const base = (lo + hi) / 2 - span / 2;
-        const top = y + 16;
-        const hh = view.rowH - 20;
-        g.fillStyle = 'rgba(15,20,22,0.75)';
-        for (const arr of Object.values(pat.notes)) {
-          for (const n of arr) {
-            if (n.t >= L) continue;
-            const nx = x + n.t * view.px;
-            const ny = top + hh - ((n.key - base + 1) / span) * hh;
-            g.fillRect(nx, ny, Math.max(1, n.len * view.px - 1), Math.max(1.5, hh / span));
-          }
-        }
-      }
+      g.fillText(clipName(c), x + 4, y + 9);
+      if (c.type === 'audio') drawAudioBody(c, x, y, len);
+      else drawPatternBody(c, x, y, len);
       g.restore();
+      // Stretch handle on the right edge
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      g.fillRect(Math.round(x + w) - 4, y + view.rowH / 2 - 6, 2, 12);
       g.globalAlpha = 1;
+    }
+    if (dropHover) {
+      const y = yAt(dropHover.track);
+      const x = xAt(dropHover.tick);
+      g.fillStyle = 'rgba(240,153,58,0.18)';
+      g.fillRect(HEAD_W, y, W - HEAD_W, view.rowH);
+      g.strokeStyle = '#f0993a';
+      g.lineWidth = 2;
+      g.strokeRect(x + 1, y + 2, Math.max(8, dropHover.len * view.px) - 2, view.rowH - 4);
     }
     if (ui.songMode && (engine.playing || engine.pos > 0)) {
       g.fillStyle = '#f0993a';
@@ -240,6 +304,12 @@ export function createPlaylist(engine, actions) {
     return 'grid';
   }
 
+  function fmtLen(t) {
+    if (t % BAR === 0) return t / BAR + (t / BAR > 1 ? ' mesures' : ' mesure');
+    if (t % BEAT === 0) return t / BEAT + ' temps';
+    return Math.round(t / STEP) + ' pas';
+  }
+
   attachPointer(cv, {
     down(p, st) {
       st.region = regionAt(p);
@@ -248,9 +318,9 @@ export function createPlaylist(engine, actions) {
         store.commit();
         st.committed = true;
         st.erasing = true;
-        const c = clipAt(p);
-        if (c) {
-          removeClip(c);
+        const hit = clipAt(p);
+        if (hit) {
+          removeClip(hit.c);
           store.emit();
         }
       }
@@ -263,10 +333,12 @@ export function createPlaylist(engine, actions) {
         return;
       }
       if (st.region !== 'grid' || st.erasing || ui.plTool !== 'draw') return;
-      const c = clipAt(p);
-      if (c) {
-        store.project.currentPattern = c.patternId;
-        hint('Motif sélectionné : ' + getPattern(store.project, c.patternId).name);
+      const hit = clipAt(p);
+      if (hit && hit.c.type === 'audio') {
+        engine.previewSample(hit.c.sampleId);
+      } else if (hit) {
+        store.project.currentPattern = hit.c.patternId;
+        hint('Motif sélectionné : ' + getPattern(store.project, hit.c.patternId).name);
         store.emit();
       } else {
         store.commit();
@@ -275,7 +347,6 @@ export function createPlaylist(engine, actions) {
       }
     },
     dragStart(p0, p, st) {
-      if (st.region === 'ruler') return;
       if (st.region !== 'grid' || st.erasing) return;
       if (ui.plTool === 'hand') {
         st.mode = 'pan';
@@ -284,8 +355,14 @@ export function createPlaylist(engine, actions) {
       if (ui.plTool !== 'draw') return;
       store.commit();
       st.committed = true;
-      let c = clipAt(p0);
-      if (!c) c = placeClip(p0);
+      const hit = clipAt(p0);
+      if (hit && hit.edge) {
+        st.mode = 'resize';
+        st.clip = hit.c;
+        st.len0 = clipLength(store.project, hit.c);
+        return;
+      }
+      const c = hit ? hit.c : placeClip(p0);
       if (!c) return;
       st.mode = 'move';
       st.clip = c;
@@ -296,9 +373,9 @@ export function createPlaylist(engine, actions) {
     dragMove(p, st) {
       if (st.region === 'ruler') return seek(p);
       if (st.erasing) {
-        const c = clipAt(p);
-        if (c) {
-          removeClip(c);
+        const hit = clipAt(p);
+        if (hit) {
+          removeClip(hit.c);
           store.emit();
         }
         return;
@@ -313,14 +390,20 @@ export function createPlaylist(engine, actions) {
         st.clip.start = Math.max(0, Math.round((st.start0 + dt) / snap()) * snap());
         st.clip.track = clamp(st.track0 + trackAt(p.y) - trackAt(st.p0.y), 0, TRACKS - 1);
         store.emit();
+      } else if (st.mode === 'resize') {
+        const end = st.clip.start + st.len0 + (tickAt(p.x) - tickAt(st.p0.x));
+        const len = Math.max(snap(), Math.round((end - st.clip.start) / snap()) * snap());
+        st.clip.len = len;
+        hint('Longueur du clip : ' + fmtLen(len));
+        store.emit();
       }
     },
     longPress(p, st) {
       if (st.region !== 'grid' || ui.plTool !== 'draw') return;
-      const c = clipAt(p);
-      if (c) {
+      const hit = clipAt(p);
+      if (hit) {
         store.commit();
-        removeClip(c);
+        removeClip(hit.c);
         hint('Clip supprimé');
         store.emit();
       }
@@ -349,6 +432,47 @@ export function createPlaylist(engine, actions) {
       }
       clampView();
       draw();
+    },
+  });
+
+  // Drop from the browser: a sample becomes an audio clip, an instrument a new channel.
+  function dropSpot(item, p) {
+    const tr = trackAt(p.y);
+    if (p.x < HEAD_W || p.y < RULER_H || tr < 0 || tr >= TRACKS) return null;
+    const tick = Math.max(0, Math.floor(tickAt(p.x) / snap()) * snap());
+    let len = BAR;
+    if (item.kind === 'sample') {
+      const m = getSampleMeta(item.id);
+      if (m && m.duration) len = Math.max(STEP, Math.round(m.duration / spt()));
+    }
+    return { track: tr, tick, len };
+  }
+
+  registerDrop({
+    el: cv,
+    accepts: (item) => item.kind === 'sample' || item.kind === 'instrument',
+    over(item, p) {
+      dropHover = item.kind === 'sample' ? dropSpot(item, p) : null;
+      draw();
+    },
+    leave() {
+      dropHover = null;
+      draw();
+    },
+    drop(item, p) {
+      dropHover = null;
+      if (item.kind === 'instrument') {
+        store.change((proj) => createChannel(proj, item.id));
+        hint(item.name + ' ajouté au rack');
+        return;
+      }
+      const spot = dropSpot(item, p);
+      if (!spot) return draw();
+      store.change((proj) => {
+        proj.playlist.clips.push({ id: newId('k'), type: 'audio', sampleId: item.id, name: item.name, track: spot.track, start: spot.tick, len: spot.len });
+      });
+      loadBuffer(item.id);
+      hint(item.name + ' placé sur la ' + store.project.playlist.tracks[spot.track].name);
     },
   });
 
@@ -387,3 +511,4 @@ export function createPlaylist(engine, actions) {
     },
   };
 }
+

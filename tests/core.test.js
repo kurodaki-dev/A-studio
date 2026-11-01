@@ -12,10 +12,10 @@ import {
   store,
   nextPatternIndex,
 } from '../src/store.js';
-import { collectEvents, loopLength, faderGain } from '../src/audio/engine.js';
+import { collectEvents, loopLength, faderGain, audioClipsAt } from '../src/audio/engine.js';
 import { encodeWav } from '../src/wav.js';
 import { INSTRUMENTS } from '../src/audio/instruments.js';
-import { INSTRUMENT_IDS } from '../src/audio/catalog.js';
+import { CATALOG, INSTRUMENT_IDS } from '../src/audio/catalog.js';
 
 test('note names follow FL Studio (MIDI 60 is C5)', () => {
   assert.equal(noteName(60), 'C5');
@@ -57,7 +57,8 @@ test('step mode detection', () => {
 });
 
 test('every instrument in the catalog has a synth', () => {
-  for (const id of INSTRUMENT_IDS) assert.equal(typeof INSTRUMENTS[id].play, 'function', id);
+  for (const { id } of CATALOG) assert.equal(typeof INSTRUMENTS[id].play, 'function', id);
+  assert.ok(INSTRUMENT_IDS.includes('sampler'));
 });
 
 test('normalizeProject rejects garbage and repairs values', () => {
@@ -162,4 +163,50 @@ test('WAV header and samples', () => {
   assert.equal(v.getInt16(44 + 4, true), 32767);
   assert.equal(v.getInt16(44 + 8, true), -32768);
   assert.equal(v.getInt16(44 + 14, true), -32768);
+});
+
+test('a stretched pattern clip repeats its pattern and is cut at its end', () => {
+  const p = newProject();
+  const c = p.channels[0];
+  const pat = p.patterns[0];
+  pat.notes[c.id] = [{ t: 0, len: 24, key: 60, vel: 1 }, { t: 192, len: 24, key: 60, vel: 1 }];
+  p.playlist.clips.push({ id: 'a', patternId: pat.id, track: 0, start: BAR, len: 2 * BAR + 96 });
+  const got = [];
+  collectEvents(p, 'song', 0, 10 * BAR, (ch, n, t) => got.push(t));
+  assert.deepEqual(got.sort((a, b) => a - b), [BAR, BAR + 192, 2 * BAR, 2 * BAR + 192, 3 * BAR]);
+  assert.equal(loopLength(p, 'song'), 4 * BAR);
+  // Window in the middle of the second repetition
+  got.length = 0;
+  collectEvents(p, 'song', 2 * BAR + 100, 3 * BAR + 50, (ch, n, t) => got.push(t));
+  assert.deepEqual(got.sort((a, b) => a - b), [2 * BAR + 192, 3 * BAR]);
+});
+
+test('audio clips are reported at their start and while sounding', () => {
+  const p = newProject();
+  p.playlist.clips.push({ id: 'x', type: 'audio', sampleId: 's1', name: 'Loop', track: 1, start: BAR, len: 2 * BAR });
+  const audio = [];
+  collectEvents(p, 'song', 0, 4 * BAR, () => {}, (clip, t) => audio.push([clip.id, t]));
+  assert.deepEqual(audio, [['x', BAR]]);
+  assert.equal(audioClipsAt(p, BAR + 10).length, 1);
+  assert.equal(audioClipsAt(p, BAR).length, 0);
+  assert.equal(audioClipsAt(p, 3 * BAR).length, 0);
+  assert.equal(loopLength(p, 'song'), 3 * BAR);
+  p.playlist.tracks[1].mute = true;
+  assert.equal(audioClipsAt(p, BAR + 10).length, 0);
+});
+
+test('normalizeProject keeps audio clips, clip lengths and sampler channels', () => {
+  const raw = JSON.parse(serialize(newProject()));
+  raw.channels.push({ id: 'cs', name: 'Loop', instrument: 'sampler', sample: 's1', vol: 0.7, pan: 0, insert: 2, params: {} });
+  raw.playlist.clips = [
+    { id: 'a', type: 'audio', sampleId: 's1', name: 'Loop', track: 2, start: 96, len: 500 },
+    { id: 'b', patternId: raw.patterns[0].id, track: 0, start: 0, len: 768 },
+    { id: 'c', type: 'audio', track: 0, start: 0 },
+  ];
+  const p = normalizeProject(raw);
+  assert.equal(p.channels.at(-1).instrument, 'sampler');
+  assert.equal(p.channels.at(-1).sample, 's1');
+  assert.equal(p.playlist.clips.length, 2);
+  assert.deepEqual(p.playlist.clips[0], { id: 'a', track: 2, start: 96, type: 'audio', sampleId: 's1', name: 'Loop', len: 500 });
+  assert.equal(p.playlist.clips[1].len, 768);
 });
