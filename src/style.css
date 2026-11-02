@@ -289,6 +289,8 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .strip-fx { display: flex; gap: 4px; min-height: 36px; }
+.strip-eq { display: flex; gap: 1px; }
+.strip > :not(.strip-fader) { flex-shrink: 0; }
 .strip-fader { flex: 1; display: flex; gap: 6px; align-items: stretch; min-height: 120px; }
 .meter { width: 8px; height: 100%; border: 1px solid var(--line); background: #14191b; }
 .fader { position: relative; width: 26px; height: 100%; touch-action: none; cursor: ns-resize; }
@@ -619,3 +621,12 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .ext-set-from { margin-left: auto; color: var(--dim); font-weight: 400; font-size: 11px; }
 .ext-set-input { flex: 1; min-width: 200px; max-width: 360px; }
 .ext-set-info { color: var(--text); font-size: 13px; }
+
+/* Keyboard shortcuts and project info */
+.keys h3 { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 0 6px; }
+.keys h3:first-child { margin-top: 0; }
+.keys-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.keys-table td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.keys-table td:first-child { width: 40%; white-space: nowrap; }
+kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--input); border: 1px solid var(--line); border-radius: 2px; padding: 1px 5px; }
+.info-notes { resize: vertical; min-height: 90px; font-family: inherit; }

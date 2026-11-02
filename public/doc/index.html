@@ -57,7 +57,7 @@
 <p>Requirements: Android 7.0 (API 24) or newer. The app keeps itself up to date, see <a href="#updates">Updates</a>.</p>
 
 <h2 id="interface">Interface</h2>
-<p>The top bar holds the menu (three lines), the PAT and SONG modes, play, stop, metronome, tempo, the position display (bar:step:tick), the current pattern and undo/redo. The rail on the left opens the browser and switches between the playlist, channel rack, piano roll and mixer.</p>
+<p>The top bar holds the menu (three lines), the PAT and SONG modes, play, stop, record, metronome, tempo with a tap tempo button (tap it in rhythm, 2 taps or more), the position display (bar:step:tick), the current pattern and undo/redo. The rail on the left opens the browser and switches between the playlist, channel rack, piano roll and mixer.</p>
 <p>Knobs and faders move with a vertical drag. A double tap resets them. The current value shows in the hint bar at the top right on wide screens.</p>
 
 <h2 id="channel-rack">Channel rack</h2>
@@ -65,6 +65,7 @@
   <li>Each row is a channel: enable light, pan, volume, mixer insert, name and 16 steps per bar.</li>
   <li>Tap a step to turn it on; drag across steps to fill or clear several.</li>
   <li>The name button opens the channel menu: piano roll, settings, rename, clone, move, delete.</li>
+  <li>The same menu has <strong>Solo</strong> (mutes every other channel; choose it again to unmute them), <strong>Fill each 2, 4 or 8 steps</strong>, <strong>Random steps</strong> and <strong>Shift one step left or right</strong> (notes wrap around the pattern).</li>
   <li>A channel holding piano roll notes shows a preview instead of steps. Tap it to open the piano roll.</li>
   <li>The plus and minus buttons in the rack header add or remove bars from the pattern.</li>
   <li>The <strong>Swing</strong> knob delays every odd 1/16 step of the pattern for a shuffled groove (up to half a step at 100%). It applies to playback, WAV and MIDI export.</li>
@@ -87,6 +88,18 @@
   <li>Notes from the other channels show as ghost notes. The velocity lane edits note velocity.</li>
   <li>Snap goes from 1/6 step to a full bar, or off.</li>
   <li>Toolbar actions: copy, paste, duplicate, delete selection, transpose by a semitone or an octave, quantize, select all.</li>
+  <li><strong>Scale</strong>: the scale button (note icon) highlights a scale. Pick a root note and one of 11 scales (major, minor, harmonic and melodic minor, modes, pentatonics, blues). Rows outside the scale are darker and the root rows are lighter. The scale is saved with the project.</li>
+  <li><strong>Tools</strong> (wand icon) apply to the selected notes, or to every note of the channel when nothing is selected:
+    <ul>
+      <li><strong>Chord</strong>: each note becomes the root of a chord (major, minor, diminished, augmented, sus2, sus4, 7th chords, minor 9, power chord).</li>
+      <li><strong>Arpeggiate</strong>: the notes of each chord play one after the other at the snap length, up, down or up and down.</li>
+      <li><strong>Strum</strong>: each note of a chord starts a little after the previous one.</li>
+      <li><strong>Humanize</strong>: small random changes of velocity and timing.</li>
+      <li><strong>Legato</strong>: each note lasts until the next one.</li>
+      <li><strong>Reverse</strong>, <strong>Flip</strong> (mirror the pitches), <strong>Double length</strong>, <strong>Half length</strong>.</li>
+      <li><strong>Snap notes to scale</strong>: moves out of scale notes to the nearest note of the scale.</li>
+    </ul>
+  </li>
   <li><strong>Live recording</strong>: turn on the Record button (red circle) in the top bar, start the pattern in PAT mode and play on the piano roll keyboard. Each note is written at the play position, snapped to the grid, with the length you held it.</li>
 </ul>
 
@@ -99,7 +112,7 @@
 </ul>
 
 <h2 id="mixer">Mixer</h2>
-<p>The master and 16 inserts each have a fader (0 dB at 80%), pan, reverb and delay sends, mute, solo, a level meter and an FX button with 4 slots for effect plugins. Route a channel to an insert from the insert number in the channel rack or from the channel settings.</p>
+<p>The master and 16 inserts each have a fader (0 dB at 80%), pan, reverb and delay sends, a three band equalizer (L, M, H: low shelf at 120 Hz, peak at 1 kHz, high shelf at 6 kHz, plus or minus 18 dB), mute, solo, a level meter and an FX button with 4 slots for effect plugins. Route a channel to an insert from the insert number in the channel rack or from the channel settings.</p>
 
 <h2 id="browser">Browser and samples</h2>
 <ul>
@@ -112,7 +125,7 @@
       <li>into the channel rack: a Sampler channel is created.</li>
     </ul>
   </li>
-  <li>The Sampler plays the sample at its own pitch on C5 and transposes it on other notes.</li>
+  <li>The Sampler plays the sample at its own pitch on C5 and transposes it on other notes. Turn on <strong>Play reversed</strong> in the channel settings to play the sample backwards.</li>
 </ul>
 
 <h2 id="projects">Projects and export</h2>
@@ -120,6 +133,8 @@
   <li>The open project is saved automatically. Use Save or Save as to keep named projects on the device.</li>
   <li>Export project file writes a <code>.astudio</code> file you can share or back up. It does not contain imported samples: import the pack again on another device.</li>
   <li>Export as WAV renders the pattern (PAT mode) or the song (SONG mode) as 16 bit, 44.1 kHz stereo.</li>
+  <li>Export stems (ZIP) renders one WAV file per channel that has notes, plus one for the audio clips in SONG mode, all with the same length so they line up in another DAW. Muted channels are skipped.</li>
+  <li>Project info (in the menu) holds the project name, an author and free notes (lyrics, ideas), and counts channels, patterns, notes and clips.</li>
   <li>Export as MIDI writes a standard <code>.mid</code> file of the pattern or the song, one track per channel, with the tempo. Drums use MIDI channel 10 and General MIDI drum notes; other channels get a close General MIDI program. Open it in FL Studio or any other DAW.</li>
 </ul>
 
@@ -419,6 +434,9 @@ astudio.on('state', (s) =&gt; {
   <tr><td><kbd>L</kbd></td><td>Switch PAT and SONG</td></tr>
   <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo, redo</td></tr>
   <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+  <tr><td><kbd>T</kbd></td><td>Tap tempo</td></tr>
+  <tr><td><kbd>M</kbd></td><td>Metronome on or off</td></tr>
+  <tr><td><kbd>?</kbd></td><td>Show the keyboard shortcuts (also in the menu)</td></tr>
   <tr><td><kbd>P</kbd> <kbd>B</kbd> <kbd>D</kbd> <kbd>E</kbd> <kbd>C</kbd></td><td>Piano roll tools: draw, paint, delete, select, slice</td></tr>
   <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd> / <kbd>C</kbd> / <kbd>V</kbd> / <kbd>B</kbd> / <kbd>Q</kbd></td><td>Select all, copy, paste, duplicate, quantize</td></tr>
   <tr><td>Arrows</td><td>Transpose a semitone (with <kbd>Shift</kbd>: an octave)</td></tr>

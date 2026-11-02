@@ -39,15 +39,16 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 
 ## Features
 
-- **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert, swing per pattern.
-- **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard.
+- **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert, swing per pattern, solo, fill each 2, 4 or 8 steps, random steps, shift left or right.
+- **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard, scale highlighting (11 scales), and tools: chords, arpeggiate, strum, humanize, legato, reverse, flip, double or half length, snap to scale.
 - **Playlist**: PAT and SONG modes, 16 tracks, pattern clips and audio clips, stretch any clip from its right edge.
-- **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, mute, solo, level meters and 4 effect plugin slots each.
+- **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, three band EQ, mute, solo, level meters and 4 effect plugin slots each.
 - **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.
-- **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples.
-- **Projects**: autosave, saved projects, `.astudio` import and export, WAV and MIDI export of a pattern or the whole song, undo and redo.
+- **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples, which can play them reversed.
+- **Projects**: autosave, saved projects, `.astudio` import and export, WAV, MIDI and stems (ZIP of one WAV per channel) export of a pattern or the whole song, project info with author and notes, undo and redo.
+- **Tempo**: drag, type or tap tempo, metronome.
 - **Settings**: English or French interface, themes, code plugins, update check.
-- Scrollbars and two finger gestures for navigation, landscape full screen layout, keyboard shortcuts on tablets.
+- Scrollbars and two finger gestures for navigation, landscape full screen layout, keyboard shortcuts on tablets (press `?` to list them).
 
 ## Piano roll
 

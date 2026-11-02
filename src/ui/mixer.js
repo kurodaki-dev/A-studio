@@ -33,11 +33,17 @@ export function createMixer(engine, onShowPlugins) {
       const fd = fader({ value: m.vol, label: 'Volume ' + m.name, format: dbText, onStart: () => store.commit(), onInput: (v) => { m.vol = v; store.emit(); } });
       const pan = knob({
         value: m.pan, min: -1, max: 1, def: 0, size: 24, label: t('Pan ') + m.name,
-        format: (v) => (Math.abs(v) < 0.01 ? t('Center') : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? 'gauche' : 'droite')),
+        format: (v) => (Math.abs(v) < 0.01 ? t('Center') : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? t('left') : t('right'))),
         onStart: () => store.commit(), onInput: (v) => { m.pan = v; store.emit(); },
       });
       const rev = i === 0 ? null : knob({ value: m.reverb, size: 22, label: t('Reverb ') + m.name, onStart: () => store.commit(), onInput: (v) => { m.reverb = v; store.emit(); } });
       const del = i === 0 ? null : knob({ value: m.delay, size: 22, label: t('Delay ') + m.name, onStart: () => store.commit(), onInput: (v) => { m.delay = v; store.emit(); } });
+      const eqFmt = (v) => (Math.abs(v) < 0.05 ? '0 dB' : (v > 0 ? '+' : '') + v.toFixed(1) + ' dB');
+      const eq = [t('Low'), t('Mid'), t('High')].map((lab, k) => knob({
+        value: (m.eq || [0, 0, 0])[k], min: -18, max: 18, def: 0, size: 20, label: lab + ' ' + m.name, format: eqFmt,
+        onStart: () => store.commit(),
+        onInput: (v) => { if (!m.eq) m.eq = [0, 0, 0]; m.eq[k] = v; store.emit(); },
+      }));
       const mute = led(!m.mute, t('Insert enabled'), () => store.change(() => { m.mute = !m.mute; }));
       const solo = i === 0 ? null : h('button', { class: 'b tb solo', type: 'button', title: 'Solo', onClick: () => store.change(() => { m.solo = !m.solo; }) }, 'S');
       const fxBtn = h('button', { class: 'b tb fxbtn', type: 'button', title: t('Effects'), onClick: () => openFxDialog(i, engine, onShowPlugins) }, 'FX');
@@ -48,12 +54,15 @@ export function createMixer(engine, onShowPlugins) {
           rev ? h('label', { class: 'kl' }, rev, h('span', null, t('Rev'))) : null,
           del ? h('label', { class: 'kl' }, del, h('span', null, t('Delay'))) : null,
         ),
+        h('div', { class: 'strip-eq', title: t('Equalizer') },
+          eq.map((kn, k) => h('label', { class: 'kl' }, kn, h('span', null, ['L', 'M', 'H'][k]))),
+        ),
         h('label', { class: 'kl' }, pan, h('span', null, 'Pan')),
         h('div', { class: 'strip-fader' }, meter, fd),
         h('div', { class: 'strip-btns' }, mute, solo),
         fxBtn,
       );
-      return { m, i, strip, meter, fd, pan, rev, del, mute, solo, fxBtn, peak: 0 };
+      return { m, i, strip, meter, fd, pan, rev, del, eq, mute, solo, fxBtn, peak: 0 };
     });
     strips.replaceChildren(...items.map((x) => x.strip));
     patch();
@@ -66,6 +75,7 @@ export function createMixer(engine, onShowPlugins) {
       it.pan.update(m.pan);
       if (it.rev) it.rev.update(m.reverb);
       if (it.del) it.del.update(m.delay);
+      it.eq.forEach((kn, k) => kn.update((m.eq || [0, 0, 0])[k]));
       it.mute.update(!m.mute);
       if (it.solo) it.solo.classList.toggle('on', m.solo);
       const n = (m.fx || []).filter((f) => f.on !== false).length;
