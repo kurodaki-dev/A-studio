@@ -991,4 +991,7 @@ export default {
   "Solo (hear only this track)": "Solo (n'entendre que cette track)",
   "Unmute this clip": "Réactiver ce clip",
   "Mute this clip": "Couper ce clip",
+  "Main pitch": "Pitch général",
+  "PITCH": "PITCH",
+  "Fine tune": "Accordage fin",
 };

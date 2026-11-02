@@ -1,5 +1,6 @@
 import './style.css';
 import { lastPhrase } from './scorelog.js';
+import { knob } from './ui/controls.js';
 import { h, btn, icon, hint, bindHint, openMenu, openModal, promptText, confirmBox, alertBox, closeMenu, dropdown } from './ui/dom.js';
 import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject, notesFor, newId } from './store.js';
 import { ui } from './ui-state.js';
@@ -363,6 +364,14 @@ const metroBtn = btn('Metronome', t('Metronome'), () => {
   refreshToolbar();
 });
 const tempoVal = h('div', { class: 'lcd tempo', title: t('Tempo: drag vertically, double tap to type') });
+// Main pitch of the whole project, in cents (like the FL Studio main pitch knob).
+const fmtPitch = (v) => (v > 0 ? '+' : '') + (Math.round(v) / 100).toFixed(2) + t(' semitones');
+const pitchKnob = knob({
+  value: 0, min: -1200, max: 1200, def: 0, size: 26, label: t('Main pitch'),
+  format: fmtPitch,
+  onStart: () => store.commit(),
+  onInput: (v) => { store.project.masterPitch = Math.round(v); store.emit(); },
+});
 const timeVal = h('div', { class: 'lcd time', title: t('Position bar:step:tick') });
 const cpuVal = h('div', { class: 'lcd cpu', title: t('Voices playing and scheduler load') }, '0 v');
 const patName = h('button', { class: 'b tb patname', type: 'button', title: t('Patterns'), onClick: (e) => patternMenu(e.currentTarget) });
@@ -379,6 +388,7 @@ const topbar = h('header', { class: 'topbar' },
     tempoVal,
     btn('Plus', t('Tempo up'), () => setBpm(Math.round(store.project.bpm) + 1), 'small'),
     btn('Pointer', t('Tap tempo: tap in rhythm'), () => tapTempo(), 'small'),
+    h('label', { class: 'pitch-knob', title: t('Main pitch') }, pitchKnob, h('span', null, t('PITCH'))),
   ),
   timeVal,
   cpuVal,
@@ -816,6 +826,8 @@ function refreshToolbar() {
   metroBtn.classList.toggle('on', ui.metronome);
   recBtn.classList.toggle('on', ui.recording || !!audioRec);
   setText(tempoVal, p.bpm.toFixed(3));
+  pitchKnob.update(p.masterPitch || 0);
+  pitchKnob.classList.toggle('changed', !!p.masterPitch);
   setText(patName, currentPattern(p).name);
   setText(timeVal, fmtTime(engine.heardPosition()));
   if (undoBtn.disabled !== !store.undoStack.length) undoBtn.disabled = !store.undoStack.length;

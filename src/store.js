@@ -10,7 +10,7 @@ export function newId(prefix) {
 }
 
 export function defaultParams() {
-  return { pitch: 0, attack: 0, decay: 0, sustain: 1, release: 0, cutoff: 1, reso: 0, glide: 0.1, start: 0, end: 1, loop: false, reverse: false };
+  return { pitch: 0, fine: 0, attack: 0, decay: 0, sustain: 1, release: 0, cutoff: 1, reso: 0, glide: 0.1, start: 0, end: 1, loop: false, reverse: false };
 }
 
 export function makeChannel(instrument, name, insert = 0) {
@@ -52,6 +52,7 @@ export function newProject() {
     version: 1,
     name: t('Untitled'),
     bpm: 130,
+    masterPitch: 0, // cents, whole project (like the FL Studio main pitch knob)
     author: '',
     notes: '',
     scale: { root: 0, type: 'none' },
@@ -168,6 +169,7 @@ function normalizeInner(raw) {
   const p = newProject();
   p.name = str(raw.name, t('Untitled'));
   p.bpm = num(raw.bpm, 130, 10, 522);
+  p.masterPitch = Math.round(num(raw.masterPitch, 0, -1200, 1200));
   p.beats = TIME_SIGS.includes(raw.beats) ? raw.beats : 4;
   setBeatsPerBar(p.beats);
   p.markers = Array.isArray(raw.markers)
@@ -209,6 +211,7 @@ function normalizeInner(raw) {
     lfo: c.lfo && typeof c.lfo === 'object' ? { on: !!c.lfo.on, target: Math.round(num(c.lfo.target, 0, 0, 2)), shape: Math.round(num(c.lfo.shape, 0, 0, 3)), rate: num(c.lfo.rate, 5, 0.05, 30), sync: Math.round(num(c.lfo.sync, 0, 0, 6)), amount: num(c.lfo.amount, 0.5, 0, 1) } : undefined,
     params: {
       pitch: Math.round(num(c.params?.pitch, 0, -24, 24)),
+      fine: Math.round(num(c.params?.fine, 0, -100, 100)),
       attack: num(c.params?.attack, 0, 0, 2),
       decay: num(c.params?.decay, 0, 0, 3),
       sustain: num(c.params?.sustain, 1, 0, 1),
@@ -245,6 +248,7 @@ function normalizeInner(raw) {
           key: Math.round(clamp(n.key, 0, NKEYS - 1)),
           vel: num(n.vel, 0.78, 0, 1),
           ...(n.slide ? { slide: true } : {}),
+          ...(n.mute ? { mute: true } : {}),
         }));
     }
     return {
@@ -286,6 +290,8 @@ function normalizeInner(raw) {
       if (rt) {
         t.name = str(rt.name, t.name);
         t.mute = !!rt.mute;
+        if (rt.solo) t.solo = true;
+        if (Number.isFinite(rt.color)) t.color = Math.round(clamp(rt.color, 0, PATTERN_COLORS.length - 1));
         const ins = Math.round(num(rt.insert, 0, 0, MIXER_SIZE - 1));
         if (ins) t.insert = ins;
       }
@@ -326,6 +332,7 @@ function normalizeInner(raw) {
         } else clip.patternId = c.patternId;
         const off = Math.round(num(c.offset, 0, 0, BAR * 4096));
         if (off) clip.offset = off;
+        if (c.mute) clip.mute = true;
         const len = Math.round(num(c.len, 0, 0, BAR * 4096));
         if (len >= 1) clip.len = len;
         return clip;
