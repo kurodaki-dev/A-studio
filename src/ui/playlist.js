@@ -138,12 +138,32 @@ export function createPlaylist(engine, actions) {
     hint(sel.length + t(' clip(s) copied'));
   }
 
+  // Copy of a pattern (notes and length) under a new name: a clip that uses it can be
+  // edited without changing the other clips. Returns the new pattern id.
+  function clonePattern(proj, patternId) {
+    const src = getPattern(proj, patternId);
+    if (!src) return patternId;
+    const fresh = makePattern(nextPatternIndex(proj));
+    const copy = JSON.parse(JSON.stringify(src));
+    copy.id = fresh.id;
+    copy.name = fresh.name;
+    copy.color = fresh.color;
+    proj.patterns.push(copy);
+    return copy.id;
+  }
+
+  // Every copied pattern clip gets its own pattern (audio and automation clips are copied as they are).
+  function independent(proj, clip) {
+    if (!clip.type && clip.patternId) clip.patternId = clonePattern(proj, clip.patternId);
+    return clip;
+  }
+
   function pasteClips() {
     if (!ui.clipClipboard || !ui.clipClipboard.length) return;
     const at = Math.floor(engine.position() / snap()) * snap();
     store.change((p) => {
       clearClipSel();
-      for (const c of ui.clipClipboard) p.playlist.clips.push({ ...JSON.parse(JSON.stringify(c)), id: newId('k'), start: at + c.start, s: true });
+      for (const c of ui.clipClipboard) p.playlist.clips.push(independent(p, { ...JSON.parse(JSON.stringify(c)), id: newId('k'), start: at + c.start, s: true }));
     });
   }
 
@@ -155,7 +175,24 @@ export function createPlaylist(engine, actions) {
     const span = Math.ceil((b - a) / BAR) * BAR || BAR;
     store.change((p) => {
       clearClipSel();
-      for (const c of sel) p.playlist.clips.push({ ...JSON.parse(serialize(c)), id: newId('k'), start: c.start + span, s: true });
+      for (const c of sel) {
+        const copy = independent(p, { ...JSON.parse(serialize(c)), id: newId('k'), start: c.start + span, s: true });
+        // Never on top of another clip of the track: move to the first free place after it.
+        const len = clipLength(p, copy);
+        let moved = true;
+        while (moved) {
+          moved = false;
+          for (const o of p.playlist.clips) {
+            if (o.track !== copy.track || o.s) continue;
+            const oe = o.start + clipLength(p, o);
+            if (o.start < copy.start + len && copy.start < oe) {
+              copy.start = oe;
+              moved = true;
+            }
+          }
+        }
+        p.playlist.clips.push(copy);
+      }
     });
   }
 
@@ -181,7 +218,7 @@ export function createPlaylist(engine, actions) {
     if (c.type === 'audio' && c.fadeIn) delete right.fadeIn;
     c.len = cut - c.start;
     if (c.type === 'audio') delete c.fadeOut;
-    store.project.playlist.clips.push(right);
+    store.project.playlist.clips.push(independent(store.project, right));
     return true;
   }
 
@@ -825,21 +862,27 @@ export function createPlaylist(engine, actions) {
     const proj = store.project;
     const tr = trackAt(p.y);
     if (tr < 0 || tr >= TRACKS) return null;
-    // First clip on an empty track while the pattern already plays on another track:
-    // the track gets its own new pattern, so editing it does not change the others.
-    // More clips on the same track repeat that track's pattern.
-    const onTrack = proj.playlist.clips.filter((c) => c.track === tr && !c.type);
-    const elsewhere = proj.playlist.clips.some((c) => c.track !== tr && !c.type && c.patternId === proj.currentPattern);
-    if (!onTrack.length && elsewhere) {
-      const pat = makePattern(nextPatternIndex(proj));
-      proj.patterns.push(pat);
-      proj.currentPattern = pat.id;
-      hint(t('New pattern for this track: ') + pat.name);
-    } else if (onTrack.length && !onTrack.some((c) => c.patternId === proj.currentPattern) && elsewhere) {
-      // Track already has its own pattern: keep repeating it.
-      proj.currentPattern = onTrack[onTrack.length - 1].patternId;
+    const start = Math.max(0, Math.floor(tickAt(p.x) / snap()) * snap());
+    // Every clip is independent: editing one never changes another.
+    // - The current pattern is not used yet: this clip takes it.
+    // - Empty track: a new empty pattern.
+    // - Track with clips: a copy of the clip just before (or the last one), so the
+    //   music goes on and the copy can be changed alone.
+    const used = proj.playlist.clips.some((c) => !c.type && c.patternId === proj.currentPattern);
+    if (used) {
+      const onTrack = proj.playlist.clips.filter((c) => c.track === tr && !c.type).sort((a, b) => a.start - b.start);
+      if (!onTrack.length) {
+        const pat = makePattern(nextPatternIndex(proj));
+        proj.patterns.push(pat);
+        proj.currentPattern = pat.id;
+        hint(t('New pattern for this track: ') + pat.name);
+      } else {
+        const before = onTrack.filter((c) => c.start <= start).pop() || onTrack[onTrack.length - 1];
+        proj.currentPattern = clonePattern(proj, before.patternId);
+        hint(t('Independent copy: ') + getPattern(proj, proj.currentPattern).name);
+      }
     }
-    const clip = { id: newId('k'), patternId: proj.currentPattern, track: tr, start: Math.max(0, Math.floor(tickAt(p.x) / snap()) * snap()) };
+    const clip = { id: newId('k'), patternId: proj.currentPattern, track: tr, start };
     proj.playlist.clips.push(clip);
     return clip;
   }

@@ -1003,4 +1003,5 @@ export default {
   "track sound": "son de la track",
   "Volume and pan apply to everything on the track. Transposition moves the notes of its patterns (not the audio clips). Double tap a slider to reset it.": "Le volume et le pan s'appliquent à tout ce qui est sur la track. La transposition décale les notes de ses patterns (pas les clips audio). Double tap sur un curseur pour le remettre à zéro.",
   "With a mixer insert, all the clips of the track (patterns and audio) go through it: its effects, EQ and fader change only this track.": "Avec un insert du mixer, tous les clips de la track (patterns et audio) passent dedans : ses effets, son EQ et son volume ne changent que cette track.",
+  "Independent copy: ": "Copie indépendante : ",
 };
