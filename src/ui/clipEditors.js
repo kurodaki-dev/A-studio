@@ -6,7 +6,7 @@ import { autoLabel, autoValue, formatTarget } from '../automation.js';
 import { currentTheme } from '../themes.js';
 import { getBuffer, loadBuffer, addSample } from '../samples.js';
 import { EDITS, timeStretch, detectBpm } from '../audiotools.js';
-import { reduceNoise, removeHum, removeRumble, removeDC, reduceBreaths, normalizeLoudness, centerMask, toMono, cleanVoice } from '../cleanup.js';
+import { reduceNoise, removeHum, removeRumble, removeDC, reduceBreaths, normalizeLoudness, centerMask, toMono, cleanVoice, removeClicks, repairClipping, spectrogram } from '../cleanup.js';
 import { encodeWav } from '../wav.js';
 import { t } from '../i18n.js';
 
@@ -226,6 +226,8 @@ export function openWaveEditor(clip, engine) {
     const sr = buf.sampleRate;
     let chs = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c).slice());
     const history = [];
+    let specOn = false;
+    let spec = null;
     let sel = null; // [a, b] in samples
     const cv = h('canvas', { class: 'cv' });
     const wrap = h('div', { class: 'wave-wrap' }, cv);
@@ -245,6 +247,20 @@ export function openWaveEditor(clip, engine) {
       if (sel) {
         g.fillStyle = 'rgba(240,153,58,0.25)';
         g.fillRect((sel[0] / len()) * W, 0, ((sel[1] - sel[0]) / len()) * W, H);
+      }
+      if (specOn) {
+        if (!spec || spec.w !== W) spec = { w: W, cols: spectrogram(chs[0], sr, Math.min(400, Math.floor(W)), 64) };
+        const cw = W / spec.cols.length;
+        const rh = H / 64;
+        spec.cols.forEach((col, ci) => {
+          for (let r = 0; r < 64; r++) {
+            const v = Math.max(0, Math.min(1, (col[r] + 90) / 80));
+            if (v < 0.05) continue;
+            g.fillStyle = 'rgba(240,153,58,' + v.toFixed(2) + ')';
+            g.fillRect(ci * cw, H - (r + 1) * rh, cw + 0.5, rh + 0.5);
+          }
+        });
+        return void (info.textContent = t('Spectrum view: low frequencies at the bottom, noise shows as a haze between the sounds'));
       }
       g.fillStyle = th.editor.note;
       const d = chs[0];
@@ -269,6 +285,7 @@ export function openWaveEditor(clip, engine) {
       if (b - a < 2) return;
       history.push(chs);
       chs = EDITS[name](chs, a, b, ...args);
+      spec = null;
       if (name === 'cut' || name === 'trim') sel = null;
       draw();
     };
@@ -282,22 +299,70 @@ export function openWaveEditor(clip, engine) {
       const res = fn(chs);
       chs = Array.isArray(res) ? res : res.channels;
       draw();
-      hint(label + (res.base ? ': ' + res.base + ' Hz' : '') + (Number.isFinite(res.gainDb) ? ': ' + (res.gainDb > 0 ? '+' : '') + res.gainDb.toFixed(1) + ' dB' : ''));
+      hint(label + (res.base ? ': ' + res.base + ' Hz' : '') + (Number.isFinite(res.gainDb) ? ': ' + (res.gainDb > 0 ? '+' : '') + res.gainDb.toFixed(1) + ' dB' : '') + (Number.isFinite(res.count) ? ': ' + res.count : ''));
+      spec = null;
     };
-    const noise = (db) => clean(t('Noise reduced'), (c) => reduceNoise(c, sr, sel, db));
+    // Settings window with Listen (the first seconds processed) before Apply.
+    let previewSrc = null;
+    const listenTo = (out) => {
+      engine.init();
+      if (previewSrc) previewSrc.stop();
+      const n = out[0].length;
+      const ab = engine.ctx.createBuffer(out.length, n, sr);
+      out.forEach((c, i) => ab.copyToChannel(c, i));
+      previewSrc = engine.ctx.createBufferSource();
+      previewSrc.buffer = ab;
+      previewSrc.connect(engine.ctx.destination);
+      previewSrc.start();
+    };
+    const tuned = (title, note, sliders, fn, label) => {
+      const vals = Object.fromEntries(sliders.map((x) => [x.id, x.value]));
+      const rows = sliders.map((x) => {
+        const outEl = h('output', null, x.fmt(x.value));
+        return h('label', { class: 'field' }, h('span', null, x.label), h('div', { class: 'rangebox' },
+          h('input', { type: 'range', class: 'range', min: x.min, max: x.max, step: x.step, value: x.value, onInput: (e) => { vals[x.id] = Number(e.target.value); outEl.textContent = x.fmt(vals[x.id]); } }), outEl));
+      });
+      // Listen: 8 seconds from the selection start (or the beginning).
+      const listen = () => {
+        const a = sel ? sel[0] : 0;
+        const part = chs.map((c) => c.slice(a, Math.min(c.length, a + sr * 8)));
+        const res = fn(part, vals, a);
+        listenTo(Array.isArray(res) ? res : res.channels);
+      };
+      openModal({
+        title,
+        body: h('div', { class: 'form' }, h('p', { class: 'set-note' }, note), ...rows,
+          h('div', { class: 'set-actions' },
+            h('button', { class: 'b tb', type: 'button', onClick: listen }, icon('Play', 16), t('Listen')),
+            h('button', { class: 'b tb', type: 'button', onClick: () => { const a = sel ? sel[0] : 0; listenTo(chs.map((c) => c.slice(a, Math.min(c.length, a + sr * 8)))); } }, icon('Play', 16), t('Listen to the original')),
+          )),
+        actions: [{ label: t('Cancel'), onClick: () => { if (previewSrc) previewSrc.stop(); } }, { label: t('Apply'), primary: true, onClick: () => { if (previewSrc) previewSrc.stop(); clean(label, (c) => fn(c, vals, 0))(); } }],
+      });
+    };
+    const noiseDialog = () => tuned(t('Reduce noise'),
+      sel ? t('The selection is used as the noise to remove.') : t('No selection: the quietest part is used as the noise. For a better result, select a part with only noise first.'),
+      [{ id: 'db', label: t('Reduction'), min: 3, max: 30, step: 1, value: 12, fmt: (v) => v + ' dB' }],
+      (c, v, offset) => reduceNoise(c, sr, sel ? [sel[0] - offset, sel[1] - offset] : null, v.db), t('Noise reduced'));
+    const maskDialog = (keep) => tuned(keep ? t('Keep only the vocals') : t('Remove the vocals'),
+      t('Works on a stereo mix where the voice is in the centre. Some leftovers are normal, mostly with reverb.'),
+      [{ id: 's', label: t('Strength'), min: 0.1, max: 1, step: 0.05, value: keep ? 0.6 : 0.9, fmt: (v) => Math.round(v * 100) + '%' }],
+      (c, v) => centerMask(c, keep, sr, v.s), keep ? t('Vocals isolated') : t('Vocals removed'));
+    const clickDialog = () => tuned(t('Remove clicks and pops'), t('Finds short spikes (vinyl crackle, mouth clicks, cable pops) and smooths them.'),
+      [{ id: 's', label: t('Sensitivity'), min: 0, max: 1, step: 0.05, value: 0.5, fmt: (v) => Math.round(v * 100) + '%' }],
+      (c, v) => removeClicks(c, sr, v.s), t('Clicks removed'));
     const cleanMenu = (e) => openMenu(e.currentTarget, [
       { header: sel ? t('The selection is used as the noise to remove') : t('Select a part with only noise for a better result') },
-      { label: t('Reduce noise: light'), icon: 'Wind', onClick: noise(6) },
-      { label: t('Reduce noise: medium'), icon: 'Wind', onClick: noise(12) },
-      { label: t('Reduce noise: strong'), icon: 'Wind', onClick: noise(20) },
+      { label: t('Reduce noise') + '...', icon: 'Wind', onClick: noiseDialog },
+      { label: t('Remove clicks and pops') + '...', icon: 'Activity', onClick: clickDialog },
+      { label: t('Repair clipping (saturated audio)'), icon: 'AudioWaveform', onClick: clean(t('Clipping repaired'), (c) => repairClipping(c)) },
       { label: t('Remove hum (50 or 60 Hz)'), icon: 'Activity', onClick: clean(t('Hum removed'), (c) => removeHum(c, sr)) },
       { label: t('Remove rumble and plosives (under 80 Hz)'), icon: 'AudioWaveform', onClick: clean(t('Rumble removed'), (c) => removeRumble(c, sr, 80)) },
       { label: t('Remove DC offset'), icon: 'Minus', onClick: clean(t('DC offset removed'), (c) => removeDC(c)) },
       { label: t('Reduce breaths and noise between phrases'), icon: 'Wind', onClick: clean(t('Breaths reduced'), (c) => reduceBreaths(c, sr, 30, 12)) },
       { sep: true },
       { label: t('Normalize to -14 LUFS'), icon: 'SlidersVertical', onClick: clean(t('Loudness'), (c) => normalizeLoudness(c, sr, -14)) },
-      { label: t('Remove the vocals (karaoke)'), icon: 'Mic', disabled: chs.length < 2, onClick: clean(t('Vocals removed'), (c) => centerMask(c, false, sr)) },
-      { label: t('Keep only the vocals (centre)'), icon: 'Mic', disabled: chs.length < 2, onClick: clean(t('Vocals isolated'), (c) => centerMask(c, true, sr)) },
+      { label: t('Remove the vocals (karaoke)') + '...', icon: 'Mic', disabled: chs.length < 2, onClick: () => maskDialog(false) },
+      { label: t('Keep only the vocals (centre)') + '...', icon: 'Mic', disabled: chs.length < 2, onClick: () => maskDialog(true) },
       { label: t('Mono'), icon: 'Circle', onClick: clean(t('Mono'), (c) => toMono(c)) },
       { sep: true },
       { label: t('Clean up voice (all in one)'), icon: 'WandSparkles', onClick: clean(t('Voice cleaned up'), (c) => cleanVoice(c, sr)) },
@@ -338,7 +403,8 @@ export function openWaveEditor(clip, engine) {
           b('+3 dB', op('gain', 3)), b('-3 dB', op('gain', -3)), b(t('Fade in'), op('fadeIn')), b(t('Fade out'), op('fadeOut')),
           b(t('Reverse'), op('reverse')), b(t('Normalize'), op('normalize')),
           h('button', { class: 'b tb primary', type: 'button', onClick: cleanMenu }, icon('WandSparkles', 16), t('Clean up')),
-          b(t('Undo'), () => { if (history.length) { chs = history.pop(); draw(); } }),
+          h('button', { class: 'b tb', type: 'button', onClick: (e) => { specOn = !specOn; e.currentTarget.classList.toggle('on', specOn); draw(); } }, icon('Activity', 16), t('Spectrum view')),
+          b(t('Undo'), () => { if (history.length) { chs = history.pop(); spec = null; draw(); } }),
         ),
         h('p', { class: 'set-note' }, t('Without a selection, an edit applies to the whole sample. Save keeps the original sample in the browser.')),
       ),

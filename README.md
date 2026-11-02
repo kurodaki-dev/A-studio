@@ -39,6 +39,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 
 ## Features
 
+- **Channel settings** (double tap a channel): volume, filter and pitch envelopes, LFO (tremolo, vibrato, wobble, tempo synced), arpeggiator, mono and portamento, test keyboard.
 - **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert, swing per pattern, step velocity editing, solo, fill each 2, 4 or 8 steps, random steps, shift left or right, channel colors and groups with a filter.
 - **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard or a USB MIDI keyboard, slide notes (808 glides), scale highlighting (11 scales), and tools: chords, arpeggiate, strum, humanize, legato, reverse, flip, double or half length, snap to scale.
 - **Playlist**: PAT and SONG modes, 16 tracks, pattern, audio and automation clips, stretch, select, copy, paste, duplicate and split clips, loop region, markers with tempo changes, audio clip gain, pitch and fades.
@@ -49,7 +50,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 - **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.
 - **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples (start and end points, loop, reverse), a slicer that chops loops into playable slices, and multi sample instruments built from a folder of samples named after their notes. Every channel has an ADSR envelope.
 - **Projects**: templates (hip hop, trap, house), autosave, saved projects, `.astudio` import and export, MIDI import, export of a pattern or the whole song as WAV 16 or 24 bit, MP3, MIDI or stems (ZIP of one WAV per channel) with optional normalization, time signatures from 2/4 to 7/4, project info with author and notes, undo and redo.
-- **Audio editing**: waveform editor (cut, trim, silence, gain, fades, reverse, normalize), clean up tools (noise reduction, hum, rumble, DC, breaths, -14 LUFS, vocal removal or isolation, one tap voice clean up), BPM detection, time stretch that keeps the pitch, render a pattern to audio, comping.
+- **Audio editing**: waveform editor (cut, trim, silence, gain, fades, reverse, normalize), clean up tools with preview (noise reduction, click and pop removal, clipping repair, hum, rumble, DC, breaths, spectrum view, -14 LUFS, vocal removal or isolation, one tap voice clean up), BPM detection, time stretch that keeps the pitch, render a pattern to audio, comping.
 - **Mastering**: mastering chains, live spectrum, loudness in LUFS (BS.1770) with streaming targets.
 - **Live mode**: pattern pads launched in time on the next bar, recordable to the playlist.
 - **Synth**: 3x Osc with three oscillators, noise, envelope, filter and presets.
