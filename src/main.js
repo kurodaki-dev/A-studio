@@ -431,6 +431,12 @@ function showPanel(id) {
   // In portrait the browser covers the stage: picking a panel closes it.
   if (ui.sidebar && window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 760px)').matches && typeof setSidebar === 'function') setSidebar(false);
   ui.panel = id;
+  // Like FL Studio: the playlist plays the song, the channel rack and piano roll play
+  // the pattern. Only when stopped, so a switch never cuts the music.
+  if (!engine.playing && !ui.live) {
+    if (id === 'playlist' && !ui.songMode && store.project.playlist.clips.length) setSongMode(true);
+    else if ((id === 'rack' || id === 'piano') && ui.songMode) setSongMode(false);
+  }
   for (const [k, p] of Object.entries(panels)) p.el.classList.toggle('active', k === id);
   [...railBtns, ...extRail.children].forEach((b) => b.classList.toggle('on', b.dataset.panel === id));
   panels[id].update();
@@ -684,6 +690,8 @@ function setSongMode(on) {
 function togglePlay() {
   // Pausing during a microphone take ends the take (its length must match the playback).
   if (audioRec) return stop();
+  // Play pressed in the playlist while in pattern mode: play the song.
+  if (!engine.playing && !ui.live && ui.panel === 'playlist' && !ui.songMode && store.project.playlist.clips.length) setSongMode(true);
   if (!engine.playing && ui.recording && ui.countIn) engine.play({ countIn: 1 });
   else engine.togglePlay();
   refreshToolbar();
