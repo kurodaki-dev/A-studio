@@ -1,13 +1,14 @@
 import { INSTRUMENTS } from './instruments.js';
 import { PPQ, BEAT, BAR, STEP, MIXER_SIZE } from '../constants.js';
-import { patternLength, songLength, getPattern, currentPattern, clipLength } from '../store.js';
+import { patternLength, songLength, getPattern, currentPattern, clipLength, clipValid } from '../store.js';
 import { getBuffer, loadBuffer } from '../samples.js';
 import { getPlugin, paramValues, loadPluginModule, pluginReady, processorName, allPlugins } from '../plugins.js';
 import { encodeWav } from '../wav.js';
+import { faderGain, cutoffHz } from './levels.js';
+import { autoValue, targetParam } from '../automation.js';
+import { bpmAt, nextTempoChange, tickToSec } from '../tempo.js';
 
-// Fader position to linear gain. 0.8 is 0 dB, like FL Studio's mixer.
-export const faderGain = (v) => (v <= 0 ? 0 : Math.pow(v / 0.8, 2));
-export const cutoffHz = (v) => 40 * Math.pow(20000 / 40, v);
+export { faderGain, cutoffHz };
 
 function impulse(ctx, seconds = 2.2, decay = 3) {
   const sr = ctx.sampleRate;
@@ -41,7 +42,7 @@ function makeEq(ctx) {
 }
 
 export function createGraph(ctx, dest) {
-  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 } };
+  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 }, duckers: [], autoHold: new Set(), autoStarted: new Set(), silent: new Set() };
   const masterIn = ctx.createGain();
   const masterPan = ctx.createStereoPanner();
   const masterVol = ctx.createGain();
@@ -104,7 +105,7 @@ export function createGraph(ctx, dest) {
     sr.connect(rev);
     vol.connect(sd);
     sd.connect(del);
-    G.inserts[i] = { in: inp, eq, pan, vol, an, sr, sd, fxSig: '', fxNodes: [] };
+    G.inserts[i] = { in: inp, eq, pan, vol, an, sr, sd, dest: masterIn, fxSig: '', fxNodes: [] };
   }
   return G;
 }
@@ -114,7 +115,8 @@ function setParam(G, param, v, smooth) {
   else param.value = v;
 }
 
-// Effect plugins of an insert: in -> fx 1 -> fx 2 ... -> eq -> pan. Rebuilt when the slots change.
+// Effects of an insert: in -> fx 1 -> fx 2 ... -> eq -> pan. Rebuilt when the slots change.
+// Built in effects are native nodes, effect plugins are AudioWorklet nodes.
 function syncEffects(G, ins, m) {
   const slots = (m.fx || []).filter((f) => f && f.on !== false).map((f) => ({ f, p: getPlugin(f.plugin) })).filter((x) => x.p && x.p.type === 'effect');
   const ready = slots.filter((x) => {
@@ -125,19 +127,24 @@ function syncEffects(G, ins, m) {
   const sig = ready.map((x) => processorName(x.p)).join('|');
   if (sig !== ins.fxSig) {
     ins.in.disconnect();
-    for (const e of ins.fxNodes || []) e.node.disconnect();
+    for (const e of ins.fxNodes || []) e.output.disconnect();
     ins.fxNodes = ready.map((x) => {
       const params = paramValues(x.p, x.f.params);
+      if (x.p.builtin) {
+        const fx = x.p.create(G.ctx);
+        fx.set(params);
+        return { fx, input: fx.input, output: fx.output, slot: x.f, params: JSON.stringify(params) };
+      }
       const node = new AudioWorkletNode(G.ctx, processorName(x.p), { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params, transport: G.transport } });
       node.port.onmessage = (e) => {
         if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(x.p, e.data.message);
       };
-      return { node, slot: x.f, params: JSON.stringify(params) };
+      return { node, input: node, output: node, slot: x.f, params: JSON.stringify(params) };
     });
     let prev = ins.in;
     for (const e of ins.fxNodes) {
-      prev.connect(e.node);
-      prev = e.node;
+      prev.connect(e.input);
+      prev = e.output;
     }
     prev.connect(ins.eq[0]);
     ins.fxSig = sig;
@@ -149,7 +156,8 @@ function syncEffects(G, ins, m) {
       const json = JSON.stringify(values);
       if (json !== e.params) {
         e.params = json;
-        e.node.port.postMessage({ type: 'params', values });
+        if (e.fx) e.fx.set(values);
+        else e.node.port.postMessage({ type: 'params', values });
       }
       e.slot = x.f;
     });
@@ -161,26 +169,42 @@ export function pushTransport(G, t) {
   G.transport = t;
   const msg = { type: 'transport', ...t };
   for (const e of G.pluginNodes.values()) e.node.port.postMessage(msg);
-  for (const ins of G.inserts) for (const e of ins.fxNodes || []) e.node.port.postMessage(msg);
+  for (const ins of G.inserts) for (const e of ins.fxNodes || []) if (e.node) e.node.port.postMessage(msg);
 }
 
 export function syncGraph(G, project, smooth) {
   const mx = project.mixer;
   const anySolo = mx.some((m, i) => i > 0 && m.solo);
+  // Parameters driven by an automation clip are left to it while the song plays.
+  const held = (key) => G.autoHold.has(key);
+  G.silent.clear();
   mx.forEach((m, i) => {
     const ins = G.inserts[i];
     if (!ins) return;
     syncEffects(G, ins, m);
     const muted = m.mute || (i > 0 && anySolo && !m.solo);
-    setParam(G, ins.vol.gain, muted ? 0 : faderGain(m.vol), smooth);
-    setParam(G, ins.pan.pan, m.pan, smooth);
+    const k = 'mixer:' + i + ':';
+    if (muted) {
+      G.silent.add(k + 'vol');
+      setParam(G, ins.vol.gain, 0, smooth);
+    } else if (!held(k + 'vol')) setParam(G, ins.vol.gain, faderGain(m.vol), smooth);
+    if (!held(k + 'pan')) setParam(G, ins.pan.pan, m.pan, smooth);
     const eq = m.eq || [0, 0, 0];
-    ins.eq.forEach((b, k) => setParam(G, b.gain, eq[k] || 0, smooth));
+    ins.eq.forEach((b, j) => { if (!held(k + 'eq' + j)) setParam(G, b.gain, eq[j] || 0, smooth); });
     if (i > 0) {
-      setParam(G, ins.sr.gain, m.reverb, smooth);
-      setParam(G, ins.sd.gain, m.delay, smooth);
+      if (!held(k + 'reverb')) setParam(G, ins.sr.gain, m.reverb, smooth);
+      if (!held(k + 'delay')) setParam(G, ins.sd.gain, m.delay, smooth);
+      // Routing: an insert sends to the master or to a higher numbered insert (a bus).
+      const dest = (m.route > i && G.inserts[m.route]) ? G.inserts[m.route].in : G.inserts[0].in;
+      if (ins.dest !== dest) {
+        ins.vol.disconnect(ins.dest);
+        ins.vol.connect(dest);
+        ins.dest = dest;
+      }
     }
   });
+  G.duckers = [];
+  for (const ins of G.inserts) for (const e of ins.fxNodes || []) if (e.fx && e.fx.duck && e.slot.source) G.duckers.push({ source: e.slot.source, fx: e.fx });
   setParam(G, G.delay.delayTime, Math.min(2, (60 / project.bpm) * 0.75), smooth);
 
   const seen = new Set();
@@ -199,10 +223,14 @@ export function syncGraph(G, project, smooth) {
       ch.pan.connect((G.inserts[c.insert] || G.inserts[0]).in);
       ch.insert = c.insert;
     }
-    setParam(G, ch.in.gain, c.mute ? 0 : c.vol, smooth);
-    setParam(G, ch.pan.pan, c.pan, smooth);
-    setParam(G, ch.filt.frequency, cutoffHz(c.params.cutoff), smooth);
-    setParam(G, ch.filt.Q, 0.7 + c.params.reso * 14, smooth);
+    const k = 'channel:' + c.id + ':';
+    if (c.mute) {
+      G.silent.add(k + 'vol');
+      setParam(G, ch.in.gain, 0, smooth);
+    } else if (!held(k + 'vol')) setParam(G, ch.in.gain, c.vol, smooth);
+    if (!held(k + 'pan')) setParam(G, ch.pan.pan, c.pan, smooth);
+    if (!held(k + 'cutoff')) setParam(G, ch.filt.frequency, cutoffHz(c.params.cutoff), smooth);
+    if (!held(k + 'reso')) setParam(G, ch.filt.Q, 0.7 + c.params.reso * 14, smooth);
   }
   for (const [id, ch] of G.channels) {
     if (!seen.has(id) && !id.startsWith('__preview_')) {
@@ -243,28 +271,94 @@ export function reverseBuffer(ctx, buf) {
   return r;
 }
 
+// Glide: shift the pitch of every source from `cents` back to 0 over `time` seconds.
+// A ConstantSource added to each detune param keeps the instrument's own detune.
+function glide(ctx, sources, cents, t, time) {
+  const params = sources.map((s) => s && s.detune).filter(Boolean);
+  if (!params.length || !cents) return;
+  const cs = ctx.createConstantSource();
+  cs.offset.setValueAtTime(cents, t);
+  cs.offset.linearRampToValueAtTime(0, t + Math.max(0.005, time));
+  for (const prm of params) cs.connect(prm);
+  cs.start(t);
+  cs.stop(t + Math.max(0.005, time) + 0.05);
+}
+
+// Sample of a sampler note: key zones (multi sample instrument), slices or one sample.
+function samplerSource(channel, key) {
+  const p = channel.params;
+  let sample = channel.sample;
+  let root = 60;
+  let a = p.start || 0;
+  let b = p.end == null ? 1 : p.end;
+  let rateKey = key;
+  if (channel.zones && channel.zones.length) {
+    let best = channel.zones[0];
+    for (const z of channel.zones) if (Math.abs(z.key - key) < Math.abs(best.key - key)) best = z;
+    sample = best.sample;
+    root = best.key;
+  }
+  if (channel.slices && channel.slices.length) {
+    const i = key - 60;
+    if (i < 0 || i >= channel.slices.length) return null;
+    a = channel.slices[i];
+    b = i + 1 < channel.slices.length ? channel.slices[i + 1] : 1;
+    rateKey = 60;
+  }
+  return { sample, root, a, b, rateKey };
+}
+
 // Start one note. dur = Infinity holds it until releaseVoice().
-// Imported sample played as a one shot, pitched from C5.
-function playSampler(G, channel, ch, t, key, vel) {
-  let buf = channel.sample ? getBuffer(channel.sample) : null;
-  if (buf && channel.params.reverse) buf = reverseBuffer(G.ctx, buf);
+// Sampler: one shot by default, sustained while the note lasts when Loop is on.
+function playSampler(G, channel, ch, t, key, vel, dur, fromKey) {
+  const src = samplerSource(channel, key);
+  if (!src) return null;
+  let buf = src.sample ? getBuffer(src.sample) : null;
   if (!buf) {
-    if (channel.sample) loadBuffer(channel.sample);
+    if (src.sample) loadBuffer(src.sample);
     return null;
   }
+  const p = channel.params;
+  if (p.reverse) buf = reverseBuffer(G.ctx, buf);
+  if (src.b <= src.a) return null;
   const ctx = G.ctx;
   const vg = ctx.createGain();
-  vg.gain.value = vel;
   vg.connect(ch.in);
   const s = ctx.createBufferSource();
   s.buffer = buf;
-  const rate = Math.pow(2, (key + (channel.params.pitch || 0) - 60) / 12);
+  const rate = Math.pow(2, (src.rateKey + (p.pitch || 0) - src.root) / 12);
   s.playbackRate.value = rate;
   s.connect(vg);
-  s.start(t);
-  const end = t + buf.duration / rate;
-  s.stop(end);
-  const voice = { vg, sources: [s], rel: 0.05, end, oneShot: true };
+  const off = src.a * buf.duration;
+  const segEnd = src.b * buf.duration;
+  const att = Math.max(0, p.attack || 0);
+  const rel = Math.max(0.01, p.release || 0.02);
+  const loop = !!p.loop;
+  if (att > 0) {
+    vg.gain.setValueAtTime(0, t);
+    vg.gain.linearRampToValueAtTime(vel, t + att);
+  } else vg.gain.setValueAtTime(vel, t);
+  let end;
+  if (loop) {
+    s.loop = true;
+    s.loopStart = off;
+    s.loopEnd = segEnd;
+    if (Number.isFinite(dur)) {
+      vg.gain.setTargetAtTime(0, t + dur, rel / 4);
+      end = t + dur + rel * 1.6;
+    } else end = Infinity;
+  } else {
+    end = t + (segEnd - off) / rate;
+    if (Number.isFinite(dur) && p.release > 0 && t + dur < end) {
+      // A release set on a one shot sample fades it when the note ends.
+      vg.gain.setTargetAtTime(0, t + dur, rel / 4);
+      end = Math.min(end, t + dur + rel * 1.6);
+    }
+  }
+  s.start(t, off);
+  if (Number.isFinite(end)) s.stop(end);
+  if (fromKey != null) glide(ctx, [s], (fromKey - key) * 100, t, p.glide || 0.1);
+  const voice = { vg, sources: [s], rel, end, oneShot: !loop };
   s.onended = () => {
     voice.ended = true;
     try {
@@ -276,23 +370,38 @@ function playSampler(G, channel, ch, t, key, vel) {
   return voice;
 }
 
-// Audio clip of the playlist, sent to the master. offset and dur in seconds.
-export function playAudioClip(G, clip, t, offset, dur) {
+// Audio clip of the playlist. offset: seconds already played in the clip,
+// dur: seconds left to play, spt: seconds per tick, clipDur: full clip length in seconds.
+// The clip has its own gain, pitch (resampling), fades and start offset.
+export function playAudioClip(G, clip, t, offset, dur, spt = 0, clipDur = 0) {
   const buf = getBuffer(clip.sampleId);
   if (!buf) {
     loadBuffer(clip.sampleId);
     return null;
   }
-  if (offset >= buf.duration) return null;
+  const rate = Math.pow(2, (clip.pitch || 0) / 12);
+  const bufPos = (offset + (clip.offset || 0) * spt) * rate;
+  if (bufPos >= buf.duration) return null;
   const ctx = G.ctx;
+  const gain = clip.gain == null ? 0.8 : 0.8 * clip.gain;
   const vg = ctx.createGain();
-  vg.gain.value = 0.8;
   vg.connect(G.inserts[0].in);
   const s = ctx.createBufferSource();
   s.buffer = buf;
+  s.playbackRate.value = rate;
   s.connect(vg);
-  s.start(t, offset);
-  const end = t + Math.min(dur, buf.duration - offset);
+  const end = t + Math.min(dur, (buf.duration - bufPos) / rate);
+  const fi = (clip.fadeIn || 0) * spt;
+  const fo = (clip.fadeOut || 0) * spt;
+  const level = (x) => gain * Math.min(1, fi > 0 ? x / fi : 1, fo > 0 && clipDur ? Math.max(0, clipDur - x) / fo : 1);
+  vg.gain.setValueAtTime(level(offset), t);
+  if (fi > 0 && offset < fi) vg.gain.linearRampToValueAtTime(gain, t + (fi - offset));
+  if (fo > 0 && clipDur) {
+    const foStart = clipDur - fo - offset;
+    if (foStart > 0) vg.gain.setValueAtTime(gain, t + foStart);
+    vg.gain.linearRampToValueAtTime(0, t + clipDur - offset);
+  }
+  s.start(t, bufPos);
   s.stop(end);
   const voice = { vg, sources: [s], rel: 0.02, end, oneShot: true };
   s.onended = () => {
@@ -344,11 +453,13 @@ function playPlugin(G, channel, ch, t, key, vel, dur) {
   return { plugin: true, node, id: ev.id, end: Number.isFinite(dur) ? t + dur + 2 : Infinity };
 }
 
-export function playNote(G, channel, t, key, vel, dur) {
+export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
   const ctx = G.ctx;
   const ch = G.channels.get(channel.id);
   if (!ch) return null;
-  if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel);
+  // Sidechain: notes of a source channel duck the inserts that listen to it.
+  for (const d of G.duckers) if (d.source === channel.id && !channel.mute) d.fx.duck(t);
+  if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel, dur, fromKey);
   if (channel.instrument.startsWith('plugin:')) return playPlugin(G, channel, ch, t, key, vel, dur);
   const inst = INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
   const p = channel.params;
@@ -359,10 +470,18 @@ export function playNote(G, channel, t, key, vel, dur) {
   const rel = Math.max(inst.release || 0.05, p.release || 0);
   const off = Number.isFinite(dur) ? t + Math.max(dur, 0.005) : Infinity;
   const att = Math.max(0, p.attack || 0);
-  if (att > 0 && !inst.oneShot) {
-    const rampEnd = Math.min(t + att, off);
-    vg.gain.setValueAtTime(0, t);
-    vg.gain.linearRampToValueAtTime(Math.min(1, (rampEnd - t) / att), rampEnd);
+  if (!inst.oneShot) {
+    if (att > 0) {
+      const rampEnd = Math.min(t + att, off);
+      vg.gain.setValueAtTime(0, t);
+      vg.gain.linearRampToValueAtTime(Math.min(1, (rampEnd - t) / att), rampEnd);
+    }
+    // Decay to the sustain level after the attack.
+    const sus = p.sustain == null ? 1 : p.sustain;
+    if (sus < 1 && t + att < off) {
+      if (p.decay > 0) vg.gain.setTargetAtTime(sus, t + att, p.decay / 3);
+      else vg.gain.setValueAtTime(sus, t + att);
+    }
   }
   let end;
   if (inst.oneShot) end = t + v.length;
@@ -371,6 +490,7 @@ export function playNote(G, channel, t, key, vel, dur) {
     end = off + rel * 1.6;
     if (v.length) end = Math.min(end, t + v.length);
   } else end = v.length ? t + v.length : Infinity;
+  if (fromKey != null) glide(ctx, v.sources, (fromKey - key) * 100, t, p.glide || 0.1);
   const voice = { vg, sources: v.sources, rel, end, oneShot: !!inst.oneShot };
   if (Number.isFinite(end)) for (const s of v.sources) s.stop(end);
   if (v.sources[0]) {
@@ -406,7 +526,15 @@ export function releaseVoice(ctx, voice, fast = false) {
   voice.end = end;
 }
 
-// Calls cb(channel, note, tick) for every note starting in [from, to) of the loop,
+// Key a slide note glides from: the previous note of the same channel.
+export function slideFrom(arr, n) {
+  if (!n.slide || !arr) return null;
+  let best = null;
+  for (const x of arr) if (x !== n && x.t < n.t && (!best || x.t > best.t)) best = x;
+  return best ? best.key : null;
+}
+
+// Calls cb(channel, note, tick, pattern) for every note starting in [from, to) of the loop,
 // and onAudio(clip, tick) for every audio clip starting in that window.
 export function collectEvents(project, mode, from, to, cb, onAudio) {
   const chans = new Map(project.channels.map((c) => [c.id, c]));
@@ -420,6 +548,7 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
     return;
   }
   for (const clip of project.playlist.clips) {
+    if (clip.type === 'auto') continue;
     const track = project.playlist.tracks[clip.track];
     if (track && track.mute) continue;
     const s = clip.start;
@@ -432,20 +561,49 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
     const L = patternLength(pat);
     const len = clipLength(project, clip);
     if (s >= to || s + len <= from) continue;
-    // A stretched clip repeats its pattern.
-    const k0 = Math.max(0, Math.floor((from - s) / L));
-    const k1 = Math.floor((Math.min(to, s + len) - s) / L);
+    // A stretched clip repeats its pattern; offset starts it inside the pattern.
+    const origin = s - (clip.offset || 0);
+    const k0 = Math.max(0, Math.floor((Math.max(from, s) - origin) / L));
+    const k1 = Math.floor((Math.min(to, s + len) - origin) / L);
     for (let k = k0; k <= k1; k++) {
-      const base = s + k * L;
+      const base = origin + k * L;
       for (const [cid, notes] of Object.entries(pat.notes)) {
         const c = chans.get(cid);
         if (!c) continue;
         for (const n of notes) {
           if (n.t >= L) continue;
           const tt = base + n.t;
-          if (tt >= from && tt < to && tt < s + len) cb(c, n, tt, pat);
+          if (tt >= from && tt < to && tt >= s && tt < s + len) cb(c, n, tt, pat);
         }
       }
+    }
+  }
+}
+
+// Automation clips over [from, to): ramps the driven parameters. timeOf(tick) gives
+// the audio time of a song tick. Song mode only.
+export function scheduleAutomation(G, project, from, to, timeOf) {
+  for (const clip of project.playlist.clips) {
+    if (clip.type !== 'auto' || !clipValid(project, clip)) continue;
+    const track = project.playlist.tracks[clip.track];
+    if (track && track.mute) continue;
+    const a = Math.max(from, clip.start);
+    const b = Math.min(to, clip.start + clipLength(project, clip));
+    if (a >= b || G.silent.has(clip.target)) continue;
+    const tp = targetParam(G, clip.target);
+    if (!tp) continue;
+    G.autoHold.add(clip.target);
+    const step = STEP / 2;
+    const ticks = [a];
+    for (let x = Math.floor(a / step) * step + step; x < b; x += step) ticks.push(x);
+    for (const x of ticks) {
+      const v = tp.map(autoValue(clip.points, x - clip.start));
+      const time = timeOf(x);
+      if (!G.autoStarted.has(clip.target)) {
+        tp.param.cancelScheduledValues(time);
+        tp.param.setValueAtTime(v, time);
+        G.autoStarted.add(clip.target);
+      } else tp.param.linearRampToValueAtTime(v, time);
     }
   }
 }
@@ -461,7 +619,7 @@ export function swingTicks(pat, t) {
 // Audio clips already sounding at a position (playback started inside them).
 export function audioClipsAt(project, pos) {
   return project.playlist.clips.filter((c) => {
-    if (c.type !== 'audio') return false;
+    if (c.type !== 'audio' || c.silent) return false;
     const track = project.playlist.tracks[c.track];
     if (track && track.mute) return false;
     return c.start < pos && pos < c.start + clipLength(project, c);
@@ -483,6 +641,7 @@ export class Engine {
     this.pos = 0;
     this.voices = new Set();
     this.timer = null;
+    this.load = 0; // share of the scheduler budget used, 0 to 1
   }
 
   init() {
@@ -502,7 +661,7 @@ export class Engine {
   transportUpdate() {
     if (!this.G) return;
     const playing = this.playing;
-    pushTransport(this.G, { bpm: this.store.project.bpm, playing, position: playing ? this.position() : this.pos, at: this.ctx.currentTime });
+    pushTransport(this.G, { bpm: playing ? this.bpm : this.store.project.bpm, playing, position: playing ? this.position() : this.pos, at: this.ctx.currentTime });
   }
 
   // Load every installed plugin into the audio thread so the first note plays.
@@ -549,7 +708,7 @@ export class Engine {
     const ins = this.G && this.G.inserts[insert];
     if (!ins) return;
     const e = ins.fxNodes.find((x) => x.slot === slot);
-    if (e) e.node.port.postMessage({ type: 'button', id });
+    if (e && e.node) e.node.port.postMessage({ type: 'button', id });
   }
 
   sync() {
@@ -570,21 +729,46 @@ export class Engine {
     return this.anchorTick + (time - this.anchorTime) / this.spt();
   }
 
-  play() {
+  // Playback range in loop ticks: the pattern, the song, or the loop region of the song.
+  range() {
+    const proj = this.store.project;
+    const mode = this.getMode();
+    const lp = proj.loop;
+    if (mode === 'song' && lp && lp.on && lp.end > lp.start) return [lp.start, lp.end];
+    return [0, loopLength(proj, mode)];
+  }
+
+  // countIn: bars of metronome before playback starts (used when recording).
+  play({ countIn = 0 } = {}) {
     this.init();
     this.sync();
+    const proj = this.store.project;
+    const mode = this.getMode();
+    const [A, B] = this.range();
+    if (this.pos < A || this.pos >= B) this.pos = A;
     this.playing = true;
-    this.bpm = this.store.project.bpm;
-    this.anchorTime = this.ctx.currentTime + 0.05;
+    this.bpm = bpmAt(proj, this.pos, mode);
+    const t0 = this.ctx.currentTime + 0.05;
+    const lead = countIn > 0 ? countIn * BAR * this.spt() : 0;
+    for (let b = 0; lead && b < (countIn * BAR) / BEAT; b++) this.click(t0 + b * BEAT * this.spt(), (b * BEAT) % BAR === 0);
+    this.anchorTime = t0 + lead;
+    this.startAt = this.anchorTime;
+    this.startPos = this.pos;
     this.anchorTick = 0;
     this.nextAbs = 0;
     this.nextPos = this.pos;
     this.fresh = true;
+    this.G.autoStarted.clear();
     clearInterval(this.timer);
     this.timer = setInterval(() => this.schedule(), 25);
     this.schedule();
     this.G.transport = { bpm: this.bpm, playing: true, position: this.pos, at: this.anchorTime };
     pushTransport(this.G, this.G.transport);
+  }
+
+  // True while the count in clicks play.
+  countingIn() {
+    return this.playing && this.ctx && this.ctx.currentTime < this.startAt;
   }
 
   pause() {
@@ -608,7 +792,17 @@ export class Engine {
     this.playing = false;
     if (this.ctx) for (const v of this.voices) releaseVoice(this.ctx, v, true);
     this.voices.clear();
-    if (this.G) for (const e of this.G.pluginNodes.values()) e.node.port.postMessage({ type: 'stop' });
+    if (this.G) {
+      for (const e of this.G.pluginNodes.values()) e.node.port.postMessage({ type: 'stop' });
+      // Give automated parameters back to the mixer and channel settings.
+      for (const target of this.G.autoHold) {
+        const tp = targetParam(this.G, target);
+        if (tp) tp.param.cancelScheduledValues(0);
+      }
+      this.G.autoHold.clear();
+      this.G.autoStarted.clear();
+      syncGraph(this.G, this.store.project, true);
+    }
     this.transportUpdate();
   }
 
@@ -617,10 +811,14 @@ export class Engine {
       for (const v of this.voices) releaseVoice(this.ctx, v, true);
       this.voices.clear();
       this.anchorTime = this.ctx.currentTime + 0.03;
+      this.startAt = this.anchorTime;
       this.anchorTick = 0;
       this.nextAbs = 0;
       this.nextPos = Math.max(0, tick);
+      this.startPos = this.nextPos;
+      this.bpm = bpmAt(this.store.project, this.nextPos, this.getMode());
       this.fresh = true;
+      this.G.autoStarted.clear();
       this.G.transport = { bpm: this.bpm, playing: true, position: this.nextPos, at: this.anchorTime };
       pushTransport(this.G, this.G.transport);
     } else this.pos = Math.max(0, tick);
@@ -629,50 +827,60 @@ export class Engine {
   // Current position in loop ticks.
   position() {
     if (!this.playing) return this.pos;
-    const L = loopLength(this.store.project, this.getMode());
+    if (this.ctx.currentTime < this.startAt) return this.startPos;
+    const [A, B] = this.range();
+    const span = Math.max(1, B - A);
     const now = this.timeToTick(this.ctx.currentTime);
     let p = this.nextPos - (this.nextAbs - now);
-    while (p < 0) p += L;
-    return Math.min(p, L - 0.001) % L;
+    while (p < A) p += span;
+    if (p >= B) p = A + ((p - A) % span);
+    return Math.min(p, B - 0.001);
   }
 
   schedule() {
+    const t0 = performance.now();
     const ctx = this.ctx;
     const proj = this.store.project;
-    if (proj.bpm !== this.bpm) {
-      const now = ctx.currentTime;
+    const mode = this.getMode();
+    // Tempo edited while playing: re-anchor now.
+    const want = bpmAt(proj, this.nextPos, mode);
+    if (want !== this.bpm) {
+      const now = Math.max(ctx.currentTime, this.anchorTime);
       this.anchorTick = this.timeToTick(now);
       this.anchorTime = now;
-      this.bpm = proj.bpm;
+      this.bpm = want;
       this.transportUpdate();
     }
-    const mode = this.getMode();
     const horizon = this.timeToTick(ctx.currentTime + 0.12);
-    const L = loopLength(proj, mode);
-    const spt = this.spt();
-    if (this.nextPos >= L) this.nextPos = 0;
+    const [A, L] = this.range();
+    if (this.nextPos >= L || this.nextPos < A) this.nextPos = A;
     while (this.nextAbs < horizon) {
-      const seg = Math.min(horizon - this.nextAbs, L - this.nextPos);
+      const change = nextTempoChange(proj, this.nextPos, mode);
+      const seg = Math.min(horizon - this.nextAbs, L - this.nextPos, change - this.nextPos);
+      const spt = this.spt();
       const from = this.nextPos;
       const to = from + seg;
       const base = this.nextAbs - from;
       if (mode === 'song' && this.fresh) {
         // Resume audio clips that started before this point.
         for (const clip of audioClipsAt(proj, from)) {
-          const v = playAudioClip(this.G, clip, Math.max(this.tickToTime(this.nextAbs), ctx.currentTime), (from - clip.start) * spt, (clip.start + clipLength(proj, clip) - from) * spt);
+          const cl = clipLength(proj, clip) * spt;
+          const v = playAudioClip(this.G, clip, Math.max(this.tickToTime(this.nextAbs), ctx.currentTime), (from - clip.start) * spt, (clip.start + clipLength(proj, clip) - from) * spt, spt, cl);
           if (v) this.track(v);
         }
       }
       this.fresh = false;
       collectEvents(proj, mode, from, to, (c, n, tt, pat) => {
         const time = Math.max(this.tickToTime(base + tt + swingTicks(pat, n.t)), ctx.currentTime);
-        const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt);
+        const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt, slideFrom(pat.notes[c.id], n));
         if (v) this.track(v);
       }, (clip, tt) => {
         const time = Math.max(this.tickToTime(base + tt), ctx.currentTime);
-        const v = playAudioClip(this.G, clip, time, 0, clipLength(proj, clip) * spt);
+        const cl = clipLength(proj, clip) * spt;
+        const v = playAudioClip(this.G, clip, time, 0, cl, spt, cl);
         if (v) this.track(v);
       });
+      if (mode === 'song') scheduleAutomation(this.G, proj, from, to, (x) => Math.max(this.tickToTime(base + x), ctx.currentTime));
       if (this.getMetronome()) {
         for (let b = Math.ceil(from / BEAT) * BEAT; b < to; b += BEAT) {
           this.click(this.tickToTime(base + b), b % BAR === 0);
@@ -680,8 +888,21 @@ export class Engine {
       }
       this.nextAbs += seg;
       this.nextPos = to;
-      if (this.nextPos >= L - 1e-6) this.nextPos = 0;
+      if (this.nextPos >= L - 1e-6) {
+        this.nextPos = A;
+        this.fresh = true;
+        this.G.autoStarted.clear();
+      }
+      // Tempo change reached: continue with the new tempo from this exact tick.
+      const nb = bpmAt(proj, this.nextPos, mode);
+      if (nb !== this.bpm) {
+        this.anchorTime = this.tickToTime(this.nextAbs);
+        this.anchorTick = this.nextAbs;
+        this.bpm = nb;
+      }
+      if (seg <= 0) break;
     }
+    this.load = this.load * 0.9 + 0.1 * Math.min(1, (performance.now() - t0) / 25);
   }
 
   track(v) {
@@ -689,6 +910,15 @@ export class Engine {
     if (this.voices.size > 256) {
       for (const x of this.voices) if (x.ended || x.end < this.ctx.currentTime - 1) this.voices.delete(x);
     }
+  }
+
+  // Number of voices sounding now.
+  activeVoices() {
+    if (!this.ctx) return 0;
+    const now = this.ctx.currentTime;
+    let n = 0;
+    for (const v of this.voices) if (!v.ended && v.end > now) n += 1;
+    return n;
   }
 
   click(time, accent) {
@@ -751,15 +981,36 @@ export function soloProject(project, only) {
   return p;
 }
 
-// Render the song or the current pattern to Float32 channel data.
-export async function renderWav(project, mode) {
+// Peak normalization to -0.3 dBFS.
+export function normalizeChannels(chs) {
+  let peak = 0;
+  for (const d of chs) for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+  if (peak < 1e-6) return chs;
+  const g = 0.966 / peak;
+  for (const d of chs) for (let i = 0; i < d.length; i++) d[i] *= g;
+  return chs;
+}
+
+// Render the song or the current pattern to a WAV ArrayBuffer.
+// opts: { bits: 16 | 24, normalize }
+export async function renderWav(project, mode, opts = {}) {
   const buf = await renderBuffer(project, mode);
-  return encodeWav([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate);
+  const chs = [buf.getChannelData(0), buf.getChannelData(1)];
+  if (opts.normalize) normalizeChannels(chs);
+  return encodeWav(chs, buf.sampleRate, opts.bits || 16);
+}
+
+// Float channel data, for encoders other than WAV (MP3).
+export async function renderChannels(project, mode, opts = {}) {
+  const buf = await renderBuffer(project, mode);
+  const chs = [buf.getChannelData(0), buf.getChannelData(1)];
+  if (opts.normalize) normalizeChannels(chs);
+  return { channels: chs, sampleRate: buf.sampleRate };
 }
 
 // Render one stem per channel that has notes (and one for the audio clips in song mode).
 // Returns [{ name, wav }]. The loop length of the full project is kept for every stem.
-export async function renderStems(project, mode, onProgress) {
+export async function renderStems(project, mode, onProgress, opts = {}) {
   const used = new Set();
   collectEvents(project, mode, 0, loopLength(project, mode), (c) => used.add(c.id));
   const jobs = project.channels.filter((c) => used.has(c.id) && !c.mute).map((c) => ({ id: c.id, name: c.name }));
@@ -767,23 +1018,31 @@ export async function renderStems(project, mode, onProgress) {
   const out = [];
   for (let i = 0; i < jobs.length; i++) {
     if (onProgress) onProgress(i, jobs.length, jobs[i].name);
-    out.push({ name: jobs[i].name, wav: await renderWav(soloProject(project, jobs[i].id), mode) });
+    out.push({ name: jobs[i].name, wav: await renderWav(soloProject(project, jobs[i].id), mode, { bits: opts.bits }) });
   }
   return out;
 }
 
-async function renderBuffer(project, mode) {
+function sampleIds(project, mode) {
   const ids = new Set();
-  for (const c of project.channels) if (c.instrument === 'sampler' && c.sample) ids.add(c.sample);
+  for (const c of project.channels) {
+    if (c.instrument !== 'sampler') continue;
+    if (c.sample) ids.add(c.sample);
+    for (const z of c.zones || []) ids.add(z.sample);
+  }
   if (mode === 'song') for (const c of project.playlist.clips) if (c.type === 'audio') ids.add(c.sampleId);
-  await Promise.all([...ids].map((id) => loadBuffer(id)));
+  return ids;
+}
+
+async function renderBuffer(project, mode) {
+  await Promise.all([...sampleIds(project, mode)].map((id) => loadBuffer(id)));
   const plugins = new Map();
   for (const c of project.channels) {
     const p = c.instrument.startsWith('plugin:') ? getPlugin(c.instrument.slice(7)) : null;
     if (p) plugins.set(c.id, p);
   }
   const L = loopLength(project, mode);
-  const spt = 60 / (project.bpm * PPQ);
+  const timeOf = (tick) => tickToSec(project, tick, mode);
   const sr = 44100;
   const effects = new Set();
   for (const m of project.mixer) for (const f of m.fx || []) {
@@ -792,7 +1051,7 @@ async function renderBuffer(project, mode) {
   }
   const tail = 3;
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-  const ctx = new OAC(2, Math.ceil((L * spt + tail) * sr), sr);
+  const ctx = new OAC(2, Math.ceil((timeOf(L) + tail) * sr), sr);
   const G = createGraph(ctx, ctx.destination);
   G.offline = true;
   G.transport = { bpm: project.bpm, playing: true, position: 0, at: 0 };
@@ -800,10 +1059,14 @@ async function renderBuffer(project, mode) {
   await Promise.all([...effects].map((p) => loadPluginModule(ctx, p)));
   syncGraph(G, project, false);
   collectEvents(project, mode, 0, L, (c, n, tt, pat) => {
-    playNote(G, c, (tt + swingTicks(pat, n.t)) * spt, n.key, n.vel, n.len * spt);
+    const start = tt + swingTicks(pat, n.t);
+    playNote(G, c, timeOf(start), n.key, n.vel, timeOf(start + n.len) - timeOf(start), slideFrom(pat.notes[c.id], n));
   }, (clip, tt) => {
-    playAudioClip(G, clip, tt * spt, 0, clipLength(project, clip) * spt);
+    const len = clipLength(project, clip);
+    const dur = timeOf(tt + len) - timeOf(tt);
+    playAudioClip(G, clip, timeOf(tt), 0, dur, dur / len, dur);
   });
+  if (mode === 'song') scheduleAutomation(G, project, 0, L, timeOf);
   for (const [cid, p] of plugins) {
     const events = G.pluginEvents.get(cid);
     if (!events || !(await loadPluginModule(ctx, p))) continue;

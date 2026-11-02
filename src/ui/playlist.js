@@ -1,9 +1,11 @@
-import { h, btn, icon, hint, openMenu } from './dom.js';
+import { h, btn, icon, hint, openMenu, promptText } from './dom.js';
 import { attachPointer, fitCanvas } from './pointer.js';
 import { registerDrop } from './dnd.js';
 import { currentTheme } from '../themes.js';
 import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
-import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId } from '../store.js';
+import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId, serialize } from '../store.js';
+import { autoTargets, autoLabel, targetValue, autoValue } from '../automation.js';
+import { openAutomationEditor, openClipProperties } from './clipEditors.js';
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, PPQ, TRACKS, PATTERN_COLORS, clamp } from '../constants.js';
 import { getSampleMeta, getBuffer, loadBuffer, waveform } from '../samples.js';
@@ -13,8 +15,9 @@ import { t } from '../i18n.js';
 const HEAD_W = 92;
 const RULER_H = 22;
 const AUDIO_COLOR = '#5d7f96';
+const AUTO_COLOR = '#7a6a8c';
 const SNAPS = [
-  { id: 'bar', label: t('Bar'), ticks: BAR },
+  { id: 'bar', label: t('Bar'), get ticks() { return BAR; } },
   { id: 'beat', label: t('Beat'), ticks: BEAT },
   { id: 'step', label: t('Step'), ticks: STEP },
 ];
@@ -35,6 +38,8 @@ export function createPlaylist(engine) {
   const toolDefs = [
     ['draw', 'Pencil', t('Draw')],
     ['delete', 'Eraser', t('Delete')],
+    ['select', 'SquareDashed', t('Select')],
+    ['slice', 'Scissors', t('Slice')],
     ['hand', 'Hand', t('Pan view')],
   ];
   const toolBtns = toolDefs.map(([id, ic, label]) => {
@@ -50,10 +55,20 @@ export function createPlaylist(engine) {
     openMenu(e.currentTarget, SNAPS.map((s) => ({ label: s.label, checked: ui.plSnap === s.id, onClick: () => { ui.plSnap = s.id; refresh(); } })));
   } }, icon('Magnet', 16), h('span', { class: 'snap-label' }));
   const patLabel = h('span', { class: 'rack-info' });
+  const loopBtn = btn('Repeat', t('Loop region: drag on the ruler with the Select tool'), () => toggleLoop());
+  let overlay = null; // selection box
   const bar = h('div', { class: 'ptools' },
     h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Playlist'), patLabel),
     h('div', { class: 'grp' }, toolBtns),
     h('div', { class: 'grp' }, snapBtn),
+    h('div', { class: 'grp' },
+      loopBtn,
+      btn('Flag', t('Add a marker at the play position'), () => addMarker()),
+      btn('Activity', t('Add an automation clip'), (e) => automationMenu(e.currentTarget)),
+      btn('Copy', t('Copy selected clips'), () => copyClips()),
+      btn('ClipboardPaste', t('Paste clips at the play position'), () => pasteClips()),
+      btn('Trash', t('Delete selected clips'), () => deleteSelected()),
+    ),
     h('div', { class: 'grp' },
       btn('ZoomOut', t('Zoom out'), () => zoomX(1 / 1.4, HEAD_W + (W - HEAD_W) / 2)),
       btn('ZoomIn', t('Zoom in'), () => zoomX(1.4, HEAD_W + (W - HEAD_W) / 2)),
@@ -66,6 +81,166 @@ export function createPlaylist(engine) {
     snapBtn.querySelector('.snap-label').textContent = (SNAPS.find((s) => s.id === ui.plSnap) || SNAPS[0]).label;
     const pat = getPattern(store.project, store.project.currentPattern);
     patLabel.textContent = pat ? t('Pattern to place: ') + pat.name : '';
+    loopBtn.classList.toggle('on', !!(store.project.loop && store.project.loop.on));
+  }
+
+  // Selection, clipboard, loop region and markers
+  const selectedClips = () => store.project.playlist.clips.filter((c) => c.s);
+  function clearClipSel() {
+    for (const c of store.project.playlist.clips) delete c.s;
+  }
+
+  function copyClips() {
+    const sel = selectedClips();
+    if (!sel.length) return hint(t('Select clips with the Select tool first'));
+    const a = Math.min(...sel.map((c) => c.start));
+    ui.clipClipboard = sel.map((c) => ({ ...JSON.parse(serialize(c)), start: c.start - a }));
+    hint(sel.length + t(' clip(s) copied'));
+  }
+
+  function pasteClips() {
+    if (!ui.clipClipboard || !ui.clipClipboard.length) return;
+    const at = Math.floor(engine.position() / snap()) * snap();
+    store.change((p) => {
+      clearClipSel();
+      for (const c of ui.clipClipboard) p.playlist.clips.push({ ...JSON.parse(JSON.stringify(c)), id: newId('k'), start: at + c.start, s: true });
+    });
+  }
+
+  function duplicateClips() {
+    const sel = selectedClips();
+    if (!sel.length) return;
+    const a = Math.min(...sel.map((c) => c.start));
+    const b = Math.max(...sel.map((c) => c.start + clipLength(store.project, c)));
+    const span = Math.ceil((b - a) / BAR) * BAR || BAR;
+    store.change((p) => {
+      clearClipSel();
+      for (const c of sel) p.playlist.clips.push({ ...JSON.parse(serialize(c)), id: newId('k'), start: c.start + span, s: true });
+    });
+  }
+
+  function deleteSelected() {
+    const sel = selectedClips();
+    if (!sel.length) return;
+    store.change((p) => { p.playlist.clips = p.playlist.clips.filter((c) => !c.s); });
+    hint(sel.length + t(' clip(s) deleted'));
+  }
+
+  // Cut a clip in two at a tick. The right part keeps playing from where it was.
+  function splitClip(c, at) {
+    const len = clipLength(store.project, c);
+    const cut = Math.round(at / snap()) * snap();
+    if (cut <= c.start || cut >= c.start + len) return false;
+    const right = { ...JSON.parse(serialize(c)), id: newId('k'), start: cut, len: c.start + len - cut, offset: (c.offset || 0) + (cut - c.start) };
+    if (c.type === 'auto') {
+      const d = cut - c.start;
+      right.points = [[0, autoValue(c.points, d)], ...c.points.filter((q) => q[0] > d).map((q) => [q[0] - d, q[1]])];
+      delete right.offset;
+      c.points = [...c.points.filter((q) => q[0] < d), [d, autoValue(c.points, d)]];
+    }
+    if (c.type === 'audio' && c.fadeIn) delete right.fadeIn;
+    c.len = cut - c.start;
+    if (c.type === 'audio') delete c.fadeOut;
+    store.project.playlist.clips.push(right);
+    return true;
+  }
+
+  function toggleLoop() {
+    store.change((p) => {
+      if (!p.loop) p.loop = { on: false, start: 0, end: BAR * 4 };
+      const sel = selectedClips();
+      if (!p.loop.on && sel.length) {
+        p.loop.start = Math.min(...sel.map((c) => c.start));
+        p.loop.end = Math.max(...sel.map((c) => c.start + clipLength(p, c)));
+      }
+      p.loop.on = !p.loop.on;
+    });
+    const lp = store.project.loop;
+    hint(lp.on ? t('Loop: bar ') + (Math.floor(lp.start / BAR) + 1) + t(' to ') + Math.ceil(lp.end / BAR) : t('Loop off'));
+  }
+
+  async function addMarker(at = engine.position()) {
+    const name = await promptText(t('Marker name'), t('Marker ') + ((store.project.markers || []).length + 1));
+    if (name == null) return;
+    store.change((p) => {
+      if (!p.markers) p.markers = [];
+      p.markers.push({ id: newId('m'), t: Math.max(0, Math.floor(at / BEAT) * BEAT), name: name.slice(0, 40) });
+      p.markers.sort((a, b) => a.t - b.t);
+    });
+  }
+
+  function markerAt(p) {
+    for (const m of store.project.markers || []) if (Math.abs(xAt(m.t) - p.x) < 8) return m;
+    return null;
+  }
+
+  function markerMenu(anchorP, m) {
+    const anchor = { getBoundingClientRect: () => { const r = cv.getBoundingClientRect(); return { left: r.left + anchorP.x, right: r.left + anchorP.x, top: r.top + anchorP.y, bottom: r.top + anchorP.y }; } };
+    openMenu(anchor, [
+      { header: m.name || t('Marker') },
+      { label: t('Jump here'), icon: 'Play', onClick: () => { engine.setPosition(m.t); draw(); } },
+      { label: t('Rename'), icon: 'Pencil', onClick: async () => {
+        const v = await promptText(t('Marker name'), m.name);
+        if (v != null) store.change(() => { m.name = v.slice(0, 40); });
+      } },
+      { label: Number.isFinite(m.bpm) ? t('Tempo change: ') + m.bpm + ' BPM' : t('Set a tempo change here'), icon: 'Timer', onClick: async () => {
+        const v = await promptText(t('Tempo from this marker (BPM), empty for none'), Number.isFinite(m.bpm) ? String(m.bpm) : String(store.project.bpm));
+        if (v == null) return;
+        const n = Number(String(v).replace(',', '.'));
+        store.change(() => {
+          if (v.trim() === '' || !Number.isFinite(n)) delete m.bpm;
+          else m.bpm = clamp(n, 10, 522);
+        });
+      } },
+      { label: t('Delete marker'), icon: 'Trash', onClick: () => store.change((p) => { p.markers = p.markers.filter((x) => x !== m); }) },
+    ]);
+  }
+
+  function automationMenu(anchor) {
+    const list = autoTargets(store.project);
+    const items = [{ header: t('Parameter to automate') }];
+    let group = '';
+    for (const a of list) {
+      if (a.group !== group) {
+        if (group) items.push({ sep: true });
+        group = a.group;
+      }
+      items.push({ label: a.label, onClick: () => addAutomation(a.id) });
+    }
+    openMenu(anchor, items);
+  }
+
+  function addAutomation(target) {
+    const p = store.project;
+    let track = 0;
+    for (let i = TRACKS - 1; i >= 0; i--) if (!p.playlist.clips.some((c) => c.track === i)) { track = i; break; }
+    const len = Math.max(BAR * 4, songLength(p));
+    const v = targetValue(p, target);
+    let clip = null;
+    store.change((pp) => {
+      clip = { id: newId('k'), type: 'auto', target, track, start: 0, len, points: [[0, v], [len, v]] };
+      pp.playlist.clips.push(clip);
+    });
+    hint(t('Automation clip added on ') + p.playlist.tracks[track].name);
+    openAutomationEditor(clip, engine);
+  }
+
+  function clipMenu(p, hit) {
+    const c = hit.c;
+    const at = tickAt(p.x);
+    const anchor = { getBoundingClientRect: () => { const r = cv.getBoundingClientRect(); return { left: r.left + p.x, right: r.left + p.x, top: r.top + p.y, bottom: r.top + p.y }; } };
+    openMenu(anchor, [
+      { header: clipName(c) },
+      c.type === 'auto'
+        ? { label: t('Edit automation'), icon: 'Activity', onClick: () => openAutomationEditor(c, engine) }
+        : c.type === 'audio'
+        ? { label: t('Clip properties'), icon: 'SlidersVertical', onClick: () => openClipProperties(c) }
+        : { label: t('Open in the piano roll'), icon: 'Piano', onClick: () => { store.project.currentPattern = c.patternId; store.emit(); } },
+      { label: t('Split here'), icon: 'Scissors', onClick: () => { store.commit(); if (splitClip(c, at)) store.emit(); else store.undoStack.pop(); } },
+      { label: t('Duplicate'), icon: 'CopyPlus', onClick: () => { clearClipSel(); c.s = true; duplicateClips(); } },
+      { label: t('Loop this clip'), icon: 'Repeat', onClick: () => store.change((pp) => { pp.loop = { on: true, start: c.start, end: c.start + clipLength(pp, c) }; }) },
+      { label: t('Delete'), icon: 'Trash', onClick: () => store.change(() => removeClip(c)) },
+    ]);
   }
 
   const snap = () => (SNAPS.find((s) => s.id === ui.plSnap) || SNAPS[0]).ticks;
@@ -119,6 +294,7 @@ export function createPlaylist(engine) {
   }
 
   function clipName(c) {
+    if (c.type === 'auto') return autoLabel(store.project, c.target);
     if (c.type === 'audio') return c.name || (getSampleMeta(c.sampleId) || {}).name || 'Sample';
     const pat = getPattern(store.project, c.patternId);
     return pat ? pat.name : '';
@@ -132,9 +308,10 @@ export function createPlaylist(engine) {
     for (const arr of Object.values(pat.notes)) for (const n of arr) { lo = Math.min(lo, n.key); hi = Math.max(hi, n.key); }
     const top = y + 16;
     const hh = view.rowH - 20;
-    for (let k = 0; k * L < len; k++) {
-      const bx = x + k * L * view.px;
-      if (k > 0) {
+    const off = c.offset || 0;
+    for (let k = 0; (k * L) - off < len; k++) {
+      const bx = x + (k * L - off) * view.px;
+      if (k * L - off > 0) {
         g.fillStyle = 'rgba(0,0,0,0.35)';
         g.fillRect(Math.round(bx), y + 2, 1, view.rowH - 4);
       }
@@ -144,10 +321,11 @@ export function createPlaylist(engine) {
       g.fillStyle = 'rgba(15,20,22,0.75)';
       for (const arr of Object.values(pat.notes)) {
         for (const n of arr) {
-          if (n.t >= L || k * L + n.t >= len) continue;
+          const rel = k * L + n.t - off;
+          if (n.t >= L || rel >= len || rel < 0) continue;
           const nx = bx + n.t * view.px;
           const ny = top + hh - ((n.key - base + 1) / span) * hh;
-          g.fillRect(nx, ny, Math.max(1, Math.min(n.len, len - k * L - n.t) * view.px - 1), Math.max(1.5, hh / span));
+          g.fillRect(nx, ny, Math.max(1, Math.min(n.len, len - rel) * view.px - 1), Math.max(1.5, hh / span));
         }
       }
     }
@@ -164,16 +342,52 @@ export function createPlaylist(engine) {
       return;
     }
     const pk = waveform(c.sampleId, 400);
-    const sampleW = (buf.duration / spt()) * view.px;
+    const rate = Math.pow(2, (c.pitch || 0) / 12);
+    const sampleW = (buf.duration / rate / spt()) * view.px;
+    const offPx = (c.offset || 0) * view.px;
     const mid = y + 16 + (view.rowH - 20) / 2;
     const amp = (view.rowH - 20) / 2;
     g.fillStyle = 'rgba(15,20,22,0.75)';
-    const wMax = Math.min(len * view.px, sampleW);
+    const wMax = Math.min(len * view.px, sampleW - offPx);
+    const gain = c.gain == null ? 1 : c.gain;
     for (let px = 0; px < wMax; px += 1) {
-      const i = Math.min(pk.length - 1, Math.floor((px / sampleW) * pk.length));
-      const a = Math.max(0.5, pk[i] * amp);
+      const i = Math.min(pk.length - 1, Math.floor(((px + offPx) / sampleW) * pk.length));
+      const a = Math.max(0.5, Math.min(1, pk[i] * gain) * amp);
       g.fillRect(x + px, mid - a, 1, a * 2);
     }
+    // Fades
+    g.strokeStyle = 'rgba(255,255,255,0.7)';
+    g.lineWidth = 1;
+    if (c.fadeIn) {
+      g.beginPath();
+      g.moveTo(x, y + view.rowH - 3);
+      g.lineTo(x + c.fadeIn * view.px, y + 16);
+      g.stroke();
+    }
+    if (c.fadeOut) {
+      g.beginPath();
+      g.moveTo(x + (len - c.fadeOut) * view.px, y + 16);
+      g.lineTo(x + len * view.px, y + view.rowH - 3);
+      g.stroke();
+    }
+  }
+
+  function drawAutoBody(c, x, y, len) {
+    const top = y + 16;
+    const hh = view.rowH - 20;
+    g.strokeStyle = '#f2f4f5';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    const n = Math.max(2, Math.min(400, Math.ceil(len * view.px / 3)));
+    for (let i = 0; i <= n; i++) {
+      const tk = (len * i) / n;
+      const vy = top + hh - autoValue(c.points, tk) * hh;
+      if (i === 0) g.moveTo(x + tk * view.px, vy);
+      else g.lineTo(x + tk * view.px, vy);
+    }
+    g.stroke();
+    g.fillStyle = '#f2f4f5';
+    for (const [tk, v] of c.points) if (tk <= len) g.fillRect(x + tk * view.px - 2, top + hh - v * hh - 2, 4, 4);
   }
 
   function draw() {
@@ -214,7 +428,7 @@ export function createPlaylist(engine) {
       const y = yAt(c.track);
       if (x > W || x + w < HEAD_W || y > H || y + view.rowH < RULER_H) continue;
       const muted = p.playlist.tracks[c.track] && p.playlist.tracks[c.track].mute;
-      const col = c.type === 'audio' ? AUDIO_COLOR : PATTERN_COLORS[getPattern(p, c.patternId).color % PATTERN_COLORS.length];
+      const col = c.type === 'audio' ? AUDIO_COLOR : c.type === 'auto' ? AUTO_COLOR : PATTERN_COLORS[getPattern(p, c.patternId).color % PATTERN_COLORS.length];
       g.globalAlpha = muted ? 0.4 : 1;
       g.fillStyle = '#1a2023';
       g.fillRect(x, y + 1, w, view.rowH - 2);
@@ -229,8 +443,14 @@ export function createPlaylist(engine) {
       g.fillStyle = '#f2f4f5';
       g.fillText(clipName(c), x + 4, y + 9);
       if (c.type === 'audio') drawAudioBody(c, x, y, len);
+      else if (c.type === 'auto') drawAutoBody(c, x, y, len);
       else drawPatternBody(c, x, y, len);
       g.restore();
+      if (c.s) {
+        g.strokeStyle = '#f18b80';
+        g.lineWidth = 2;
+        g.strokeRect(x + 1, y + 2, Math.max(2, w - 2), view.rowH - 4);
+      }
       // Stretch handle on the right edge
       g.fillStyle = 'rgba(255,255,255,0.35)';
       g.fillRect(Math.round(x + w) - 4, y + view.rowH / 2 - 6, 2, 12);
@@ -244,6 +464,22 @@ export function createPlaylist(engine) {
       g.strokeStyle = '#f0993a';
       g.lineWidth = 2;
       g.strokeRect(x + 1, y + 2, Math.max(8, dropHover.len * view.px) - 2, view.rowH - 4);
+    }
+    const lp = p.loop;
+    if (lp && lp.on) {
+      g.fillStyle = 'rgba(240,153,58,0.07)';
+      g.fillRect(xAt(lp.start), RULER_H, (lp.end - lp.start) * view.px, H - RULER_H);
+    }
+    for (const m of p.markers || []) {
+      g.fillStyle = 'rgba(255,255,255,0.18)';
+      g.fillRect(Math.round(xAt(m.t)), RULER_H, 1, H - RULER_H);
+    }
+    if (overlay) {
+      g.fillStyle = 'rgba(241,139,128,0.12)';
+      g.strokeStyle = '#f18b80';
+      g.lineWidth = 1;
+      g.fillRect(overlay.x, overlay.y, overlay.w, overlay.h);
+      g.strokeRect(overlay.x + 0.5, overlay.y + 0.5, overlay.w, overlay.h);
     }
     if (ui.songMode && (engine.playing || engine.pos > 0)) {
       g.fillStyle = E.playhead;
@@ -272,6 +508,25 @@ export function createPlaylist(engine) {
     const end = songLength(p);
     g.fillStyle = 'rgba(0,0,0,0.3)';
     g.fillRect(Math.max(HEAD_W, xAt(end)), 0, W, RULER_H);
+    if (lp && (lp.on || ui.plTool === 'select')) {
+      g.fillStyle = lp.on ? '#f0993a' : 'rgba(240,153,58,0.35)';
+      g.fillRect(xAt(lp.start), 0, (lp.end - lp.start) * view.px, 4);
+    }
+    for (const m of p.markers || []) {
+      const mx = Math.round(xAt(m.t));
+      g.fillStyle = Number.isFinite(m.bpm) ? '#e8c35a' : '#cfd8dc';
+      g.beginPath();
+      g.moveTo(mx, 4);
+      g.lineTo(mx + 6, 8);
+      g.lineTo(mx, 12);
+      g.closePath();
+      g.fill();
+      const label = (m.name || '') + (Number.isFinite(m.bpm) ? ' ' + m.bpm + ' BPM' : '');
+      g.fillStyle = E.ruler;
+      g.fillRect(mx + 7, 2, g.measureText(label).width + 4, 13);
+      g.fillStyle = th.colors.text;
+      g.fillText(label, mx + 9, 9);
+    }
     if (ui.songMode && (engine.playing || engine.pos > 0)) {
       const x = Math.round(xAt(engine.position()));
       g.fillStyle = E.playhead;
@@ -352,7 +607,12 @@ export function createPlaylist(engine) {
     down(p, st) {
       st.region = regionAt(p);
       if (st.region === 'hscroll' || st.region === 'vscroll') return scrollbarDown(p, st);
-      if (st.region === 'ruler') seek(p);
+      if (st.region === 'ruler') {
+        st.marker = markerAt(p);
+        if (ui.plTool === 'select') st.loopDrag = true;
+        else if (!st.marker) seek(p);
+        return;
+      }
       if (st.region === 'grid' && (ui.plTool === 'delete' || st.button === 2)) {
         store.commit();
         st.committed = true;
@@ -365,15 +625,38 @@ export function createPlaylist(engine) {
       }
     },
     tap(p, st) {
+      if (st.region === 'ruler') {
+        if (st.marker) markerMenu(p, st.marker);
+        else if (st.loopDrag) seek(p, true);
+        return;
+      }
       if (st.region === 'head') {
         const tr = trackAt(p.y);
         const t = store.project.playlist.tracks[tr];
         if (t) store.change(() => { t.mute = !t.mute; });
         return;
       }
-      if (st.region !== 'grid' || st.erasing || ui.plTool !== 'draw') return;
+      if (st.region !== 'grid' || st.erasing) return;
+      if (ui.plTool === 'select') {
+        const hit = clipAt(p);
+        if (hit) hit.c.s = !hit.c.s;
+        else clearClipSel();
+        store.emit();
+        return;
+      }
+      if (ui.plTool === 'slice') {
+        const hit = clipAt(p);
+        if (!hit) return;
+        store.commit();
+        if (splitClip(hit.c, tickAt(p.x))) store.emit();
+        else store.undoStack.pop();
+        return;
+      }
+      if (ui.plTool !== 'draw') return;
       const hit = clipAt(p);
-      if (hit && hit.c.type === 'audio') {
+      if (hit && hit.c.type === 'auto') {
+        openAutomationEditor(hit.c, engine);
+      } else if (hit && hit.c.type === 'audio') {
         engine.previewSample(hit.c.sampleId);
       } else if (hit) {
         store.project.currentPattern = hit.c.patternId;
@@ -386,9 +669,29 @@ export function createPlaylist(engine) {
       }
     },
     dragStart(p0, p, st) {
+      if (st.region === 'ruler' && st.loopDrag) {
+        store.commit();
+        st.committed = true;
+        st.mode = 'loop';
+        st.loopA = Math.max(0, Math.round(tickAt(p0.x) / snap()) * snap());
+        return;
+      }
       if (st.region !== 'grid' || st.erasing) return;
       if (ui.plTool === 'hand') {
         st.mode = 'pan';
+        return;
+      }
+      if (ui.plTool === 'select') {
+        const hit = clipAt(p0);
+        if (hit && hit.c.s) {
+          store.commit();
+          st.committed = true;
+          st.mode = 'moveSel';
+          st.moving = selectedClips().map((c) => ({ c, start: c.start, track: c.track }));
+        } else {
+          st.mode = 'box';
+          if (!st.button || st.button === 0) clearClipSel();
+        }
         return;
       }
       if (ui.plTool !== 'draw') return;
@@ -411,7 +714,50 @@ export function createPlaylist(engine) {
     },
     dragMove(p, st) {
       if (st.region === 'hscroll' || st.region === 'vscroll') return scrollbarMove(p, st);
-      if (st.region === 'ruler') return seek(p);
+      if (st.mode === 'loop') {
+        const b = Math.max(0, Math.round(tickAt(p.x) / snap()) * snap());
+        const lp = store.project.loop || (store.project.loop = { on: true, start: 0, end: BAR });
+        lp.start = Math.min(st.loopA, b);
+        lp.end = Math.max(st.loopA, b, lp.start + snap());
+        lp.on = true;
+        hint(t('Loop: bar ') + (Math.floor(lp.start / BAR) + 1) + t(' to ') + Math.ceil(lp.end / BAR));
+        store.emit();
+        return;
+      }
+      if (st.region === 'ruler') {
+        if (!st.marker) seek(p);
+        return;
+      }
+      if (st.mode === 'box') {
+        overlay = { x: Math.min(st.p0.x, p.x), y: Math.min(st.p0.y, p.y), w: Math.abs(p.x - st.p0.x), h: Math.abs(p.y - st.p0.y) };
+        const ta = tickAt(overlay.x);
+        const tb = tickAt(overlay.x + overlay.w);
+        const ra = trackAt(overlay.y);
+        const rb = trackAt(overlay.y + overlay.h);
+        for (const c of store.project.playlist.clips) {
+          if (!clipValid(store.project, c)) continue;
+          const e = c.start + clipLength(store.project, c);
+          if (c.track >= ra && c.track <= rb && c.start < tb && e > ta) c.s = true;
+          else delete c.s;
+        }
+        draw();
+        return;
+      }
+      if (st.mode === 'moveSel') {
+        const dt = Math.round((tickAt(p.x) - tickAt(st.p0.x)) / snap()) * snap();
+        let dtr = trackAt(p.y) - trackAt(st.p0.y);
+        const minTr = Math.min(...st.moving.map((m) => m.track));
+        const maxTr = Math.max(...st.moving.map((m) => m.track));
+        dtr = clamp(dtr, -minTr, TRACKS - 1 - maxTr);
+        const minStart = Math.min(...st.moving.map((m) => m.start));
+        const d = Math.max(-minStart, dt);
+        for (const m of st.moving) {
+          m.c.start = m.start + d;
+          m.c.track = m.track + dtr;
+        }
+        store.emit();
+        return;
+      }
       if (st.erasing) {
         const hit = clipAt(p);
         if (hit) {
@@ -438,14 +784,24 @@ export function createPlaylist(engine) {
         store.emit();
       }
     },
+    dragEnd(p, st) {
+      if (st.mode === 'box') {
+        overlay = null;
+        const n = selectedClips().length;
+        if (n) hint(n + t(' clip(s) selected'));
+        store.emit();
+      }
+    },
     longPress(p, st) {
-      if (st.region !== 'grid' || ui.plTool !== 'draw') return;
+      if (st.region === 'ruler') {
+        addMarker(Math.max(0, tickAt(p.x)));
+        return;
+      }
+      if (st.region !== 'grid') return;
       const hit = clipAt(p);
       if (hit) {
-        store.commit();
-        removeClip(hit.c);
-        hint(t('Clip deleted'));
-        store.emit();
+        st.cancelled = true;
+        clipMenu(p, hit);
       }
     },
     cancel(st) {
@@ -524,8 +880,8 @@ export function createPlaylist(engine) {
     if (!noDraw) draw();
   }
 
-  function seek(p) {
-    if (!ui.songMode) return;
+  function seek(p, force) {
+    if (!ui.songMode && !force) return;
     engine.setPosition(Math.max(0, Math.floor(tickAt(p.x) / BEAT) * BEAT));
     draw();
   }
@@ -550,6 +906,20 @@ export function createPlaylist(engine) {
     },
     frame() {
       if (engine.playing && ui.songMode) draw();
+    },
+    keydown(e) {
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+      else if (mod && k === 'c') copyClips();
+      else if (mod && k === 'v') pasteClips();
+      else if (mod && k === 'b') duplicateClips();
+      else if (mod && k === 'a') {
+        for (const c of store.project.playlist.clips) c.s = true;
+        store.emit();
+      } else return false;
+      e.preventDefault();
+      return true;
     },
   };
 }

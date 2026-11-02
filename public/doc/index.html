@@ -25,7 +25,9 @@
   <a href="#channel-rack">Channel rack</a>
   <a href="#piano-roll">Piano roll</a>
   <a href="#playlist">Playlist</a>
+  <a href="#automation">Automation</a>
   <a href="#mixer">Mixer</a>
+  <a href="#recording">Recording and MIDI</a>
   <a href="#browser">Browser and samples</a>
   <a href="#projects">Projects and export</a>
   <a href="#settings">Settings and language</a>
@@ -64,6 +66,8 @@
 <ul>
   <li>Each row is a channel: enable light, pan, volume, mixer insert, name and 16 steps per bar.</li>
   <li>Tap a step to turn it on; drag across steps to fill or clear several.</li>
+  <li><strong>Step velocity</strong>: turn on the velocity button in the rack header, then drag up or down on a step to set its velocity. The orange bar shows it.</li>
+  <li>Channels can get a <strong>color</strong> and a <strong>group</strong> from the channel menu. When groups exist, a list in the rack header shows only the channels of one group.</li>
   <li>The name button opens the channel menu: piano roll, settings, rename, clone, move, delete.</li>
   <li>The same menu has <strong>Solo</strong> (mutes every other channel; choose it again to unmute them), <strong>Fill each 2, 4 or 8 steps</strong>, <strong>Random steps</strong> and <strong>Shift one step left or right</strong> (notes wrap around the pattern).</li>
   <li>A channel holding piano roll notes shows a preview instead of steps. Tap it to open the piano roll.</li>
@@ -100,19 +104,40 @@
       <li><strong>Snap notes to scale</strong>: moves out of scale notes to the nearest note of the scale.</li>
     </ul>
   </li>
+  <li><strong>Slide notes</strong>: Tools, Slide notes on or off. A slide note (triangle on its left) glides from the pitch of the previous note of the channel, over the <strong>Slide time</strong> set in the channel settings. Use it for 808 glides.</li>
   <li><strong>Live recording</strong>: turn on the Record button (red circle) in the top bar, start the pattern in PAT mode and play on the piano roll keyboard. Each note is written at the play position, snapped to the grid, with the length you held it.</li>
 </ul>
 
 <h2 id="playlist">Playlist</h2>
 <ul>
   <li>PAT plays the current pattern, SONG plays the playlist.</li>
-  <li>With the Draw tool, tap an empty spot to place the current pattern. Tap a clip to make its pattern current. Drag a clip to move it, long press to delete it.</li>
+  <li>With the Draw tool, tap an empty spot to place the current pattern. Tap a clip to make its pattern current. Drag a clip to move it. Right click or use the Delete tool to delete clips.</li>
+  <li>A long press on a clip opens its menu: properties (audio clips), edit (automation clips), split here, duplicate, loop this clip, delete.</li>
+  <li><strong>Select tool</strong>: tap clips or drag a box to select several, then drag one of them to move them all. The toolbar copies, pastes at the play position and deletes the selection (<kbd>Ctrl</kbd>+<kbd>C</kbd>, <kbd>Ctrl</kbd>+<kbd>V</kbd>, <kbd>Ctrl</kbd>+<kbd>B</kbd> to duplicate, <kbd>Delete</kbd>).</li>
+  <li><strong>Slice tool</strong>: tap a clip to cut it in two at the snap position. The right part keeps playing from where it was in the pattern or sample.</li>
+  <li><strong>Loop region</strong>: with the Select tool, drag on the ruler. The loop button turns it on or off; in SONG mode playback repeats the region.</li>
+  <li><strong>Markers</strong>: the flag button adds a marker at the play position (or long press on the ruler). Tap a marker to jump to it, rename it, delete it or set a <strong>tempo change</strong>: from that marker the song plays at the new tempo, in playback and in exports.</li>
+  <li><strong>Audio clips</strong>: Clip properties sets the gain, pitch (resampling, which also changes the speed), fade in, fade out and start offset.</li>
   <li>Stretch a clip by dragging its right edge. A stretched pattern clip repeats its pattern; an audio clip is cut or extended with silence.</li>
   <li>Tap a track name to mute the track.</li>
 </ul>
 
+<h2 id="automation">Automation</h2>
+<p>An automation clip moves one parameter while the song plays: the volume, pan or filter of a channel, or the volume, pan, sends or EQ of a mixer insert.</p>
+<ul>
+  <li>In the playlist, tap the automation button (wave icon) and pick the parameter. A clip is placed on a free track over the length of the song.</li>
+  <li>In the editor, tap to add a point, drag a point to move it, long press or right click a point to delete it. Shapes give a ramp up or down, sine, saw or square curves in time with the tempo.</li>
+  <li>Tap the clip with the Draw tool to edit it again. Move, stretch, split, copy and delete it like any clip.</li>
+  <li>Automation plays in SONG mode and is rendered in WAV, MP3 and stem exports. When playback stops, the parameter goes back to its value in the mixer or channel settings.</li>
+</ul>
+
 <h2 id="mixer">Mixer</h2>
 <p>The master and 16 inserts each have a fader (0 dB at 80%), pan, reverb and delay sends, a three band equalizer (L, M, H: low shelf at 120 Hz, peak at 1 kHz, high shelf at 6 kHz, plus or minus 18 dB), mute, solo, a level meter and an FX button with 4 slots for effect plugins. Route a channel to an insert from the insert number in the channel rack or from the channel settings.</p>
+<ul>
+  <li><strong>Routing</strong>: the arrow button under each insert sends it to the master or to a higher numbered insert, used as a bus (for example all drums into insert 10 with one compressor).</li>
+  <li><strong>Built in effects</strong> for the FX slots: Compressor, Limiter, Filter (low pass, high pass, band pass, notch), Distortion (soft, hard, fold) and Sidechain. Each has presets.</li>
+  <li><strong>Sidechain</strong>: put it on the insert to duck (a bass, for example) and choose the channel that triggers it (the kick by default). Every note of that channel lowers the insert by the Depth and brings it back over the Release time.</li>
+</ul>
 
 <h2 id="browser">Browser and samples</h2>
 <ul>
@@ -125,14 +150,28 @@
       <li>into the channel rack: a Sampler channel is created.</li>
     </ul>
   </li>
-  <li>The Sampler plays the sample at its own pitch on C5 and transposes it on other notes. Turn on <strong>Play reversed</strong> in the channel settings to play the sample backwards.</li>
+  <li>The Sampler plays the sample at its own pitch on C5 and transposes it on other notes. Its channel settings have <strong>Play reversed</strong>, <strong>Start</strong> and <strong>End</strong> points, and <strong>Loop while the note is held</strong> (otherwise the sample plays to its end).</li>
+  <li><strong>Chop (slicer)</strong>: cut the sample into 4, 8 or 16 equal slices, or Auto (cuts on the hits). C5 plays the first slice, C#5 the second and so on, and a pattern that replays the loop is written, ready to rearrange in the piano roll.</li>
+  <li><strong>Multi sample instrument</strong>: on a folder of the browser, Make an instrument from this folder. Name the samples after their note (<code>Piano C4.wav</code>, <code>Piano F#4.wav</code>, or the MIDI number <code>Piano 60.wav</code>; packs name middle C "C4"). Each key plays the nearest sample, transposed.</li>
+  <li>Every channel has a full envelope: attack, decay, sustain, release.</li>
+</ul>
+
+<h2 id="recording">Recording and MIDI</h2>
+<ul>
+  <li>The Record button (red circle) opens a menu: <strong>Notes</strong> arms note recording (piano roll keyboard and MIDI keyboard), <strong>Audio from the microphone</strong> records into the playlist, and <strong>Count in one bar</strong> plays one bar of metronome before recording starts.</li>
+  <li><strong>Microphone</strong>: playback starts in SONG mode from the play position (after the count in) and Stop places the take as an audio clip on a free track. Takes are kept in the browser under Recordings. Android asks for the microphone permission the first time. Use headphones so the song is not recorded with your voice.</li>
+  <li><strong>MIDI keyboard</strong>: connect a USB MIDI keyboard. It plays the channel open in the piano roll, with velocity, and records notes while recording is armed. Turn it on or off in Settings. Web MIDI depends on the device: Settings shows when it is not supported.</li>
+  <li><strong>Import MIDI file</strong> (menu): a <code>.mid</code> file becomes a new pattern with one channel per track and the tempo of the file. Drums on MIDI channel 10 are split into the built in drum sounds.</li>
 </ul>
 
 <h2 id="projects">Projects and export</h2>
 <ul>
+  <li><strong>New project</strong> offers templates: empty, hip hop, trap (with an 808 glide) and house.</li>
+  <li><strong>Time signature</strong> (Project info): 2/4 to 7/4. Bars, the grid and the metronome follow it.</li>
+  <li>The top bar shows the voices playing and the load of the sequencer (CPU).</li>
   <li>The open project is saved automatically. Use Save or Save as to keep named projects on the device.</li>
   <li>Export project file writes a <code>.astudio</code> file you can share or back up. It does not contain imported samples: import the pack again on another device.</li>
-  <li>Export as WAV renders the pattern (PAT mode) or the song (SONG mode) as 16 bit, 44.1 kHz stereo.</li>
+  <li>Export renders the pattern (PAT mode) or the song (SONG mode), 44.1 kHz stereo, as WAV 16 bit, WAV 24 bit, MP3 192 or 320 kbps, with optional normalization to -0.3 dB. MP3 encoding uses LAME (lamejs, LGPL), loaded as a separate file only when you export an MP3.</li>
   <li>Export stems (ZIP) renders one WAV file per channel that has notes, plus one for the audio clips in SONG mode, all with the same length so they line up in another DAW. Muted channels are skipped.</li>
   <li>Project info (in the menu) holds the project name, an author and free notes (lyrics, ideas), and counts channels, patterns, notes and clips.</li>
   <li>Export as MIDI writes a standard <code>.mid</code> file of the pattern or the song, one track per channel, with the tempo. Drums use MIDI channel 10 and General MIDI drum notes; other channels get a close General MIDI program. Open it in FL Studio or any other DAW.</li>

@@ -3,7 +3,13 @@ import { t } from './i18n.js';
 export const PPQ = 96;
 export const STEP = 24; // a 1/16 step
 export const BEAT = 96;
-export const BAR = 384; // 4/4
+// Bar length follows the project time signature (beats of a quarter note).
+// ES module imports are live bindings, so every module sees the new value.
+export let BAR = 384; // 4/4
+export const TIME_SIGS = [2, 3, 4, 5, 6, 7];
+export function setBeatsPerBar(n) {
+  BAR = (TIME_SIGS.includes(n) ? n : 4) * 96;
+}
 
 export const NKEYS = 132; // C0 to B10, MIDI 0 to 131
 export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -23,7 +29,7 @@ export const SNAPS = [
   { id: '1/3b', label: t('1/3 beat'), ticks: 32 },
   { id: '1/2b', label: t('1/2 beat'), ticks: 48 },
   { id: 'beat', label: t('Beat'), ticks: 96 },
-  { id: 'bar', label: t('Bar'), ticks: 384 },
+  { id: 'bar', label: t('Bar'), get ticks() { return BAR; } },
 ];
 
 export const snapTicks = (id) => (SNAPS.find((s) => s.id === id) || SNAPS[5]).ticks;

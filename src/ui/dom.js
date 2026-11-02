@@ -76,6 +76,16 @@ import {
   Pointer,
   NotebookPen,
   Timer,
+  Repeat,
+  Flag,
+  Activity,
+  Mic,
+  Cpu,
+  ArrowRight,
+  Layers,
+  Funnel,
+  Tag,
+  Slice,
 } from 'lucide';
 import { t } from '../i18n.js';
 
@@ -86,6 +96,7 @@ const ICONS = {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Metronome, FilePlus, Share2, Info,
   Shield, FileText, Cookie, ListMusic, Volume2, Music, ArrowUp, ArrowDown, Check, Palette, Puzzle, BookOpen, Bug, ExternalLink, Lightbulb, RefreshCw, Search, GitBranch, Circle, FileMusic, Bot,
   Headphones, Shuffle, Keyboard, WandSparkles, FileArchive, Pointer, NotebookPen, Timer,
+  Repeat, Flag, Activity, Mic, Cpu, ArrowRight, Layers, Funnel, Tag, Slice,
 };
 
 export function icon(name, size = 18) {

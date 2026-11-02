@@ -1,5 +1,5 @@
 import { openFxDialog } from './fxDialog.js';
-import { h, promptText } from './dom.js';
+import { h, promptText, openMenu } from './dom.js';
 import { knob, fader, led } from './controls.js';
 import { store } from '../store.js';
 import { faderGain } from '../audio/engine.js';
@@ -46,6 +46,13 @@ export function createMixer(engine, onShowPlugins) {
       }));
       const mute = led(!m.mute, t('Insert enabled'), () => store.change(() => { m.mute = !m.mute; }));
       const solo = i === 0 ? null : h('button', { class: 'b tb solo', type: 'button', title: 'Solo', onClick: () => store.change(() => { m.solo = !m.solo; }) }, 'S');
+      const route = i === 0 ? null : h('button', { class: 'b tb route-btn', type: 'button', title: t('Send this insert to the master or to a bus'), onClick: (e) => {
+        openMenu(e.currentTarget, [
+          { header: t('Output of ') + m.name },
+          { label: 'Master', checked: !m.route, onClick: () => store.change(() => { m.route = 0; }) },
+          ...store.project.mixer.map((x, j) => (j > i ? { label: j + '  ' + x.name, checked: m.route === j, onClick: () => store.change(() => { m.route = j; }) } : null)).filter(Boolean),
+        ]);
+      } });
       const fxBtn = h('button', { class: 'b tb fxbtn', type: 'button', title: t('Effects'), onClick: () => openFxDialog(i, engine, onShowPlugins) }, 'FX');
       const strip = h('div', { class: 'strip' + (i === 0 ? ' master' : '') },
         h('div', { class: 'strip-num' }, i === 0 ? 'M' : String(i)),
@@ -60,9 +67,10 @@ export function createMixer(engine, onShowPlugins) {
         h('label', { class: 'kl' }, pan, h('span', null, 'Pan')),
         h('div', { class: 'strip-fader' }, meter, fd),
         h('div', { class: 'strip-btns' }, mute, solo),
+        route,
         fxBtn,
       );
-      return { m, i, strip, meter, fd, pan, rev, del, eq, mute, solo, fxBtn, peak: 0 };
+      return { m, i, strip, meter, fd, pan, rev, del, eq, mute, solo, route, fxBtn, peak: 0 };
     });
     strips.replaceChildren(...items.map((x) => x.strip));
     patch();
@@ -76,6 +84,10 @@ export function createMixer(engine, onShowPlugins) {
       if (it.rev) it.rev.update(m.reverb);
       if (it.del) it.del.update(m.delay);
       it.eq.forEach((kn, k) => kn.update((m.eq || [0, 0, 0])[k]));
+      if (it.route) {
+        it.route.textContent = '→ ' + (m.route ? String(m.route) : 'M');
+        it.route.classList.toggle('on', !!m.route);
+      }
       it.mute.update(!m.mute);
       if (it.solo) it.solo.classList.toggle('on', m.solo);
       const n = (m.fx || []).filter((f) => f.on !== false).length;

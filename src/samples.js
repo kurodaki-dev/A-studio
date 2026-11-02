@@ -131,6 +131,13 @@ async function addOne(name, folder, bytes) {
   return rec.id;
 }
 
+// Store recorded or generated audio as a sample. Returns its id.
+export async function addSample(name, folder, bytes) {
+  const id = await addOne(name, folder, bytes);
+  changed();
+  return id;
+}
+
 const baseName = (p) => p.split('/').pop();
 const stripExt = (n) => n.replace(/\.[^.]+$/, '');
 

@@ -1,8 +1,15 @@
 import './style.css';
-import { h, btn, icon, hint, bindHint, openMenu, openModal, promptText, confirmBox, alertBox, closeMenu } from './ui/dom.js';
-import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject, notesFor } from './store.js';
+import { h, btn, icon, hint, bindHint, openMenu, openModal, promptText, confirmBox, alertBox, closeMenu, dropdown } from './ui/dom.js';
+import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject, notesFor, newId } from './store.js';
 import { ui } from './ui-state.js';
-import { Engine, renderWav, renderStems } from './audio/engine.js';
+import { Engine, renderWav, renderStems, renderChannels } from './audio/engine.js';
+import { encodeMp3 } from './mp3.js';
+import { decodeMidi, importMidi } from './midiimport.js';
+import { initMidi, midiEnabled } from './midiin.js';
+import { micSupported, startMic, stopMic, micRecording } from './recorder.js';
+import { TEMPLATES } from './templates.js';
+import { TIME_SIGS } from './constants.js';
+import { pickBinary } from './platform.js';
 import { zipSync } from 'fflate';
 import { createRack } from './ui/rack.js';
 import { createPianoRoll } from './ui/pianoroll.js';
@@ -14,7 +21,7 @@ import { initSamples, onSamplesChange, getSampleMeta, getBuffer, loadBuffer } fr
 import { openChannelSettings } from './ui/channelSettings.js';
 import { loadCurrent, saveCurrent, saveProject, loadProject, listProjects } from './persist.js';
 import { saveFile, pickFile } from './platform.js';
-import { BAR, STEP, NKEYS, clamp } from './constants.js';
+import { BAR, STEP, NKEYS, TRACKS, clamp } from './constants.js';
 import { createExtensionHost } from './extensions.js';
 import { isInstrumentId, CATALOG } from './audio/catalog.js';
 import { pluginInstruments, getPlugin } from './plugins.js';
@@ -86,11 +93,82 @@ const patBtn = h('button', { class: 'b tb seg', type: 'button', onClick: () => s
 const songBtn = h('button', { class: 'b tb seg', type: 'button', onClick: () => setSongMode(true) }, 'SONG');
 const playBtn = btn('Play', t('Play / pause (space)'), () => togglePlay(), 'play');
 const stopBtn = btn('Square', 'Stop', () => stop(), 'stop');
-const recBtn = btn('Circle', t('Record notes played on the piano roll keyboard'), () => {
-  ui.recording = !ui.recording;
-  hint(ui.recording ? t('Recording armed: play the pattern and use the piano roll keyboard') : t('Recording off'));
+try {
+  ui.countIn = localStorage.getItem('astudio:countin') === '1';
+} catch {
+  ui.countIn = false;
+}
+const recBtn = btn('Circle', t('Record'), (e) => recordMenu(e.currentTarget), 'rec');
+function recordMenu(anchor) {
+  if (micRecording()) return stop();
+  openMenu(anchor, [
+    { header: t('Record') },
+    { label: t('Notes (piano roll keyboard and MIDI keyboard)'), icon: 'Piano', checked: ui.recording, onClick: () => {
+      ui.recording = !ui.recording;
+      hint(ui.recording ? t('Recording armed: play the pattern and use the piano roll keyboard') : t('Recording off'));
+      refreshToolbar();
+    } },
+    { label: t('Audio from the microphone into the playlist'), icon: 'Mic', disabled: !micSupported(), onClick: () => recordAudio() },
+    { sep: true },
+    { label: t('Count in one bar before recording'), icon: 'Metronome', checked: ui.countIn, onClick: () => {
+      ui.countIn = !ui.countIn;
+      try {
+        localStorage.setItem('astudio:countin', ui.countIn ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+    } },
+  ]);
+}
+
+// Microphone take: the mic opens first, playback starts in SONG mode (after the
+// count in), and Stop places the take as an audio clip on a free track.
+let audioRec = null;
+async function recordAudio() {
+  if (!micSupported()) return;
+  setSongMode(true);
+  engine.init();
+  try {
+    await startMic();
+  } catch (e) {
+    alertBox(t('Microphone'), t('The microphone could not be opened. Allow A Studio to use it in the system settings. ') + String((e && e.message) || ''));
+    return;
+  }
+  const micAt = engine.ctx.currentTime;
+  if (engine.playing) engine.pause();
+  engine.play({ countIn: ui.countIn ? 1 : 0 });
+  audioRec = { start: engine.startPos, lead: engine.startAt - micAt, bpm: engine.bpm };
+  hint(t('Recording audio. Press Stop to finish.'));
   refreshToolbar();
-}, 'rec');
+}
+
+async function finishAudioRecording() {
+  const r = audioRec;
+  audioRec = null;
+  const spt = 60 / (r.bpm * 96);
+  const playedTicks = Math.max(0, (engine.ctx.currentTime - (engine.startAt || 0)) / spt);
+  const n = (store.project.playlist.clips.filter((c) => c.type === 'audio' && /^Take /.test(c.name || '')).length || 0) + 1;
+  const name = 'Take ' + n;
+  const res = await stopMic(name).catch(() => null);
+  if (!res) {
+    alertBox(t('Microphone'), t('Nothing was recorded.'));
+    return;
+  }
+  const len = Math.max(STEP, Math.round(playedTicks));
+  const p = store.project;
+  let track = 0;
+  for (let i = 0; i < TRACKS; i++) {
+    if (!p.playlist.clips.some((c) => c.track === i && c.start < r.start + len && c.start + (c.len || BAR) > r.start)) {
+      track = i;
+      break;
+    }
+  }
+  store.change((pp) => {
+    pp.playlist.clips.push({ id: newId('k'), type: 'audio', sampleId: res.id, name, track, start: Math.round(r.start), len, ...(r.lead > 0.01 ? { offset: Math.round(r.lead / spt) } : {}) });
+  });
+  loadBuffer(res.id);
+  hint(name + t(' placed on ') + p.playlist.tracks[track].name);
+}
 const metroBtn = btn('Metronome', t('Metronome'), () => {
   ui.metronome = !ui.metronome;
   hint(t('Metronome ') + (ui.metronome ? t('on') : t('off')));
@@ -98,6 +176,7 @@ const metroBtn = btn('Metronome', t('Metronome'), () => {
 });
 const tempoVal = h('div', { class: 'lcd tempo', title: t('Tempo: drag vertically, double tap to type') });
 const timeVal = h('div', { class: 'lcd time', title: t('Position bar:step:tick') });
+const cpuVal = h('div', { class: 'lcd cpu', title: t('Voices playing and scheduler load') }, '0 v');
 const patName = h('button', { class: 'b tb patname', type: 'button', title: t('Patterns'), onClick: (e) => patternMenu(e.currentTarget) });
 const undoBtn = btn('Undo2', t('Cancel'), () => { if (store.undo()) hint(t('Undone')); });
 const redoBtn = btn('Redo2', t('Redo'), () => { if (store.redo()) hint(t('Redone')); });
@@ -114,6 +193,7 @@ const topbar = h('header', { class: 'topbar' },
     btn('Pointer', t('Tap tempo: tap in rhythm'), () => tapTempo(), 'small'),
   ),
   timeVal,
+  cpuVal,
   h('div', { class: 'tgrp' },
     btn('ChevronLeft', t('Previous pattern'), () => stepPattern(-1), 'small'),
     patName,
@@ -397,11 +477,14 @@ function setSongMode(on) {
 }
 
 function togglePlay() {
-  engine.togglePlay();
+  if (!engine.playing && ui.recording && ui.countIn) engine.play({ countIn: 1 });
+  else engine.togglePlay();
   refreshToolbar();
 }
 
 function stop() {
+  const wasRecording = !!audioRec;
+  if (wasRecording) finishAudioRecording();
   engine.stop();
   refreshToolbar();
   panels[ui.panel].update();
@@ -475,7 +558,7 @@ function refreshToolbar() {
   playBtn.replaceChildren(icon(engine.playing ? 'Pause' : 'Play'));
   playBtn.classList.toggle('on', engine.playing);
   metroBtn.classList.toggle('on', ui.metronome);
-  recBtn.classList.toggle('on', ui.recording);
+  recBtn.classList.toggle('on', ui.recording || !!audioRec);
   tempoVal.textContent = p.bpm.toFixed(3);
   patName.textContent = currentPattern(p).name;
   timeVal.textContent = fmtTime(engine.position());
@@ -512,12 +595,21 @@ async function save() {
   return doSave();
 }
 
-async function newProj() {
-  if (!(await confirmBox(t('New project'), t('The current project will be closed. Save it first if needed.'), t('New project')))) return;
-  engine.stop();
-  store.load(newProject());
-  ui.prChannel = null;
-  hint(t('New project'));
+function newProj() {
+  const m = openModal({
+    title: t('New project'),
+    body: h('div', { class: 'form' },
+      h('p', { class: 'set-note' }, t('The current project will be closed. Save it first if needed.')),
+      h('div', { class: 'plist' }, TEMPLATES.map((tp) => h('button', { class: 'brow-name', type: 'button', onClick: () => {
+        m.close();
+        engine.stop();
+        store.load(tp.make());
+        ui.prChannel = null;
+        hint(t('New project') + ': ' + t(tp.name));
+      } }, icon(tp.id === 'empty' ? 'FilePlus' : 'Music', 14), t(tp.name)))),
+    ),
+    actions: [{ label: t('Cancel') }],
+  });
 }
 
 function openProjectDialog() {
@@ -573,22 +665,74 @@ async function exportMidi() {
   }
 }
 
-async function exportWav() {
+// Audio export: WAV 16 or 24 bit, or MP3, with optional normalization.
+const EXPORT_FORMATS = [
+  { id: 'wav16', label: 'WAV 16 bit' },
+  { id: 'wav24', label: 'WAV 24 bit' },
+  { id: 'mp3-192', label: 'MP3 192 kbps' },
+  { id: 'mp3-320', label: 'MP3 320 kbps' },
+];
+let exportFormat = 'wav16';
+let exportNormalize = false;
+function exportWav() {
   const mode = ui.songMode ? 'song' : 'pattern';
   if (mode === 'song' && !store.project.playlist.clips.length) {
-    alertBox('Export WAV', t('The playlist is empty. Place patterns in the playlist, or switch to PAT mode to export the current pattern.'));
+    alertBox(t('Export audio'), t('The playlist is empty. Place patterns in the playlist, or switch to PAT mode to export the current pattern.'));
     return;
   }
-  const m = openModal({ title: 'Export WAV', body: h('p', null, t('Rendering...')), actions: [] });
+  const fmt = dropdown({ label: t('Format'), value: exportFormat, options: EXPORT_FORMATS.map((f) => ({ value: f.id, label: f.label })), onChange: (v) => { exportFormat = v; } });
+  const norm = h('input', { type: 'checkbox', checked: exportNormalize, onChange: (e) => { exportNormalize = e.target.checked; } });
+  openModal({
+    title: mode === 'song' ? t('Export song') : t('Export pattern'),
+    body: h('div', { class: 'form' },
+      h('label', { class: 'field' }, h('span', null, t('Format')), fmt),
+      h('label', { class: 'switch' }, norm, h('span', null, t('Normalize (peak at -0.3 dB)'))),
+      h('p', { class: 'set-note' }, t('44.1 kHz stereo. MP3 encoding uses LAME (LGPL).')),
+    ),
+    actions: [{ label: t('Cancel') }, { label: t('Export'), primary: true, onClick: () => { doExport(mode); } }],
+  });
+}
+
+async function doExport(mode) {
+  const status = h('p', null, t('Rendering...'));
+  const m = openModal({ title: t('Export audio'), body: status, actions: [] });
+  const base = (store.project.name || 'export').replace(/[\\/:*?"<>|]/g, '_');
   try {
-    const wav = await renderWav(store.project, mode);
-    m.close();
-    const base = (store.project.name || 'export').replace(/[\\/:*?"<>|]/g, '_');
-    await saveFile(base + '.wav', wav, 'audio/wav');
+    if (exportFormat.startsWith('mp3')) {
+      const { channels, sampleRate } = await renderChannels(store.project, mode, { normalize: exportNormalize });
+      status.textContent = t('Encoding MP3...');
+      const mp3 = await encodeMp3(channels, sampleRate, Number(exportFormat.split('-')[1]), (f) => { status.textContent = t('Encoding MP3...') + ' ' + Math.round(f * 100) + '%'; });
+      m.close();
+      await saveFile(base + '.mp3', mp3.buffer, 'audio/mpeg');
+    } else {
+      const wav = await renderWav(store.project, mode, { bits: exportFormat === 'wav24' ? 24 : 16, normalize: exportNormalize });
+      m.close();
+      await saveFile(base + '.wav', wav, 'audio/wav');
+    }
   } catch (e) {
     m.close();
     alertBox(t('Export failed'), String(e.message || e));
   }
+}
+
+async function importMidiFile() {
+  const f = await pickBinary('.mid,.midi,audio/midi');
+  if (!f) return;
+  let parsed;
+  try {
+    parsed = decodeMidi(f.bytes);
+  } catch (e) {
+    alertBox(t('Import failed'), t('This file is not a valid MIDI file.') + ' ' + String(e.message || ''));
+    return;
+  }
+  if (!parsed.tracks.length) {
+    alertBox(t('Import failed'), t('The MIDI file has no notes.'));
+    return;
+  }
+  let res = null;
+  store.change((p) => { res = importMidi(p, parsed, f.name.replace(/\.midi?$/i, '')); });
+  hint(t('MIDI imported: ') + res.pattern.name + ', ' + res.channels + ' ' + t('channels'));
+  showPanel('rack');
 }
 
 async function exportStems() {
@@ -600,7 +744,7 @@ async function exportStems() {
   const status = h('p', null, t('Rendering...'));
   const m = openModal({ title: t('Export stems'), body: status, actions: [] });
   try {
-    const stems = await renderStems(store.project, mode, (i, n, name) => { status.textContent = t('Rendering') + ' ' + (i + 1) + '/' + n + ': ' + name; });
+    const stems = await renderStems(store.project, mode, (i, n, name) => { status.textContent = t('Rendering') + ' ' + (i + 1) + '/' + n + ': ' + name; }, { bits: exportFormat === 'wav24' ? 24 : 16 });
     if (!stems.length) {
       m.close();
       alertBox(t('Export stems'), t('No channel has notes to export.'));
@@ -627,6 +771,8 @@ function projectInfo() {
   const author = h('input', { class: 'input', type: 'text', value: p.author || '', maxlength: 80, placeholder: t('Optional') });
   const notes = h('textarea', { class: 'input info-notes', maxlength: 2000, rows: 6, placeholder: t('Lyrics, ideas, things to fix...') });
   notes.value = p.notes || '';
+  let beats = p.beats || 4;
+  const sig = dropdown({ label: t('Time signature'), value: beats, options: TIME_SIGS.map((n) => ({ value: n, label: n + '/4' })), onChange: (v) => { beats = v; } });
   let channelsWithNotes = 0;
   for (const c of p.channels) if (p.patterns.some((pt) => (pt.notes[c.id] || []).length)) channelsWithNotes += 1;
   const noteCount = p.patterns.reduce((a, pt) => a + Object.values(pt.notes).reduce((b, arr) => b + arr.length, 0), 0);
@@ -635,6 +781,7 @@ function projectInfo() {
     body: h('div', { class: 'form' },
       h('label', { class: 'field' }, h('span', null, t('Name')), name),
       h('label', { class: 'field' }, h('span', null, t('Author')), author),
+      h('label', { class: 'field' }, h('span', null, t('Time signature')), sig),
       h('label', { class: 'field' }, h('span', null, t('Notes')), notes),
       h('p', { class: 'set-note' }, [
         p.channels.length + ' ' + t('channels') + ' (' + channelsWithNotes + ' ' + t('with notes') + ')',
@@ -650,6 +797,7 @@ function projectInfo() {
           pp.name = name.value.trim().slice(0, 80) || pp.name;
           pp.author = author.value.trim().slice(0, 80);
           pp.notes = notes.value.slice(0, 2000);
+          pp.beats = beats;
         });
       } },
     ],
@@ -713,6 +861,7 @@ function about() {
       h('p', null, t('Your projects stay on this device. The app collects no data. Its only connection checks GitHub for a new version and can be turned off in Settings.')),
       h('p', null, t('Free software under the MIT license. A Studio is an independent project, not affiliated with Image Line or FL Studio.')),
       h('p', null, t('Icons: Lucide (ISC license).')),
+      h('p', null, 'MP3: lamejs (LAME, LGPL 3.0).'),
     ),
   });
 }
@@ -725,8 +874,9 @@ function mainMenu(anchor) {
     { label: t('Save as'), icon: 'Save', onClick: saveAs },
     { sep: true },
     { label: t('Import project file'), icon: 'Upload', onClick: importProject },
+    { label: t('Import MIDI file'), icon: 'FileMusic', onClick: importMidiFile },
     { label: t('Export project file'), icon: 'Share2', onClick: exportProject },
-    { label: ui.songMode ? t('Export song as WAV') : t('Export pattern as WAV'), icon: 'Download', onClick: exportWav },
+    { label: ui.songMode ? t('Export song (WAV, MP3)') : t('Export pattern (WAV, MP3)'), icon: 'Download', onClick: exportWav },
     { label: ui.songMode ? t('Export song as MIDI') : t('Export pattern as MIDI'), icon: 'FileMusic', onClick: exportMidi },
     { label: ui.songMode ? t('Export song stems (ZIP)') : t('Export pattern stems (ZIP)'), icon: 'FileArchive', onClick: exportStems },
     { label: t('Project info'), icon: 'NotebookPen', onClick: projectInfo },
@@ -795,6 +945,7 @@ window.addEventListener('visibilitychange', () => {
 let lastTime = '';
 let lastState = '';
 let lastStateAt = 0;
+let lastCpuAt = 0;
 function frame() {
   const now = performance.now();
   if (now - lastStateAt > 150) {
@@ -805,6 +956,10 @@ function frame() {
       lastState = json;
       extHost.broadcast(st);
     }
+  }
+  if (now - lastCpuAt > 500) {
+    lastCpuAt = now;
+    cpuVal.textContent = engine.activeVoices() + ' v ' + Math.round(engine.load * 100) + '%';
   }
   if (dirty) {
     dirty = false;
@@ -822,7 +977,10 @@ function frame() {
 }
 
 // Audio must start from a user gesture
-window.addEventListener('pointerdown', () => engine.init(), { once: true, capture: true });
+window.addEventListener('pointerdown', () => {
+  engine.init();
+  if (midiEnabled()) initMidi(engine);
+}, { once: true, capture: true });
 
 // Keyboard shortcuts (FL Studio layout where it makes sense)
 window.addEventListener('keydown', (e) => {
@@ -845,6 +1003,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'm' && !mod && ui.panel !== 'piano') metroBtn.click();
   else if (e.key === '?') shortcutsDialog();
   else if (ui.panel === 'piano' && panels.piano.keydown(e)) return;
+  else if (ui.panel === 'playlist' && panels.playlist.keydown(e)) return;
   else {
     // Shortcuts added by extensions, only when the app does not use the key.
     const combo = (e.shiftKey ? 'shift+' : '') + (e.altKey ? 'alt+' : '') + k;
