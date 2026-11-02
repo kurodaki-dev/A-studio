@@ -127,10 +127,11 @@
 <p class="note">The startup check can be turned off in Settings. Menu, Check for updates, checks by hand.</p>
 
 <h2 id="plugins">Plugins</h2>
-<p>A plugin is a JavaScript file. There are two kinds:</p>
+<p>A plugin is a JavaScript file. There are three kinds:</p>
 <ul>
   <li><strong>Instruments</strong> generate sound for notes, sample by sample: oscillators, filters, envelopes, physical models, anything you can compute. They appear in the browser under Plugins and work like any instrument: channel rack, piano roll, playlist, WAV export.</li>
   <li><strong>Effects</strong> (<code>@type effect</code>) process the sound of a mixer insert: distortion, delay, filters, compressors. Each insert has 4 effect slots behind its FX button.</li>
+  <li><strong>Extensions</strong> (<code>@type extension</code>) change the interface: buttons in the top bar, menu items, and whole panels with your own HTML, CSS and JavaScript, opened from the left rail. They can drive playback and read or write the project. See <a href="#extensions">Extensions</a>.</li>
 </ul>
 <p>Install a plugin from Menu, Plugins and themes, Install a plugin, or write one directly on the phone with <strong>Write a plugin</strong>: the editor has an instrument template and an effect template, checks the header as you go, installs the plugin and plays a test chord, and exports the file to share it. Installed plugins can be edited again with the pencil button.</p>
 
@@ -248,8 +249,55 @@ registerEffect(SoftClip);</code></pre>
 </table>
 <p>If an effect throws an error, its slot lets the sound through unchanged and the error is shown once.</p>
 
+<h3 id="extensions">Extensions</h3>
+<p>An extension adds interface to the app. Its code runs in an isolated frame (a sandboxed iframe with no origin): it cannot read the app page, its storage, your projects on disk, your samples or your files. It talks to the app only through the <code>astudio</code> API, and the app refuses any call that needs a permission the header does not declare.</p>
+<pre><code>/**
+ * @astudio-plugin
+ * @id play-button
+ * @name Play Button
+ * @type extension
+ * @permissions ui transport
+ */
+
+// A button in the top bar. The second argument runs on every tap.
+astudio.ui.addButton({ id: 'play', label: 'Play', icon: 'Play' }, () =&gt; astudio.transport.toggle());
+
+// Keep the label in sync with playback.
+astudio.on('state', (s) =&gt; {
+  astudio.ui.addButton({ id: 'play', label: s.playing ? 'Stop' : 'Play', icon: s.playing ? 'Square' : 'Play' }, () =&gt; astudio.transport.toggle());
+});</code></pre>
+<h3>Permissions</h3>
+<table>
+  <tr><th>Permission</th><th>Allows</th></tr>
+  <tr><td><code>ui</code></td><td>Buttons, menu items, panels, messages in the hint bar.</td></tr>
+  <tr><td><code>transport</code></td><td>Play, stop, tempo, PAT/SONG mode, playback state events.</td></tr>
+  <tr><td><code>project-read</code></td><td>Name, tempo, patterns and channels of the open project.</td></tr>
+  <tr><td><code>project-write</code></td><td>Add or clear notes, change the current pattern. Changes can be undone like any edit.</td></tr>
+</table>
+<h3>API</h3>
+<p>Every call returns a Promise.</p>
+<table>
+  <tr><th>Call</th><th>Description</th></tr>
+  <tr><td><code>astudio.ui.addButton({ id, label, icon }, onClick)</code></td><td>Adds a button to the top bar. Calling it again with the same id updates it. <code>icon</code> is a <a href="https://lucide.dev/icons/">Lucide</a> name used by the app, such as <code>Play</code>, <code>Square</code>, <code>Drum</code>, <code>Music</code>, <code>Metronome</code>.</td></tr>
+  <tr><td><code>astudio.ui.addMenuItem({ id, label, icon }, onClick)</code></td><td>Adds an entry to the main menu.</td></tr>
+  <tr><td><code>astudio.ui.addPanel({ id, title, icon, html })</code></td><td>Adds a panel to the left rail. <code>html</code> is a full interface (up to 200 KB) with its own <code>&lt;style&gt;</code> and <code>&lt;script&gt;</code>; the same <code>astudio</code> API is available inside it.</td></tr>
+  <tr><td><code>astudio.ui.openPanel(id)</code></td><td>Shows one of your panels.</td></tr>
+  <tr><td><code>astudio.ui.hint(text)</code></td><td>Shows a short message in the hint bar.</td></tr>
+  <tr><td><code>astudio.transport.play()</code>, <code>stop()</code>, <code>toggle()</code></td><td>Playback. <code>toggle()</code> returns whether it is now playing.</td></tr>
+  <tr><td><code>astudio.transport.setTempo(bpm)</code></td><td>Sets the tempo (10 to 522) and returns it.</td></tr>
+  <tr><td><code>astudio.transport.setMode('pattern' | 'song')</code></td><td>Switches PAT and SONG.</td></tr>
+  <tr><td><code>astudio.transport.getState()</code></td><td><code>{ playing, bpm, mode, position, bar, step }</code>.</td></tr>
+  <tr><td><code>astudio.on('state', fn)</code></td><td>Calls <code>fn</code> with the same object whenever it changes (needs <code>transport</code>).</td></tr>
+  <tr><td><code>astudio.project.get()</code></td><td><code>{ name, bpm, stepsPerBar, currentPattern, patterns: [{ id, name }], channels: [{ id, name, instrument }] }</code>.</td></tr>
+  <tr><td><code>astudio.project.addNotes([{ channel, step, length, key, velocity }])</code></td><td>Adds notes to the current pattern in one undo step. <code>channel</code> is an id or a name, <code>step</code> and <code>length</code> are in steps (16 per bar), <code>key</code> is a MIDI number (60 is C5), <code>velocity</code> 0 to 1. Returns the number of notes added.</td></tr>
+  <tr><td><code>astudio.project.clearNotes(channel)</code></td><td>Clears the notes of a channel in the current pattern, or of every channel without argument.</td></tr>
+  <tr><td><code>astudio.project.selectPattern(idOrName)</code></td><td>Makes a pattern current.</td></tr>
+</table>
+<p>Errors thrown by an extension, and refused calls, are shown in an Extension error message. Removing the extension in Settings removes its buttons, panels and menu items.</p>
+
 <h3>Examples</h3>
 <ul>
+  <li><a href="examples/beat-tools.astudio-plugin.js" download>beat-tools.astudio-plugin.js</a>: extension with a Play/Stop button in the top bar, a menu item and a Beat generator panel (styles, density, tap tempo) that writes a beat into the pattern.</li>
   <li><a href="examples/poly-synth.astudio-plugin.js" download>poly-synth.astudio-plugin.js</a>: resonant filter synth that uses every control type: choice, knobs, switch and button.</li>
   <li><a href="examples/stereo-delay.astudio-plugin.js" download>stereo-delay.astudio-plugin.js</a>: effect, delay with feedback, tone, ping pong switch and a Clear button.</li>
   <li><a href="examples/bitcrusher.astudio-plugin.js" download>bitcrusher.astudio-plugin.js</a>: effect, bit depth and sample rate reduction.</li>

@@ -85,6 +85,40 @@ class MyEffect {
 registerEffect(MyEffect);
 `;
 
+export const EXTENSION_TEMPLATE = `/**
+ * @astudio-plugin
+ * @id my-extension
+ * @name My Extension
+ * @version 1.0.0
+ * @author Me
+ * @type extension
+ * @permissions ui transport
+ */
+
+// A button in the top bar.
+astudio.ui.addButton({ id: 'play', label: 'Play', icon: 'Play' }, () => astudio.transport.toggle());
+
+// A panel with its own interface (HTML, CSS and JavaScript).
+astudio.ui.addPanel({
+  id: 'hello',
+  title: 'My panel',
+  icon: 'Music',
+  html: \`
+<style>
+  body { margin: 0; padding: 16px; font: 14px system-ui, sans-serif; background: #2f383d; color: #d5dcdf; }
+  button { font: inherit; padding: 10px 14px; background: #f0993a; border: 0; border-radius: 2px; }
+</style>
+<p>Hello from my extension.</p>
+<button id="faster">Tempo + 10</button>
+<script>
+  document.getElementById('faster').onclick = async () => {
+    const s = await astudio.transport.getState();
+    await astudio.transport.setTempo(s.bpm + 10);
+  };
+</script>\`,
+});
+`;
+
 // Write, install and try a plugin inside the app.
 export function openPluginEditor({ code, onInstalled, onTry }) {
   const area = h('textarea', { class: 'code-editor', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', wrap: 'off', 'aria-label': t('Plugin code') });
@@ -107,7 +141,9 @@ export function openPluginEditor({ code, onInstalled, onTry }) {
   const check = () => {
     try {
       const p = parsePlugin(area.value);
-      show(t('Header OK: ') + p.name + ' (' + (p.type === 'effect' ? t('effect') : t('instrument')) + ', ' + p.params.length + ' ' + t('controls') + ')', true);
+      const kind = p.type === 'effect' ? t('effect') : p.type === 'extension' ? t('extension') : t('instrument');
+      const extra = p.type === 'extension' ? t('Permissions: ') + (p.permissions.join(', ') || t('none')) : p.params.length + ' ' + t('controls');
+      show(t('Header OK: ') + p.name + ' (' + kind + ', ' + extra + ')', true);
       return p;
     } catch (e) {
       show(String(e.message || e), false);
@@ -115,7 +151,7 @@ export function openPluginEditor({ code, onInstalled, onTry }) {
     }
   };
   const useTemplate = async (tpl) => {
-    if (area.value.trim() && area.value !== INSTRUMENT_TEMPLATE && area.value !== EFFECT_TEMPLATE && !(await confirmBox(t('Replace the code'), t('The code in the editor will be replaced by the template.'), t('Replace')))) return;
+    if (area.value.trim() && ![INSTRUMENT_TEMPLATE, EFFECT_TEMPLATE, EXTENSION_TEMPLATE].includes(area.value) && !(await confirmBox(t('Replace the code'), t('The code in the editor will be replaced by the template.'), t('Replace')))) return;
     area.value = tpl;
     check();
   };
@@ -123,6 +159,7 @@ export function openPluginEditor({ code, onInstalled, onTry }) {
     h('div', { class: 'set-actions editor-bar' },
       h('button', { class: 'b tb', type: 'button', onClick: () => useTemplate(INSTRUMENT_TEMPLATE) }, icon('Piano', 16), t('Instrument template')),
       h('button', { class: 'b tb', type: 'button', onClick: () => useTemplate(EFFECT_TEMPLATE) }, icon('AudioWaveform', 16), t('Effect template')),
+      h('button', { class: 'b tb', type: 'button', onClick: () => useTemplate(EXTENSION_TEMPLATE) }, icon('Puzzle', 16), t('Extension template')),
       h('button', { class: 'b tb', type: 'button', onClick: () => check() }, icon('Check', 16), t('Check')),
       h('button', { class: 'b tb', type: 'button', onClick: async () => {
         const p = check();
@@ -141,7 +178,7 @@ export function openPluginEditor({ code, onInstalled, onTry }) {
       { label: t('Install and try'), primary: true, onClick: () => {
         try {
           const p = installPlugin(area.value);
-          show(p.type === 'effect' ? t('Installed. Add it to a mixer insert with the FX button.') : t('Installed. Playing a test chord.'), true);
+          show(p.type === 'effect' ? t('Installed. Add it to a mixer insert with the FX button.') : p.type === 'extension' ? t('Installed. Its buttons, panels and menu items are now in the app.') : t('Installed. Playing a test chord.'), true);
           onInstalled && onInstalled(p);
           if (p.type === 'instrument' && onTry) onTry(p);
         } catch (e) {

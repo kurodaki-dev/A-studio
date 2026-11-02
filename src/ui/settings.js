@@ -92,12 +92,14 @@ export function openSettings({ section = 'general', onExtensionsChange, engine }
       ),
       h('section', { class: 'set-sec', id: 'set-plugins' },
         h('h3', null, icon('Puzzle', 16), t('Plugins')),
-        h('p', { class: 'set-note' }, t('Plugin code runs only in the audio thread, without access to your projects, samples, files or the network. Install plugins from people you trust: a badly written plugin can still make the sound stutter.')),
+        h('p', { class: 'set-note' }, t('Instruments and effects run only in the audio thread. Extensions run in an isolated frame and can only use the permissions they declare. None of them can read your files or other app data. Install plugins from people you trust.')),
         plugins.length
           ? h('div', { class: 'set-list' }, plugins.map((p) =>
               h('div', { class: 'set-item' },
-                icon(p.type === 'effect' ? 'AudioWaveform' : 'AudioLines', 16),
-                h('span', { class: 'set-item-name static' }, p.name, h('small', null, [p.type === 'effect' ? t('effect') : t('instrument'), p.version, p.author].filter(Boolean).join(' · '))),
+                icon(p.type === 'effect' ? 'AudioWaveform' : p.type === 'extension' ? 'Puzzle' : 'AudioLines', 16),
+                h('span', { class: 'set-item-name static' }, p.name,
+                  h('small', null, [p.type === 'effect' ? t('effect') : p.type === 'extension' ? t('extension') : t('instrument'), p.version, p.author].filter(Boolean).join(' · ')),
+                  p.type === 'extension' ? h('small', null, t('Permissions: ') + (p.permissions.length ? p.permissions.join(', ') : t('none'))) : null),
                 btn('Pencil', t('Edit'), () => editor(p.code)),
                 btn('Trash', t('Delete'), async () => {
                   if (await confirmBox(t('Delete plugin'), p.name + '. ' + t('Channels using it will go silent.'), t('Delete'))) {

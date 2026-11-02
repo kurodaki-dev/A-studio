@@ -27,6 +27,8 @@ const CONTROL_RES = [
   ['button', new RegExp('^@button[ \\t]+(' + ID + ')[ \\t]+' + LABEL)],
 ];
 export const MAX_CONTROLS = 12;
+// What an extension may do, declared with @permissions in its header.
+export const PERMISSIONS = ['ui', 'transport', 'project-read', 'project-write'];
 
 function parseControls(head) {
   const out = [];
@@ -69,10 +71,12 @@ export function parsePlugin(code) {
   if (!/^[a-z0-9-]{1,40}$/.test(id)) throw new Error('@id must use a to z, 0 to 9 and "-" only');
   const name = tag('name').slice(0, 40);
   if (!name) throw new Error('@name is required');
-  const type = tag('type') === 'effect' ? 'effect' : 'instrument';
+  const rawType = tag('type');
+  const type = rawType === 'effect' ? 'effect' : rawType === 'extension' ? 'extension' : 'instrument';
   if (type === 'instrument' && !/registerVoice\s*\(/.test(code)) throw new Error('An instrument must call registerVoice(YourVoiceClass)');
   if (type === 'effect' && !/registerEffect\s*\(/.test(code)) throw new Error('An effect must call registerEffect(YourEffectClass)');
-  const params = parseControls(head);
+  const params = type === 'extension' ? [] : parseControls(head);
+  const permissions = type === 'extension' ? tag('permissions').split(/[\s,]+/).filter((x) => PERMISSIONS.includes(x)) : [];
   const cat = tag('category');
   return {
     id,
@@ -80,6 +84,7 @@ export function parsePlugin(code) {
     version: tag('version').slice(0, 20) || '1.0.0',
     author: tag('author').slice(0, 60),
     type,
+    permissions,
     category: CATS.includes(cat) ? cat : 'synth',
     oneShot: /@oneshot\b/i.test(head),
     params,
@@ -110,6 +115,7 @@ let cache = read();
 export const allPlugins = () => cache;
 export const pluginInstruments = () => cache.filter((p) => p.type === 'instrument');
 export const pluginEffects = () => cache.filter((p) => p.type === 'effect');
+export const pluginExtensions = () => cache.filter((p) => p.type === 'extension');
 export const getPlugin = (id) => cache.find((p) => p.id === id) || null;
 
 export function installPlugin(code) {

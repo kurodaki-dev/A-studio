@@ -51,7 +51,7 @@
 <p>When you import a project, audio files, a ZIP pack, a plugin or a theme, the app only reads the files you select and copies them into its storage on the device.</p>
 
 <h2>Plugins and themes</h2>
-<p>Plugins and themes are files you choose to install and they stay on your device. A theme only contains colors. A plugin is JavaScript code that generates the sound of an instrument: it runs only in the audio thread (AudioWorklet), which has no access to the app interface, your projects, your samples, your files or the network. It receives notes and returns sound, nothing else.</p>
+<p>Plugins and themes are files you choose to install and they stay on your device. A theme only contains colors. Instrument and effect plugins are JavaScript code that runs only in the audio thread (AudioWorklet), with no access to the app interface, your projects, your samples, your files or the network: they receive notes or sound and return sound. Extension plugins run in an isolated frame with no access to the app page or its storage; they can only use the app features they declare in their header (interface, playback, reading or writing the open project), and the app shows these permissions in Settings.</p>
 
 <h2>Bug reports</h2>
 <p>The Report a bug button opens this project's new issue page on GitHub in your browser, with the app version filled in. Nothing is sent until you submit the issue yourself, and what you submit is public on GitHub.</p>
