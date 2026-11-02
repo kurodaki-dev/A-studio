@@ -12,6 +12,9 @@ export function openMeterDialog(engine, insert = 0) {
   const cv = h('canvas', { class: 'spectrum', width: 720, height: 220, 'aria-label': t('Spectrum') });
   const result = h('div', { class: 'loud-result' }, t('Press Measure to render the song and measure its loudness.'));
   const bins = new Float32Array(engine.G.inserts[insert].an.frequencyBinCount);
+  const wave = new Float32Array(engine.G.inserts[insert].an.fftSize);
+  // View: spectrum (frequencies) or oscilloscope (the wave itself, like Wave Candy).
+  let view = 'spectrum';
   const sr = engine.ctx.sampleRate;
   let alive = true;
   const g = cv.getContext('2d');
@@ -22,6 +25,30 @@ export function openMeterDialog(engine, insert = 0) {
     const H = cv.height;
     g.fillStyle = th.colors.input;
     g.fillRect(0, 0, W, H);
+    if (view === 'scope') {
+      g.fillStyle = th.colors.dim;
+      g.fillRect(0, H / 2, W, 1);
+      const ins = engine.G && engine.G.inserts[insert];
+      if (ins) {
+        ins.an.getFloatTimeDomainData(wave);
+        // Start on a rising zero crossing so the wave stands still.
+        let s0 = 0;
+        for (let i = 1; i < wave.length / 2; i++) if (wave[i - 1] < 0 && wave[i] >= 0) { s0 = i; break; }
+        const n = wave.length / 2;
+        g.strokeStyle = th.editor.note;
+        g.lineWidth = 2;
+        g.beginPath();
+        for (let i = 0; i < n; i++) {
+          const x = (i / (n - 1)) * W;
+          const y = H / 2 - Math.max(-1, Math.min(1, wave[s0 + i])) * H * 0.45;
+          if (i) g.lineTo(x, y);
+          else g.moveTo(x, y);
+        }
+        g.stroke();
+      }
+      requestAnimationFrame(draw);
+      return;
+    }
     g.fillStyle = th.colors.dim;
     g.font = '11px system-ui, sans-serif';
     for (const f of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) {
@@ -68,11 +95,15 @@ export function openMeterDialog(engine, insert = 0) {
     }
     btn.disabled = false;
   }
+  const viewBtn = h('button', { class: 'b tb', type: 'button', onClick: (e) => {
+    view = view === 'spectrum' ? 'scope' : 'spectrum';
+    e.currentTarget.textContent = view === 'spectrum' ? t('Oscilloscope') : t('Spectrum');
+  } }, t('Oscilloscope'));
   const mBtn = h('button', { class: 'b tb primary', type: 'button', onClick: (e) => measure(e.currentTarget) }, t('Measure loudness'));
   openModal({
     title: insert === 0 ? t('Master: spectrum and loudness') : t('Spectrum'),
     wide: true,
-    body: h('div', { class: 'meter-dlg' }, cv, h('div', { class: 'set-inline' }, mBtn, h('span', { class: 'set-note' }, ui.songMode ? t('Measures the whole song (SONG mode).') : t('Measures the current pattern (PAT mode).'))), result),
+    body: h('div', { class: 'meter-dlg' }, cv, h('div', { class: 'set-inline' }, viewBtn, mBtn, h('span', { class: 'set-note' }, ui.songMode ? t('Measures the whole song (SONG mode).') : t('Measures the current pattern (PAT mode).'))), result),
     onClose: () => { alive = false; },
   });
 }

@@ -8,6 +8,7 @@ import { faderGain, cutoffHz } from './levels.js';
 import { osc3Instrument } from './osc3.js';
 import { channelNotes, LFO_SYNC } from '../channelfx.js';
 import { autoValue, targetParam, fxTarget } from '../automation.js';
+import { logNoteOn, logNoteOff } from '../scorelog.js';
 import { bpmAt, nextTempoChange, tickToSec } from '../tempo.js';
 
 export { faderGain, cutoffHz };
@@ -660,6 +661,14 @@ export function slideFrom(arr, n) {
 
 // Calls cb(channel, note, tick, pattern) for every note starting in [from, to) of the loop,
 // and onAudio(clip, tick) for every audio clip starting in that window.
+// True when a playlist track does not play: muted, or another track is solo.
+export function trackSilent(project, index) {
+  const tracks = project.playlist.tracks;
+  const tr = tracks[index];
+  if (tr && tr.mute) return true;
+  return tracks.some((x) => x.solo) && !(tr && tr.solo);
+}
+
 export function collectEvents(project, mode, from, to, cb, onAudio) {
   const chans = new Map(project.channels.map((c) => [c.id, c]));
   if (mode === 'pattern') {
@@ -672,9 +681,8 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
     return;
   }
   for (const clip of project.playlist.clips) {
-    if (clip.type === 'auto') continue;
-    const track = project.playlist.tracks[clip.track];
-    if (track && track.mute) continue;
+    if (clip.type === 'auto' || clip.mute) continue;
+    if (trackSilent(project, clip.track)) continue;
     const s = clip.start;
     if (clip.type === 'audio') {
       if (s >= from && s < to && onAudio && !clip.silent) onAudio(clip, s);
@@ -708,7 +716,7 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
 // the audio time of a song tick. Song mode only.
 export function scheduleAutomation(G, project, from, to, timeOf) {
   for (const clip of project.playlist.clips) {
-    if (clip.type !== 'auto' || !clipValid(project, clip)) continue;
+    if (clip.type !== 'auto' || clip.mute || !clipValid(project, clip)) continue;
     const track = project.playlist.tracks[clip.track];
     if (track && track.mute) continue;
     const a = Math.max(from, clip.start);
@@ -814,9 +822,8 @@ export const trackInsert = (project, clip) => ((project.playlist.tracks[clip.tra
 // Audio clips already sounding at a position (playback started inside them).
 export function audioClipsAt(project, pos) {
   return project.playlist.clips.filter((c) => {
-    if (c.type !== 'audio' || c.silent) return false;
-    const track = project.playlist.tracks[c.track];
-    if (track && track.mute) return false;
+    if (c.type !== 'audio' || c.silent || c.mute) return false;
+    if (trackSilent(project, c.track)) return false;
     return c.start < pos && pos < c.start + clipLength(project, c);
   });
 }
@@ -852,6 +859,7 @@ export class Engine {
     this.metroVol = 0.5;
     // Performance mode: pattern pads, each { from, until } in ticks, aligned on bars.
     this.live = new Map();
+    this.logged = new WeakMap(); // voice -> score log entry
   }
 
   init() {
@@ -1339,11 +1347,17 @@ export class Engine {
   noteOn(channel, key, vel = 0.78) {
     this.init();
     this.sync();
-    return playNote(this.G, channel, this.ctx.currentTime + 0.005, key, vel, Infinity);
+    const v = playNote(this.G, channel, this.ctx.currentTime + 0.005, key, vel, Infinity);
+    const entry = channel && channel.id && !String(channel.id).startsWith('__preview') ? logNoteOn(channel.id, key, vel) : null;
+    if (v && entry) this.logged.set(v, entry);
+    return v;
   }
 
   noteOff(voice) {
-    if (this.ctx && voice) releaseVoice(this.ctx, voice);
+    if (!voice) return;
+    logNoteOff(this.logged.get(voice));
+    this.logged.delete(voice);
+    if (this.ctx) releaseVoice(this.ctx, voice);
   }
 
   // Frequency data (dB per bin) of an insert, for the spectrum analyzer.

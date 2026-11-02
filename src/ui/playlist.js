@@ -6,7 +6,7 @@ import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
 import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId, serialize, makePattern, nextPatternIndex } from '../store.js';
 import { autoTargets, autoLabel, targetValue, autoValue } from '../automation.js';
 import { openAutomationEditor, openClipProperties, openWaveEditor, stretchClip, clipBpm, cleanClip } from './clipEditors.js';
-import { renderChannels } from '../audio/engine.js';
+import { renderChannels, trackSilent } from '../audio/engine.js';
 import { encodeWav } from '../wav.js';
 import { addSample } from '../samples.js';
 import { tickToSec } from '../tempo.js';
@@ -340,6 +340,15 @@ export function createPlaylist(engine, actions) {
         if (v) store.change(() => { track.name = v.slice(0, 40); });
       } },
       { label: track.mute ? t('Unmute') : t('Mute'), icon: 'Volume2', onClick: () => store.change(() => { track.mute = !track.mute; }) },
+      { label: track.solo ? t('Stop solo') : t('Solo (hear only this track)'), icon: 'Headphones', onClick: () => store.change((pp) => {
+        const on = !track.solo;
+        for (const x of pp.playlist.tracks) delete x.solo;
+        if (on) track.solo = true;
+      }) },
+      { label: t('Color') + '...', icon: 'Palette', onClick: () => openMenu(anchor, [
+        { label: t('No color'), checked: track.color == null, onClick: () => store.change(() => { delete track.color; }) },
+        ...PATTERN_COLORS.map((col, i) => ({ label: t('Color ') + (i + 1), checked: track.color === i, icon: 'Circle', onClick: () => store.change(() => { track.color = i; }) })),
+      ]) },
       { label: t('Mixer insert for audio clips') + ': ' + (track.insert ? track.insert : 'Master') + '...', icon: 'SlidersVertical', onClick: () => openMenu(anchor, [
         { header: t('Audio clips of this track play through') },
         ...store.project.mixer.map((m, i) => ({ label: i === 0 ? 'Master' : i + '  ' + m.name, checked: (track.insert || 0) === i, onClick: () => store.change(() => {
@@ -356,6 +365,10 @@ export function createPlaylist(engine, actions) {
     const anchor = { getBoundingClientRect: () => { const r = cv.getBoundingClientRect(); return { left: r.left + p.x, right: r.left + p.x, top: r.top + p.y, bottom: r.top + p.y }; } };
     openMenu(anchor, [
       { header: clipName(c) },
+      { label: c.mute ? t('Unmute this clip') : t('Mute this clip'), icon: 'VolumeX', onClick: () => store.change(() => {
+        if (c.mute) delete c.mute;
+        else c.mute = true;
+      }) },
       c.type === 'auto'
         ? { label: t('Edit automation'), icon: 'Activity', onClick: () => openAutomationEditor(c, engine) }
         : c.type === 'audio'
@@ -600,7 +613,7 @@ export function createPlaylist(engine, actions) {
       const w = len * view.px;
       const y = yAt(c.track);
       if (x > W || x + w < HEAD_W || y > H || y + view.rowH < RULER_H) continue;
-      const muted = p.playlist.tracks[c.track] && p.playlist.tracks[c.track].mute;
+      const muted = trackSilent(p, c.track) || c.mute;
       const col = c.type === 'audio' ? AUDIO_COLOR : c.type === 'auto' ? AUTO_COLOR : PATTERN_COLORS[getPattern(p, c.patternId).color % PATTERN_COLORS.length];
       g.globalAlpha = muted ? 0.4 : 1;
       g.fillStyle = '#1a2023';
@@ -709,13 +722,18 @@ export function createPlaylist(engine, actions) {
       const y = yAt(tr);
       if (y > H || y + view.rowH < RULER_H) continue;
       const t = p.playlist.tracks[tr];
+      const silent = trackSilent(p, tr);
       g.fillStyle = th.colors.panel2;
       g.fillRect(0, y, HEAD_W, view.rowH);
+      if (t.color != null) {
+        g.fillStyle = PATTERN_COLORS[t.color % PATTERN_COLORS.length];
+        g.fillRect(0, y, 4, view.rowH - 1);
+      }
       g.fillStyle = 'rgba(0,0,0,0.35)';
       g.fillRect(0, y + view.rowH - 1, HEAD_W, 1);
-      g.fillStyle = t.mute ? th.colors.panel3 : th.colors.green;
+      g.fillStyle = silent ? th.colors.panel3 : t.solo ? th.colors.accent : th.colors.green;
       g.fillRect(8, y + view.rowH / 2 - 5, 10, 10);
-      g.fillStyle = t.mute ? th.colors.dim : th.colors.text;
+      g.fillStyle = silent ? th.colors.dim : th.colors.text;
       g.fillText(t.name, 26, y + view.rowH / 2 - (t.insert ? 6 : 0));
       if (t.insert) {
         g.fillStyle = th.colors.dim;

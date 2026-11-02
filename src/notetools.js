@@ -210,3 +210,83 @@ export function detectKey(notes) {
   }
   return best;
 }
+
+// Cut every note into pieces of `size` ticks (FL Studio "Chop").
+export function chopNotes(notes, size) {
+  const out = [];
+  for (const n of notes) {
+    if (n.len <= size) {
+      out.push({ ...n });
+      continue;
+    }
+    for (let t = 0; t < n.len; t += size) out.push({ ...n, t: n.t + t, len: Math.min(size, n.len - t) });
+  }
+  return out;
+}
+
+// Join notes of the same key that touch or overlap into one long note ("Glue").
+export function glueNotes(notes) {
+  const byKey = new Map();
+  for (const n of notes) {
+    if (!byKey.has(n.key)) byKey.set(n.key, []);
+    byKey.get(n.key).push({ ...n });
+  }
+  const out = [];
+  for (const list of byKey.values()) {
+    list.sort((a, b) => a.t - b.t);
+    let cur = list[0];
+    for (let i = 1; i < list.length; i++) {
+      const n = list[i];
+      if (n.t <= cur.t + cur.len) cur.len = Math.max(cur.len, n.t + n.len - cur.t);
+      else {
+        out.push(cur);
+        cur = n;
+      }
+    }
+    out.push(cur);
+  }
+  return out.sort((a, b) => a.t - b.t || a.key - b.key);
+}
+
+// A softer grace note just before each note ("Flam").
+export function flamNotes(notes, gap) {
+  return notes.filter((n) => n.t >= gap).map((n) => ({ ...n, t: n.t - gap, len: Math.max(1, Math.min(gap, n.len)), vel: Math.max(0.05, n.vel * 0.55) }));
+}
+
+// Velocity tools: 'up' (crescendo), 'down' (decrescendo), 'random', or a fixed value.
+export function shapeVelocity(notes, mode, rnd = Math.random) {
+  if (!notes.length) return notes;
+  const a = Math.min(...notes.map((n) => n.t));
+  const b = Math.max(...notes.map((n) => n.t));
+  const span = Math.max(1, b - a);
+  for (const n of notes) {
+    const f = (n.t - a) / span;
+    if (mode === 'up') n.vel = 0.25 + 0.75 * f;
+    else if (mode === 'down') n.vel = 1 - 0.75 * f;
+    else if (mode === 'random') n.vel = 0.45 + rnd() * 0.55;
+    else n.vel = clamp(Number(mode) || 0.8, 0.05, 1);
+    n.vel = Math.round(n.vel * 100) / 100;
+  }
+  return notes;
+}
+
+// Random melody in a scale (a small "riff machine"): steps of `step` ticks over `length`,
+// moving mostly by small intervals around `center`, with rests and some longer notes.
+export function makeRiff({ length, step, root = 0, scale = 'minor', center = 60, density = 0.7, rnd = Math.random }) {
+  const keys = [];
+  for (let k = center - 12; k <= center + 12; k++) if (scale === 'none' || inScale(k, root, scale)) keys.push(k);
+  if (!keys.length) return [];
+  let i = keys.findIndex((k) => k >= center);
+  if (i < 0) i = Math.floor(keys.length / 2);
+  const out = [];
+  for (let t = 0; t < length; t += step) {
+    if (t > 0 && rnd() > density) continue;
+    const r = rnd();
+    const move = r < 0.35 ? 0 : r < 0.6 ? 1 : r < 0.85 ? -1 : r < 0.93 ? 2 : -2;
+    i = clamp(i + move, 0, keys.length - 1);
+    const long = rnd() < 0.25 && t + step * 2 <= length;
+    out.push({ t, key: keys[i], len: long ? step * 2 : step, vel: Math.round((0.65 + rnd() * 0.35) * 100) / 100 });
+    if (long) t += step;
+  }
+  return out;
+}
