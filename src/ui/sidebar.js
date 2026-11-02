@@ -3,7 +3,9 @@ import { startDrag } from './dnd.js';
 import { CATALOG, CATEGORIES } from '../audio/catalog.js';
 import { listProjects, deleteProject } from '../persist.js';
 import { listSamples, importFiles, deleteSamples, onSamplesChange } from '../samples.js';
-import { addChannel } from './rack.js';
+import { addChannel, createChannel } from './rack.js';
+import { zonesFromSamples } from '../zones.js';
+import { store } from '../store.js';
 import { pluginInstruments } from '../plugins.js';
 import { t, fmtNum } from '../i18n.js';
 
@@ -104,6 +106,22 @@ export function createSidebar(engine, actions) {
       for (const [name, child] of [...node.folders.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'))) {
         const key = 'samples/' + path + name;
         rows.push(folderRow(key, name, depth, count(child), (anchor) => openMenu(anchor, [
+          { label: t('Make an instrument from this folder'), icon: 'Piano', onClick: () => {
+            const zones = zonesFromSamples(child.items);
+            if (!zones.length) {
+              alertBox(t('Multi sample instrument'), t('No note found in the file names. Name the samples after their note, for example "Piano C4.wav" or "Piano 60.wav".'));
+              return;
+            }
+            let c = null;
+            store.change((p) => {
+              c = createChannel(p, 'sampler');
+              if (!c) return;
+              c.name = name.slice(0, 40);
+              c.sample = zones[0].sample;
+              c.zones = zones;
+            });
+            if (c) hint(c.name + ': ' + zones.length + t(' samples mapped to keys.'));
+          } },
           { label: t('Delete this folder'), icon: 'Trash', onClick: async () => {
             const list = ids(child);
             if (await confirmBox(t('Delete samples'), list.length + t(' sample(s) from the folder “') + name + t('” will be deleted from this device. Channels and clips using them will go silent.'), t('Delete'))) deleteSamples(list);

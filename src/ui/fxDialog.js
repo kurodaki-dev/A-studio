@@ -22,11 +22,16 @@ export function openFxDialog(index, engine, onShowPlugins) {
       const select = dropdown({
         label: t('Effect slot ') + (i + 1),
         value: slot ? slot.plugin : '',
-        options: [{ value: '', label: t('Empty') }, ...effects.map((p) => ({ value: p.id, label: p.name })), ...(slot && !plugin ? [{ value: slot.plugin, label: slot.plugin + ' (' + t('missing') + ')' }] : [])],
+        options: [{ value: '', label: t('Empty') }, ...effects.map((p) => ({ value: p.id, label: p.builtin ? t(p.name) : p.name, group: p.builtin ? t('Built in') : t('Plugins') })), ...(slot && !plugin ? [{ value: slot.plugin, label: slot.plugin + ' (' + t('missing') + ')' }] : [])],
         onChange: (v) => {
+          const fresh = { plugin: v, on: true, params: {} };
+          if (getPlugin(v) && getPlugin(v).sidechain) {
+            const kick = store.project.channels.find((c) => c.instrument === 'kick') || store.project.channels[0];
+            if (kick) fresh.source = kick.id;
+          }
           if (!v) m.fx.splice(i, 1);
-          else if (slot) m.fx[i] = { plugin: v, on: true, params: {} };
-          else m.fx.push({ plugin: v, on: true, params: {} });
+          else if (slot) m.fx[i] = fresh;
+          else m.fx.push(fresh);
           emit();
           render();
         },
@@ -38,8 +43,21 @@ export function openFxDialog(index, engine, onShowPlugins) {
             render();
           } }, h('i', { class: 'ptoggle-led' }), slot.on !== false ? t('On') : t('Off'))
         : null;
+      const source = plugin && plugin.sidechain
+        ? h('div', { class: 'pcell' }, h('span', { class: 'pcell-label' }, t('Triggered by')),
+            dropdown({
+              label: t('Triggered by'),
+              value: slot.source || null,
+              options: store.project.channels.map((c) => ({ value: c.id, label: c.name })),
+              onChange: (v) => {
+                slot.source = v;
+                emit();
+              },
+            }))
+        : null;
       rows.push(h('div', { class: 'fx-slot' },
         h('div', { class: 'fx-head' }, h('span', { class: 'fx-num' }, String(i + 1)), select, power),
+        source,
         plugin && slot.on !== false
           ? pluginControls(plugin, slot.params, {
               onChange: (values) => {
@@ -53,7 +71,7 @@ export function openFxDialog(index, engine, onShowPlugins) {
       if (!slot) break; // one empty slot at a time
     }
     const parts = [
-      effects.length ? null : h('p', { class: 'empty' }, t('No effect plugin installed. Install one in Plugins and themes, or write one with the plugin editor.')),
+      h('p', { class: 'set-note' }, t('Built in effects: compressor, limiter, filter, distortion and sidechain. Add more with effect plugins.')),
       ...rows,
       h('div', { class: 'set-actions' }, h('button', { class: 'b tb', type: 'button', onClick: () => onShowPlugins && onShowPlugins() }, icon('Puzzle', 16), t('Plugins and themes'))),
     ];

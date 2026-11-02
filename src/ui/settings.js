@@ -10,6 +10,7 @@ import { pickFile } from '../platform.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from '../update.js';
 import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
 import { APP_VERSION } from '../version.js';
+import { midiSupported, midiEnabled, setMidiEnabled, midiInputs, onMidiChange } from '../midiin.js';
 
 // Settings window. section: 'general' | 'extensions' scrolls to that part.
 // Re-render the open Settings window (an extension changed one of its settings).
@@ -118,6 +119,13 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
               h('button', { class: 'b tb', type: 'button', onClick: () => checkForUpdate({ silent: false }) }, t('Check now')),
             ), t('Installed version: ') + APP_VERSION)
           : row(t('Version'), h('span', null, APP_VERSION)),
+        row(t('MIDI keyboard'), midiSupported()
+          ? h('div', { class: 'set-inline' },
+              h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: midiEnabled(), onChange: (e) => { setMidiEnabled(e.target.checked); render(); } }), h('span', null, midiEnabled() ? t('On') : t('Off'))),
+              h('span', { class: 'ext-set-info' }, midiInputs().length ? midiInputs().map((i) => i.name).join(', ') : t('No MIDI device connected')),
+            )
+          : h('span', { class: 'ext-set-info' }, t('Not supported on this device')),
+          t('Connect a USB MIDI keyboard: it plays the channel open in the piano roll and records when recording is armed.')),
       ),
       ...extensionSections(extHost),
       h('section', { class: 'set-sec', id: 'set-themes' },
@@ -179,6 +187,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
     );
   }
   render();
+  onMidiChange(() => { if (body.isConnected) render(); });
   openRender = () => {
     if (!body.isConnected) {
       openRender = null;

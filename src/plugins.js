@@ -3,6 +3,7 @@
 // AudioWorklet (the audio thread), which has no access to the page, to the
 // app storage, to the network or to files. It receives notes and parameter
 // values and returns sound. API reference: /doc/#plugins.
+import { BUILTIN_EFFECTS, getBuiltinEffect } from './audio/builtinfx.js';
 const KEY = 'astudio:plugins';
 const MAX_CODE = 256 * 1024;
 const CATS = ['drums', 'keys', 'bass', 'synth', 'strings', 'winds', 'mallets'];
@@ -69,6 +70,7 @@ export function parsePlugin(code) {
   };
   const id = tag('id').toLowerCase();
   if (!/^[a-z0-9-]{1,40}$/.test(id)) throw new Error('@id must use a to z, 0 to 9 and "-" only');
+  if (getBuiltinEffect(id)) throw new Error('@id ' + id + ' is reserved for a built in effect');
   const name = tag('name').slice(0, 40);
   if (!name) throw new Error('@name is required');
   const rawType = tag('type');
@@ -170,9 +172,9 @@ let cache = read();
 
 export const allPlugins = () => cache;
 export const pluginInstruments = () => cache.filter((p) => p.type === 'instrument');
-export const pluginEffects = () => cache.filter((p) => p.type === 'effect');
+export const pluginEffects = () => [...BUILTIN_EFFECTS, ...cache.filter((p) => p.type === 'effect')];
 export const pluginExtensions = () => cache.filter((p) => p.type === 'extension');
-export const getPlugin = (id) => cache.find((p) => p.id === id) || null;
+export const getPlugin = (id) => getBuiltinEffect(id) || cache.find((p) => p.id === id) || null;
 
 // source: the raw GitHub address the plugin came from, used to update it.
 export function installPlugin(code, source) {
@@ -218,7 +220,7 @@ function hash(s) {
   return h.toString(36);
 }
 
-export const processorName = (p) => 'astudio-' + p.id + '-' + hash(p.code);
+export const processorName = (p) => (p.builtin ? 'builtin:' + p.id : 'astudio-' + p.id + '-' + hash(p.code));
 
 // The worklet module: host code, then the plugin code, then the processor.
 // Exported for tests.
@@ -429,6 +431,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
 // Load a plugin module into an audio context once. Resolves to true when ready.
 const loaded = new WeakMap();
 export function loadPluginModule(ctx, p) {
+  if (p.builtin) return Promise.resolve(true);
   let map = loaded.get(ctx);
   if (!map) loaded.set(ctx, (map = new Map()));
   const name = processorName(p);
@@ -448,6 +451,7 @@ export function loadPluginModule(ctx, p) {
 }
 
 export function pluginReady(ctx, p) {
+  if (p.builtin) return true;
   const map = loaded.get(ctx);
   return !!(map && map.ready && map.ready.has(processorName(p)));
 }

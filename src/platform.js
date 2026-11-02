@@ -41,6 +41,24 @@ export async function saveFile(name, data, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+// Pick a file and read it as bytes. Resolves to { name, bytes } or null.
+export function pickBinary(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (accept) input.accept = accept;
+    input.addEventListener('change', () => {
+      const f = input.files && input.files[0];
+      if (!f) return resolve(null);
+      const r = new FileReader();
+      r.onload = () => resolve({ name: f.name, bytes: new Uint8Array(r.result) });
+      r.onerror = () => resolve(null);
+      r.readAsArrayBuffer(f);
+    });
+    input.click();
+  });
+}
+
 export function pickFile() {
   return new Promise((resolve) => {
     const input = document.createElement('input');

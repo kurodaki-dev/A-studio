@@ -39,14 +39,16 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 
 ## Features
 
-- **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert, swing per pattern, solo, fill each 2, 4 or 8 steps, random steps, shift left or right.
-- **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard, scale highlighting (11 scales), and tools: chords, arpeggiate, strum, humanize, legato, reverse, flip, double or half length, snap to scale.
-- **Playlist**: PAT and SONG modes, 16 tracks, pattern clips and audio clips, stretch any clip from its right edge.
-- **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, three band EQ, mute, solo, level meters and 4 effect plugin slots each.
+- **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert, swing per pattern, step velocity editing, solo, fill each 2, 4 or 8 steps, random steps, shift left or right, channel colors and groups with a filter.
+- **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard or a USB MIDI keyboard, slide notes (808 glides), scale highlighting (11 scales), and tools: chords, arpeggiate, strum, humanize, legato, reverse, flip, double or half length, snap to scale.
+- **Playlist**: PAT and SONG modes, 16 tracks, pattern, audio and automation clips, stretch, select, copy, paste, duplicate and split clips, loop region, markers with tempo changes, audio clip gain, pitch and fades.
+- **Automation**: clips that move a channel or mixer parameter over the song (volume, pan, filter, sends, EQ), with a curve editor and LFO shapes.
+- **Recording**: microphone takes straight into the playlist, notes from the piano roll keyboard or a MIDI keyboard, one bar count in.
+- **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, three band EQ, mute, solo, level meters, routing to buses and 4 effect slots each, with built in compressor, limiter, filter, distortion and sidechain.
 - **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.
-- **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples, which can play them reversed.
-- **Projects**: autosave, saved projects, `.astudio` import and export, WAV, MIDI and stems (ZIP of one WAV per channel) export of a pattern or the whole song, project info with author and notes, undo and redo.
-- **Tempo**: drag, type or tap tempo, metronome.
+- **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples (start and end points, loop, reverse), a slicer that chops loops into playable slices, and multi sample instruments built from a folder of samples named after their notes. Every channel has an ADSR envelope.
+- **Projects**: templates (hip hop, trap, house), autosave, saved projects, `.astudio` import and export, MIDI import, export of a pattern or the whole song as WAV 16 or 24 bit, MP3, MIDI or stems (ZIP of one WAV per channel) with optional normalization, time signatures from 2/4 to 7/4, project info with author and notes, undo and redo.
+- **Tempo**: drag, type or tap tempo, tempo changes from markers, metronome, voice and CPU meter.
 - **Settings**: English or French interface, themes, code plugins, update check.
 - Scrollbars and two finger gestures for navigation, landscape full screen layout, keyboard shortcuts on tablets (press `?` to list them).
 
@@ -82,7 +84,7 @@ Every push to `main` builds a signed APK and publishes a release `v1.0.<run numb
 
 ## Privacy
 
-A Studio collects no personal data: no account, no ads, no analytics. Projects, samples, plugins and themes stay on the device. The only connection asks GitHub for the latest release. See the [privacy policy](https://kurodaki-dev.github.io/A-studio/legal/privacy.html), [terms of use](https://kurodaki-dev.github.io/A-studio/legal/terms.html) and [cookie policy](https://kurodaki-dev.github.io/A-studio/legal/cookies.html). No cookie banner is needed: the app sets no cookies and only uses strictly necessary local storage.
+A Studio collects no personal data: no account, no ads, no analytics. Projects, samples, microphone recordings, plugins and themes stay on the device; the microphone is only used when you choose to record audio. The only connection asks GitHub for the latest release. See the [privacy policy](https://kurodaki-dev.github.io/A-studio/legal/privacy.html), [terms of use](https://kurodaki-dev.github.io/A-studio/legal/terms.html) and [cookie policy](https://kurodaki-dev.github.io/A-studio/legal/cookies.html). No cookie banner is needed: the app sets no cookies and only uses strictly necessary local storage.
 
 ## Building
 
@@ -133,6 +135,6 @@ Bug reports and ideas are welcome: [open an issue](https://github.com/kurodaki-d
 
 ## License
 
-MIT. Icons: [Lucide](https://lucide.dev), the icon set used by shadcn/ui (ISC license).
+MIT. Icons: [Lucide](https://lucide.dev), the icon set used by shadcn/ui (ISC license). MP3 export uses [lamejs](https://github.com/zhuker/lamejs) (LAME, LGPL 3.0), shipped as a separate file loaded only for MP3 export.
 
 A Studio is an independent project, not affiliated with Image Line Software. FL Studio is a trademark of Image Line Software.

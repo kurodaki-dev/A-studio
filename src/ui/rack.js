@@ -1,8 +1,8 @@
-import { h, btn, icon, hint, openMenu, promptText, confirmBox } from './dom.js';
+import { h, btn, icon, hint, openMenu, promptText, confirmBox, dropdown } from './dom.js';
 import { knob, led } from './controls.js';
 import { store, currentPattern, notesOf, notesFor, patternLength, isStepChannel, makeChannel } from '../store.js';
 import { ui } from '../ui-state.js';
-import { STEP, BAR, clamp } from '../constants.js';
+import { STEP, BAR, clamp, PATTERN_COLORS } from '../constants.js';
 import { CATALOG, CATEGORIES, instrumentName } from '../audio/catalog.js';
 import { getSampleMeta } from '../samples.js';
 import { registerDrop } from './dnd.js';
@@ -70,8 +70,16 @@ export function createRack(engine, actions) {
     onStart: () => store.commit(),
     onInput: (v) => { currentPattern(store.project).swing = v; store.emit(); },
   });
+  const velBtn = btn('AudioLines', t('Step velocity: drag up or down on a step'), () => {
+    ui.rackVel = !ui.rackVel;
+    hint(ui.rackVel ? t('Step velocity: drag up or down on a step') : t('Steps: tap to turn on or off'));
+    velBtn.classList.toggle('on', ui.rackVel);
+    el.classList.toggle('vel-mode', ui.rackVel);
+  });
+  const groupSel = dropdown({ label: t('Channel group'), value: '', options: [{ value: '', label: t('All channels') }], cls: 'group-dd', onChange: (v) => { ui.rackGroup = v; sig = ''; store.emit(); } });
   const head = h('div', { class: 'ptools' },
     h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Channel rack'), stepsInfo),
+    h('div', { class: 'grp' }, velBtn, groupSel),
     h('div', { class: 'grp' },
       btn('Minus', t('Remove a bar'), () => changeBars(-1)),
       btn('Plus', t('Add a bar'), () => changeBars(1)),
@@ -103,13 +111,17 @@ export function createRack(engine, actions) {
     const p = store.project;
     const pat = currentPattern(p);
     const n = stepCount();
-    rows = p.channels.map((c, ci) => {
+    const groups = [...new Set(p.channels.map((c) => c.group).filter(Boolean))].sort();
+    if (ui.rackGroup && !groups.includes(ui.rackGroup)) ui.rackGroup = '';
+    groupSel.setOptions([{ value: '', label: t('All channels') }, ...groups.map((gname) => ({ value: gname, label: gname }))], ui.rackGroup || '');
+    groupSel.style.display = groups.length ? '' : 'none';
+    rows = p.channels.map((c, ci) => ({ c, ci })).filter(({ c }) => !ui.rackGroup || c.group === ui.rackGroup).map(({ c, ci }) => {
       const notes = notesOf(pat, c.id);
       const stepMode = isStepChannel(notes);
       const mute = led(!c.mute, t('Channel enabled'), () => store.change(() => { c.mute = !c.mute; }));
       const pan = knob({
         value: c.pan, min: -1, max: 1, def: 0, size: 22, label: t('Pan ') + c.name,
-        format: (v) => (Math.abs(v) < 0.01 ? t('Center') : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? 'gauche' : 'droite')),
+        format: (v) => (Math.abs(v) < 0.01 ? t('Center') : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? t('left') : t('right'))),
         onStart: () => store.commit(),
         onInput: (v) => { c.pan = v; store.emit(); },
       });
@@ -134,7 +146,7 @@ export function createRack(engine, actions) {
       } else {
         body = h('canvas', { class: 'mini', title: t('Open in piano roll'), onClick: () => actions.openPianoRoll(c.id) });
       }
-      const row = h('div', { class: 'rack-row' + (ui.prChannel === c.id ? ' current' : '') }, mute, pan, vol, ins, name, body);
+      const row = h('div', { class: 'rack-row' + (ui.prChannel === c.id ? ' current' : ''), style: c.color != null ? { boxShadow: 'inset 4px 0 0 ' + PATTERN_COLORS[c.color] } : null }, mute, pan, vol, ins, name, body);
       return { c, row, mute, pan, vol, body, stepEls, stepMode };
     });
     list.replaceChildren(...rows.map((r) => r.row));
@@ -151,11 +163,21 @@ export function createRack(engine, actions) {
       const pat = currentPattern(store.project);
       const arr = notesFor(pat, c.id);
       const idx = arr.findIndex((n) => n.t === i * STEP);
-      if (mode === null) mode = idx < 0;
+      if (mode === null || mode === undefined) mode = idx < 0;
       if (mode && idx < 0) {
         arr.push({ t: i * STEP, len: STEP, key: 60, vel: 0.78 });
         engine.preview(c, 60, 0.78, 0.2);
       } else if (!mode && idx >= 0) arr.splice(idx, 1);
+      store.emit();
+    };
+    // Velocity mode: the height inside a step sets the velocity of its note.
+    const setVel = (target, e) => {
+      const i = Number(target.dataset.i);
+      const n = notesFor(currentPattern(store.project), c.id).find((x) => x.t === i * STEP);
+      if (!n) return;
+      const r = target.getBoundingClientRect();
+      n.vel = clamp(1 - (e.clientY - r.top) / r.height, 0.05, 1);
+      hint(t('Velocity ') + Math.round(n.vel * 100) + '%');
       store.emit();
     };
     container.addEventListener('pointerdown', (e) => {
@@ -164,14 +186,21 @@ export function createRack(engine, actions) {
       e.preventDefault();
       container.setPointerCapture(e.pointerId);
       store.commit();
-      mode = null;
       seen.clear();
+      if (ui.rackVel) {
+        mode = 'vel';
+        setVel(t, e);
+        return;
+      }
+      mode = null;
       toggle(t);
     });
     container.addEventListener('pointermove', (e) => {
       if (mode === null) return;
       const t = document.elementFromPoint(e.clientX, e.clientY);
-      if (t && t.classList.contains('step') && container.contains(t)) toggle(t);
+      if (!t || !t.classList.contains('step') || !container.contains(t)) return;
+      if (mode === 'vel') setVel(t, e);
+      else toggle(t);
     });
     const end = () => {
       mode = null;
@@ -226,8 +255,11 @@ export function createRack(engine, actions) {
       r.row.classList.toggle('current', ui.prChannel === c.id);
       const notes = notesOf(pat, c.id);
       if (r.stepMode) {
-        const on = new Set(notes.map((n) => n.t / STEP));
-        r.stepEls.forEach((s, i) => s.classList.toggle('on', on.has(i)));
+        const vel = new Map(notes.map((n) => [n.t / STEP, n.vel]));
+        r.stepEls.forEach((s, i) => {
+          s.classList.toggle('on', vel.has(i));
+          if (vel.has(i)) s.style.setProperty('--vel', String(vel.get(i)));
+        });
       } else drawMini(r.body, notes);
     }
     const bars = patternLength(pat) / BAR;
@@ -238,7 +270,7 @@ export function createRack(engine, actions) {
   function signature() {
     const p = store.project;
     const pat = currentPattern(p);
-    return [store.gen, pat.id, stepCount(), ...p.channels.map((c) => [c.id, c.name, c.instrument, c.insert, isStepChannel(notesOf(pat, c.id)), c.instrument === 'sampler' && !getSampleMeta(c.sample)].join(':'))].join('|');
+    return [store.gen, pat.id, stepCount(), ui.rackGroup || '', ...p.channels.map((c) => [c.id, c.name, c.instrument, c.insert, c.color, c.group, isStepChannel(notesOf(pat, c.id)), c.instrument === 'sampler' && !getSampleMeta(c.sample)].join(':'))].join('|');
   }
 
   function insertMenu(anchor, c) {
@@ -274,6 +306,18 @@ export function createRack(engine, actions) {
       { label: t('Rename'), icon: 'Pencil', onClick: async () => {
         const v = await promptText(t('Rename channel'), c.name);
         if (v) store.change(() => { c.name = v; });
+      } },
+      { label: t('Color') + '...', icon: 'Palette', onClick: () => openMenu(anchor, [
+        { label: t('No color'), checked: c.color == null, onClick: () => store.change(() => { delete c.color; }) },
+        ...PATTERN_COLORS.map((col, i) => ({ label: t('Color ') + (i + 1), checked: c.color === i, icon: 'Circle', onClick: () => store.change(() => { c.color = i; }) })),
+      ]) },
+      { label: t('Group') + (c.group ? ': ' + c.group : '...'), icon: 'Layers', onClick: async () => {
+        const v = await promptText(t('Group name (empty for none)'), c.group || '');
+        if (v == null) return;
+        store.change(() => {
+          if (v.trim()) c.group = v.trim().slice(0, 30);
+          else delete c.group;
+        });
       } },
       { label: t('Clone'), icon: 'Copy', onClick: () => store.change((pp) => {
         const copy = JSON.parse(JSON.stringify(c));

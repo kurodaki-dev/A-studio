@@ -301,9 +301,19 @@ export function createPianoRoll(engine) {
       g.globalAlpha = 0.55 + n.vel * 0.45;
       g.fillRect(x + 1, y + 1, w - 2, view.rowH - 3);
       g.globalAlpha = 1;
+      if (n.slide) {
+        // Slide note: a triangle on the left, like FL Studio.
+        g.fillStyle = n.s ? C.selText : C.noteText;
+        g.beginPath();
+        g.moveTo(x + 2, y + view.rowH - 3);
+        g.lineTo(x + 2 + Math.min(10, w - 4), y + view.rowH / 2);
+        g.lineTo(x + 2, y + 2);
+        g.closePath();
+        g.fill();
+      }
       if (w > 24 && view.rowH >= 12) {
         g.fillStyle = n.s ? C.selText : C.noteText;
-        g.fillText(noteName(n.key), x + 4, y + view.rowH / 2);
+        g.fillText(noteName(n.key), x + (n.slide ? 14 : 4), y + view.rowH / 2);
       }
     }
     if (overlay && overlay.type === 'box') {
@@ -773,7 +783,7 @@ export function createPianoRoll(engine) {
   // Live recording: while Record is on and the pattern plays, notes played
   // on the keyboard are written at the play position (snapped to the grid).
   let rec = null;
-  const recording = () => ui.recording && engine.playing && !ui.songMode && channel();
+  const recording = () => ui.recording && engine.playing && !ui.songMode && !engine.countingIn() && channel();
 
   function keyDown(k) {
     if (k < 0 || k >= NKEYS) return;
@@ -947,6 +957,13 @@ export function createPianoRoll(engine) {
       { label: t('Strum'), icon: 'Guitar', onClick: () => applyTool(t('Strum'), (src) => { strum(src, Math.max(4, Math.round(snap() / 4)), true); }) },
       { label: t('Humanize'), icon: 'Shuffle', onClick: () => applyTool(t('Humanize'), (src) => { humanize(src, { vel: 0.12, time: 2 }); }) },
       { label: t('Legato'), icon: 'ChevronRight', onClick: () => applyTool(t('Legato'), (src) => { legato(src); }) },
+      { label: t('Slide notes on or off'), icon: 'Activity', onClick: () => applyTool(t('Slide notes'), (src) => {
+        const on = !src.every((n) => n.slide);
+        for (const n of src) {
+          if (on) n.slide = true;
+          else delete n.slide;
+        }
+      }) },
       { sep: true },
       { label: t('Reverse'), icon: 'RefreshCw', onClick: () => applyTool(t('Reverse'), (src) => { reverseNotes(src); }) },
       { label: t('Flip'), icon: 'ArrowUp', onClick: () => applyTool(t('Flip'), (src) => { flipNotes(src); }) },
