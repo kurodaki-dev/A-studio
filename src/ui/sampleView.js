@@ -272,7 +272,7 @@ export function soundView({ project, c, onMakeSample }) {
     const id = await addSample(c.name + ' C5', 'Renders', encodeWav([b.getChannelData(0), b.getChannelData(1)], b.sampleRate, 16));
     onMakeSample(id);
   };
-  return h('div', { class: 'sample-view' },
+  const el = h('div', { class: 'sample-view' },
     h('div', { class: 'field' }, h('span', null, t('Sound (one C5 note)'))),
     wrap,
     h('div', { class: 'set-inline' },
@@ -281,4 +281,11 @@ export function soundView({ project, c, onMakeSample }) {
     ),
     h('p', { class: 'set-note' }, t('The sound becomes a sampler channel: then you can cut it, reverse it, add fades and slices.')),
   );
+  // Called when a setting of the sound changes: the preview follows after a short pause.
+  let timer = null;
+  el.soundChanged = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (el.isConnected) refresh(); }, 400);
+  };
+  return el;
 }
