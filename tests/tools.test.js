@@ -138,3 +138,53 @@ test('compressor makeup gain of the Web Audio spec is cancelled', async () => {
   assert.ok(Math.abs(autoMakeupDb(-20, 4) - 9) < 1e-9);
   assert.ok(Math.abs(autoMakeupDb(0, 4)) < 1e-12);
 });
+
+test('arrangement: insert and delete bars, split by channel', async () => {
+  const { insertTime, deleteTime, splitByChannel } = await import('../src/arrange.js');
+  const p = newProject();
+  const pat = p.patterns[0];
+  pat.notes[p.channels[0].id] = [{ t: 0, len: STEP, key: 60, vel: 1 }];
+  pat.notes[p.channels[1].id] = [{ t: STEP * 4, len: STEP, key: 60, vel: 1 }];
+  p.playlist.clips = [
+    { id: 'a', patternId: pat.id, track: 0, start: 0 },
+    { id: 'b', patternId: pat.id, track: 0, start: BAR * 2 },
+    { id: 'c', type: 'audio', sampleId: 's', name: 'x', track: 1, start: BAR, len: BAR * 2 },
+  ];
+  p.markers = [{ id: 'm', t: BAR * 3, name: 'Drop' }];
+  insertTime(p, BAR * 2, BAR);
+  assert.deepEqual(p.playlist.clips.map((c) => c.start), [0, BAR * 3, BAR]);
+  assert.equal(p.markers[0].t, BAR * 4);
+  deleteTime(p, BAR * 2, BAR);
+  assert.deepEqual(p.playlist.clips.map((c) => c.start), [0, BAR * 2, BAR]);
+  assert.equal(p.playlist.clips[2].len, BAR, 'the audio clip crossing the deleted bar is shortened');
+  assert.equal(p.markers[0].t, BAR * 3);
+  // A clip starting inside the deleted range keeps its part after it.
+  const q = newProject();
+  q.playlist.clips = [{ id: 'd', type: 'audio', sampleId: 's', name: 'x', track: 0, start: BAR, len: BAR * 2 }];
+  deleteTime(q, BAR, BAR);
+  assert.deepEqual([q.playlist.clips[0].start, q.playlist.clips[0].len, q.playlist.clips[0].offset], [BAR, BAR, BAR]);
+  const made = splitByChannel(p, pat.id);
+  assert.equal(made.length, 2);
+  assert.ok(made.every((x) => Object.keys(x.notes).length === 1));
+  assert.equal(p.playlist.clips.filter((c) => c.patternId === pat.id).length, 0);
+  assert.equal(p.playlist.clips.filter((c) => c.patternId === made[1].id && c.track === 1).length, 2);
+});
+
+test('delay compensation moves notes through a delayed insert earlier', async () => {
+  const { insertLatency } = await import('../src/audio/engine.js');
+  const p = newProject();
+  assert.equal(insertLatency(p, 3, 48000), 0);
+  p.mixer[3].fx = [{ plugin: 'astudio-autotune', on: true, params: {} }];
+  const lat = insertLatency(p, 3, 48000);
+  assert.ok(lat > 0.025 && lat < 0.045, 'got ' + lat);
+  p.mixer[3].fx[0].params.formant = 0;
+  assert.equal(insertLatency(p, 3, 48000), 0);
+  // Routed into a bus with the delay: the delay counts.
+  p.mixer[3].fx = [];
+  p.mixer[3].route = 10;
+  p.mixer[10].fx = [{ plugin: 'astudio-pitch', on: true, params: { formant: 1 } }];
+  assert.ok(insertLatency(p, 3, 48000) > 0.025);
+  // The same delay on the master moves nothing (relative to the master).
+  p.mixer[0].fx = [{ plugin: 'astudio-pitch', on: true, params: { formant: 1 } }];
+  assert.equal(insertLatency(p, 5, 48000), 0);
+});

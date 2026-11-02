@@ -395,4 +395,12 @@ for (const fx of BUILTIN_EFFECTS) {
   };
 }
 
+// Processing delay of an effect in seconds (for delay compensation).
+// PSOLA delays by 2 periods of 70 Hz plus 256 samples, see voxworklet.js.
+const psolaDelay = (sr) => (2 * Math.ceil(sr / 70) + 256) / sr;
+for (const fx of BUILTIN_EFFECTS) {
+  if (fx.id === 'astudio-autotune') fx.latency = (v, sr) => (v.formant === 0 ? 0 : psolaDelay(sr));
+  else if (fx.id === 'astudio-pitch') fx.latency = (v, sr) => (v.formant ? psolaDelay(sr) : 0);
+}
+
 export const getBuiltinEffect = (id) => BUILTIN_EFFECTS.find((x) => x.id === id) || null;

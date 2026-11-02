@@ -177,3 +177,15 @@ test('keep formants: PSOLA shifts the pitch and keeps the resonance in place', (
   // And the pitch still moves: the fundamental is near 150 * 2^(5/12) = 200 Hz.
   assert.ok(Math.abs(zcFreq(kept, 120, 260) - 200) < 6, 'f0 ' + zcFreq(kept, 120, 260));
 });
+
+test('with keep formants, the dry signal is delayed like the wet one', () => {
+  const { 'astudio-vox-tune': Tune } = processors();
+  // A click: with mix 0.5 the dry and wet clicks must land at the same time.
+  const sig = new Float32Array(SR);
+  sig[1000] = 1;
+  const out = run(Tune, { key: 0, scale: 0, retune: 0, mix: 0, formant: 1 }, sig);
+  let at = -1;
+  for (let i = 0; i < out.length; i++) if (Math.abs(out[i]) > 0.5) { at = i; break; }
+  const D = 2 * Math.ceil(SR / 70) + 256;
+  assert.equal(at, 1000 + D);
+});

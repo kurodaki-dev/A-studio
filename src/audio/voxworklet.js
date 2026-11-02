@@ -108,6 +108,25 @@ class Psola {
   }
 }
 
+// Stereo delay for the dry signal, so it stays aligned with the PSOLA output.
+class DryDelay {
+  constructor(n) {
+    this.n = n;
+    this.b = [new Float32Array(n), new Float32Array(n)];
+    this.i = 0;
+  }
+  // Writes the current samples and returns the ones from n samples ago.
+  run(l, r) {
+    const i = this.i;
+    const ol = this.b[0][i];
+    const or = this.b[1][i];
+    this.b[0][i] = l;
+    this.b[1][i] = r;
+    this.i = (i + 1) % this.n;
+    return [ol, or];
+  }
+}
+
 // YIN pitch detector on a 2x decimated signal. Returns Hz, or 0 when unvoiced.
 class Detector {
   constructor() {
@@ -206,6 +225,7 @@ class Tune extends Base {
     this.det = new Detector();
     this.sh = new Shifter();
     this.ps = new Psola();
+    this.dd = new DryDelay(this.ps.D);
     this.ratio = 1;
     this.target = 1;
   }
@@ -247,8 +267,11 @@ class Tune extends Base {
       }
       const keep = this.p.formant == null ? 1 : this.p.formant;
       const y = keep ? this.ps.run(x, this.ratio, this.det.freq) : this.sh.run(x, this.ratio);
+      const dl = inp && inp[0] ? inp[0][i] : x;
+      const dr = inp && inp[1] ? inp[1][i] : dl;
+      const d = this.dd.run(dl, dr);
       for (let c = 0; c < out.length; c++) {
-        const dry = inp && inp[c] ? inp[c][i] : x;
+        const dry = keep ? d[c ? 1 : 0] : c ? dr : dl;
         out[c][i] = dry * (1 - mix) + y * mix;
       }
     }
@@ -262,6 +285,7 @@ class Shift extends Base {
     this.sh = new Shifter();
     this.det = new Detector();
     this.ps = new Psola();
+    this.dd = new DryDelay(this.ps.D);
     this.lp = 0;
   }
   process(inputs, outputs) {
@@ -280,8 +304,11 @@ class Shift extends Base {
       // Tone: negative darkens (low pass), positive brightens (adds the high part).
       this.lp += (y - this.lp) * 0.18;
       y = tone < 0 ? y + (this.lp - y) * -tone : y + (y - this.lp) * tone;
+      const dl = inp && inp[0] ? inp[0][i] : x;
+      const dr = inp && inp[1] ? inp[1][i] : dl;
+      const d = this.dd.run(dl, dr);
       for (let c = 0; c < out.length; c++) {
-        const dry = inp && inp[c] ? inp[c][i] : x;
+        const dry = this.p.formant ? d[c ? 1 : 0] : c ? dr : dl;
         out[c][i] = dry * (1 - mix) + y * mix;
       }
     }

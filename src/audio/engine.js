@@ -43,7 +43,7 @@ function makeEq(ctx) {
 }
 
 export function createGraph(ctx, dest) {
-  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 }, duckers: [], fxHold: new Map(), autoHold: new Set(), autoStarted: new Set(), silent: new Set() };
+  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 }, duckers: [], fxHold: new Map(), fxTimers: new Set(), autoHold: new Set(), autoStarted: new Set(), silent: new Set() };
   const masterIn = ctx.createGain();
   const masterPan = ctx.createStereoPanner();
   const masterVol = ctx.createGain();
@@ -628,7 +628,14 @@ function scheduleFxAutomation(G, project, clip, a, b, timeOf) {
       if (!G.suspends) G.suspends = new Map();
       if (!G.suspends.has(q)) G.suspends.set(q, []);
       G.suspends.get(q).push(apply);
-    } else setTimeout(apply, Math.max(0, (time - G.ctx.currentTime) * 1000));
+    } else {
+      // Timers are cancelled on stop so no late value lands after the reset.
+      const id = setTimeout(() => {
+        G.fxTimers.delete(id);
+        apply();
+      }, Math.max(0, (time - G.ctx.currentTime) * 1000));
+      G.fxTimers.add(id);
+    }
   }
 }
 
@@ -649,6 +656,33 @@ export function swingTicks(pat, t) {
   const sw = pat && pat.swing;
   if (!sw) return 0;
   return t % (2 * STEP) === STEP ? sw * STEP * 0.5 : 0;
+}
+
+// Delay compensation: processing delay (seconds) of the effects on the path of an
+// insert, relative to the master. Notes and clips going through a delayed insert
+// are started earlier by this time so everything stays in time.
+function pathLatency(project, i, sr, depth = 0) {
+  const m = project.mixer[i];
+  if (!m || depth > 20) return 0;
+  let lat = 0;
+  for (const f of m.fx || []) {
+    if (!f || f.on === false) continue;
+    const p = getPlugin(f.plugin);
+    if (p && p.latency) lat += p.latency(paramValues(p, f.params), sr);
+  }
+  if (i > 0) lat += pathLatency(project, m.route > i ? m.route : 0, sr, depth + 1);
+  return lat;
+}
+export function insertLatency(project, i, sr) {
+  if (!i) return 0;
+  return Math.max(0, pathLatency(project, i, sr) - pathLatency(project, 0, sr));
+}
+function latencyCache(project, sr) {
+  const cache = new Map();
+  return (i) => {
+    if (!cache.has(i)) cache.set(i, insertLatency(project, i, sr));
+    return cache.get(i);
+  };
 }
 
 // Mixer insert of the playlist track holding a clip (audio clips play through it).
@@ -843,6 +877,8 @@ export class Engine {
       }
       this.G.autoHold.clear();
       this.G.autoStarted.clear();
+      for (const id of this.G.fxTimers) clearTimeout(id);
+      this.G.fxTimers.clear();
       this.G.fxHold.clear();
       for (const ins of this.G.inserts) for (const e of ins.fxNodes || []) e.params = '';
       syncGraph(this.G, this.store.project, true);
@@ -863,6 +899,8 @@ export class Engine {
       this.bpm = bpmAt(this.store.project, this.nextPos, this.getMode());
       this.fresh = true;
       this.G.autoStarted.clear();
+      for (const id of this.G.fxTimers) clearTimeout(id);
+      this.G.fxTimers.clear();
       this.G.transport = { bpm: this.bpm, playing: true, position: this.nextPos, at: this.anchorTime };
       pushTransport(this.G, this.G.transport);
     } else this.pos = Math.max(0, tick);
@@ -905,23 +943,36 @@ export class Engine {
       const from = this.nextPos;
       const to = from + seg;
       const base = this.nextAbs - from;
+      const lat = latencyCache(proj, ctx.sampleRate);
+      // Start time and offset of an audio clip, moved earlier by the delay of its insert.
+      const clipStart = (time, offset, ins) => {
+        let t = time - lat(ins);
+        if (t < ctx.currentTime) {
+          offset += ctx.currentTime - t;
+          t = ctx.currentTime;
+        }
+        return [t, offset];
+      };
       if (mode === 'song' && this.fresh) {
         // Resume audio clips that started before this point.
         for (const clip of audioClipsAt(proj, from)) {
           const cl = clipLength(proj, clip) * spt;
-          const v = playAudioClip(this.G, clip, Math.max(this.tickToTime(this.nextAbs), ctx.currentTime), (from - clip.start) * spt, (clip.start + clipLength(proj, clip) - from) * spt, spt, cl, trackInsert(proj, clip));
+          const ins = trackInsert(proj, clip);
+          const [t, off] = clipStart(Math.max(this.tickToTime(this.nextAbs), ctx.currentTime), (from - clip.start) * spt, ins);
+          const v = playAudioClip(this.G, clip, t, off, (clip.start + clipLength(proj, clip) - from) * spt - (off - (from - clip.start) * spt), spt, cl, ins);
           if (v) this.track(v);
         }
       }
       this.fresh = false;
       (mode === 'live' ? (a, b, cb) => this.liveEvents(proj, a, b, cb) : (a, b, cb, ca) => collectEvents(proj, mode, a, b, cb, ca))(from, to, (c, n, tt, pat) => {
-        const time = Math.max(this.tickToTime(base + tt + swingTicks(pat, n.t)), ctx.currentTime);
+        const time = Math.max(this.tickToTime(base + tt + swingTicks(pat, n.t)) - lat(c.insert), ctx.currentTime);
         const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt, slideFrom(pat.notes[c.id], n));
         if (v) this.track(v);
       }, (clip, tt) => {
-        const time = Math.max(this.tickToTime(base + tt), ctx.currentTime);
         const cl = clipLength(proj, clip) * spt;
-        const v = playAudioClip(this.G, clip, time, 0, cl, spt, cl, trackInsert(proj, clip));
+        const ins = trackInsert(proj, clip);
+        const [t, off] = clipStart(Math.max(this.tickToTime(base + tt), ctx.currentTime), 0, ins);
+        const v = playAudioClip(this.G, clip, t, off, cl - off, spt, cl, ins);
         if (v) this.track(v);
       });
       if (mode === 'song') scheduleAutomation(this.G, proj, from, to, (x) => Math.max(this.tickToTime(base + x), ctx.currentTime));
@@ -1143,13 +1194,17 @@ async function renderBuffer(project, mode) {
   // Effects must be loaded in this context before the graph is built.
   await Promise.all([...effects].map((p) => loadPluginModule(ctx, p)));
   syncGraph(G, project, false);
+  const lat = latencyCache(project, sr);
   collectEvents(project, mode, 0, L, (c, n, tt, pat) => {
     const start = tt + swingTicks(pat, n.t);
-    playNote(G, c, timeOf(start), n.key, n.vel, timeOf(start + n.len) - timeOf(start), slideFrom(pat.notes[c.id], n));
+    playNote(G, c, Math.max(0, timeOf(start) - lat(c.insert)), n.key, n.vel, timeOf(start + n.len) - timeOf(start), slideFrom(pat.notes[c.id], n));
   }, (clip, tt) => {
     const len = clipLength(project, clip);
     const dur = timeOf(tt + len) - timeOf(tt);
-    playAudioClip(G, clip, timeOf(tt), 0, dur, dur / len, dur, trackInsert(project, clip));
+    const ins = trackInsert(project, clip);
+    const t0 = timeOf(tt) - lat(ins);
+    const off = Math.max(0, -t0);
+    playAudioClip(G, clip, Math.max(0, t0), off, dur - off, dur / len, dur, ins);
   });
   if (mode === 'song') scheduleAutomation(G, project, 0, L, timeOf);
   if (G.suspends) {

@@ -121,10 +121,13 @@
   <li><strong>Slice tool</strong>: tap a clip to cut it in two at the snap position. The right part keeps playing from where it was in the pattern or sample.</li>
   <li><strong>Loop region</strong>: with the Select tool, drag on the ruler. The loop button turns it on or off; in SONG mode playback repeats the region.</li>
   <li><strong>Markers</strong>: the flag button adds a marker at the play position (or long press on the ruler). Tap a marker to jump to it, rename it, delete it or set a <strong>tempo change</strong>: from that marker the song plays at the new tempo, in playback and in exports.</li>
+  <li><strong>Insert or delete bars</strong> (columns button): adds or removes 1 or 4 bars at the play position; clips, markers and the loop region after it move.</li>
   <li><strong>Audio clips</strong>: Clip properties sets the gain, pitch (resampling, which also changes the speed), fade in, fade out and start offset.</li>
   <li>Stretch a clip by dragging its right edge. A stretched pattern clip repeats its pattern; an audio clip is cut or extended with silence.</li>
   <li>Tap a track name to mute the track.</li>
 </ul>
+
+<p>The pattern menu (pattern name in the top bar) has <strong>Split by channel</strong>: one pattern per channel, and the playlist clips of the pattern are replaced by one clip per channel on consecutive tracks.</p>
 
 <h2 id="automation">Automation</h2>
 <p>An automation clip moves one parameter while the song plays: the volume, pan or filter of a channel, the volume, pan, sends or EQ of a mixer insert, or any knob of an effect in a mixer slot (auto tune retune, filter cutoff, echo mix, limiter gain, effect plugins...).</p>
@@ -188,6 +191,7 @@
   <li><strong>Comping</strong>: split takes with the Slice tool, then long press the best piece of each and choose Send to the comp track. The pieces are copied to a track named Comp and the take tracks are muted.</li>
   <li><strong>Keep formants</strong>: the voice changer and auto tune can shift the pitch with TD-PSOLA, which repeats or drops pitch periods instead of speeding the voice up, so the timbre stays natural. Auto tune uses it by default; turn it off in the voice changer for the cartoon effect.</li>
 </ul>
+<p><strong>Delay compensation</strong>: Keep formants delays the voice by about 34 ms. The app starts the clips and notes that go through that insert earlier by the same time, in playback and in exports, so the vocal stays on the beat (the live monitoring itself cannot be compensated).</p>
 <h3>Voice effects</h3>
 <table>
   <tr><th>Effect</th><th>What it does</th></tr>
