@@ -54,3 +54,14 @@ test('channel settings reach playback and survive normalize', () => {
   notes[0].key = 59;
   assert.equal(channelNotes(c, notes)[0].key, 59);
 });
+
+test('sampler fades survive normalize', () => {
+  const proj = newProject();
+  proj.channels[0].instrument = 'sampler';
+  proj.channels[0].sample = 's1';
+  proj.channels[0].params.fadeIn = 0.2;
+  proj.channels[0].params.fadeOut = 0.9;
+  const q = normalizeProject(JSON.parse(JSON.stringify(proj)));
+  assert.equal(q.channels[0].params.fadeIn, 0.2);
+  assert.equal(q.channels[0].params.fadeOut, 0.5, 'fades are limited to half of the part');
+});

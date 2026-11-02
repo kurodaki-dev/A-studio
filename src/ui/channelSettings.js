@@ -7,6 +7,8 @@ import { CATALOG, CATEGORIES } from '../audio/catalog.js';
 import { cutoffHz } from '../audio/engine.js';
 import { getSampleMeta, getBuffer, loadBuffer } from '../samples.js';
 import { WAVES, cleanSynth, SYNTH_PRESETS } from '../audio/osc3.js';
+import { sampleView, soundView } from './sampleView.js';
+import { openWaveEditor } from './clipEditors.js';
 import { equalSlices, detectSlices, sliceNotes } from '../slicer.js';
 import { t } from '../i18n.js';
 
@@ -99,7 +101,6 @@ export function openChannelSettings(id, engine) {
   // Sampler: reverse, start and end points, loop, slices.
   function samplerSection() {
     const sw = (label, key) => h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: !!c.params[key], onChange: (e) => set(() => { c.params[key] = e.target.checked; engine.preview(c, 60, 0.8, 0.6); }) }), h('span', null, label));
-    const pct = (v) => Math.round(v * 100) + '%';
     const chop = async (mode) => {
       const buf = getBuffer(c.sample) || (await loadBuffer(c.sample));
       if (!buf) return hint(t('Sample missing on this device'));
@@ -115,10 +116,23 @@ export function openChannelSettings(id, engine) {
     return h('div', { class: 'form' },
       h('div', { class: 'field' }, h('span', null, t('Sample')), h('div', { class: 'set-inline' }, sw(t('Play reversed'), 'reverse'), sw(t('Loop while the note is held'), 'loop'))),
       c.zones && c.zones.length ? h('p', { class: 'set-note' }, t('Multi sample instrument: ') + c.zones.length + t(' samples mapped to keys.')) : null,
-      h('div', { class: 'knobs' },
-        k(t('Start'), 'start', 1, 0, pct),
-        k(t('End'), 'end', 1, 1, pct),
-      ),
+      c.sample ? sampleView({
+        c,
+        engine,
+        set,
+        onEdit: () => openWaveEditor({ sampleId: c.sample, name: (getSampleMeta(c.sample) || {}).name || c.name }, engine, {
+          onSave: (sid) => {
+            // The edited sound replaces the sample of the channel; cut points start again.
+            set(() => {
+              c.sample = sid;
+              Object.assign(c.params, { start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
+              delete c.slices;
+            });
+            modal.close();
+            openChannelSettings(id, engine);
+          },
+        }),
+      }) : null,
       h('div', { class: 'field' }, h('span', null, t('Chop (slicer)')),
         h('div', { class: 'set-inline' },
           [4, 8, 16].map((n) => h('button', { class: 'b tb', type: 'button', onClick: () => chop(n) }, String(n))),
@@ -152,6 +166,22 @@ export function openChannelSettings(id, engine) {
       c.instrument === 'sampler' ? samplerSection() : null,
       c.instrument === 'osc3' ? synthSection() : null,
       pluginKnobs(),
+      c.instrument !== 'sampler' && !c.instrument.startsWith('plugin:') ? soundView({
+        project: store.project,
+        c,
+        onMakeSample: (sid) => {
+          // The rendered note already has its envelope and filter: start the sampler flat.
+          set(() => {
+            c.instrument = 'sampler';
+            c.sample = sid;
+            Object.assign(c.params, { pitch: 0, attack: 0, decay: 0, sustain: 1, release: 0, cutoff: 1, reso: 0, fenvAmt: 0, penvAmt: 0, start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
+            if (c.lfo) c.lfo.on = false;
+          });
+          hint(t('The channel now plays the sample of its sound. Cut it in the waveform.'));
+          modal.close();
+          openChannelSettings(id, engine);
+        },
+      }) : null,
     ),
     env: () => h('div', { class: 'form' },
       h('div', { class: 'field' }, h('span', null, t('Volume envelope'))),

@@ -444,6 +444,17 @@ function playSampler(G, channel, ch, t, key, vel, dur, fromKey) {
       end = Math.min(end, t + dur + rel * 1.6);
     }
   }
+  // Fades set on the waveform of the channel settings (fractions of the played part).
+  const segSec = (segEnd - off) / rate;
+  if (p.fadeIn > 0 && !att) {
+    vg.gain.setValueAtTime(0, t);
+    vg.gain.linearRampToValueAtTime(vel, t + p.fadeIn * segSec);
+  }
+  if (p.fadeOut > 0 && !loop && Number.isFinite(end)) {
+    const fo = Math.min(end - t, p.fadeOut * segSec);
+    vg.gain.setValueAtTime(vel, Math.max(t, end - fo));
+    vg.gain.linearRampToValueAtTime(0, end);
+  }
   s.start(t, off);
   if (Number.isFinite(end)) s.stop(end);
   if (fromKey != null) glide(ctx, [s], (fromKey - key) * 100, t, p.glide || 0.1);
@@ -1229,6 +1240,31 @@ export class Engine {
     this.previewVoice = playAudioClip(this.G, { sampleId: id }, this.ctx.currentTime + 0.01, 0, Math.min(buf.duration, 30));
   }
 
+  // Plays part of a sample (from and to are fractions) for the waveform view.
+  // Returns { at, duration } in audio time so the view can draw a playhead.
+  async playSampleRange(id, from, to, reverse = false) {
+    this.init();
+    let buf = getBuffer(id) || (await loadBuffer(id));
+    if (!buf) return null;
+    if (reverse) buf = reverseBuffer(this.ctx, buf);
+    if (this.rangeSrc) {
+      try {
+        this.rangeSrc.stop();
+      } catch {
+        /* already stopped */
+      }
+    }
+    const s = this.ctx.createBufferSource();
+    s.buffer = buf;
+    s.connect(this.G.inserts[0].in);
+    const a = Math.max(0, Math.min(1, from)) * buf.duration;
+    const d = Math.max(0.01, (Math.max(from, Math.min(1, to)) - Math.max(0, from)) * buf.duration);
+    const at = this.ctx.currentTime + 0.02;
+    s.start(at, a, d);
+    this.rangeSrc = s;
+    return { at, duration: d, start: a, total: buf.duration };
+  }
+
   noteOn(channel, key, vel = 0.78) {
     this.init();
     this.sync();
@@ -1257,6 +1293,28 @@ export class Engine {
     for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i]));
     return peak;
   }
+}
+
+// One note of a channel rendered offline (for the waveform view of the channel settings
+// and to turn any sound into a sample). Plugin instruments are not rendered here.
+export async function renderNote(project, channel, seconds = 2, key = 60) {
+  if (channel.instrument.startsWith('plugin:')) return null;
+  const sr = 44100;
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new OAC(2, Math.ceil(sr * (seconds + 0.6)), sr);
+  const G = createGraph(ctx, ctx.destination);
+  G.offline = true;
+  const c = JSON.parse(JSON.stringify(channel));
+  c.insert = 0;
+  c.mute = false;
+  c.vol = 0.9;
+  c.pan = 0;
+  const proj = { ...JSON.parse(JSON.stringify(project)), channels: [c] };
+  proj.mixer = proj.mixer.map((m, i) => (i === 0 ? { ...m, fx: [], vol: 0.8, mute: false } : m));
+  if (c.instrument === 'sampler') for (const id of [c.sample, ...(c.zones || []).map((z) => z.sample)]) if (id) await loadBuffer(id);
+  syncGraph(G, proj, false);
+  playNote(G, c, 0.02, key, 0.85, seconds);
+  return ctx.startRendering();
 }
 
 // Copy of the project where only one channel sounds (only = channel id), or only

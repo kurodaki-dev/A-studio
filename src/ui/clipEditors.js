@@ -219,7 +219,8 @@ export function openClipProperties(clip) {
 
 // Waveform editor of an audio clip. Edits work on a copy; Save stores the result
 // as a new sample (the original stays in the browser) and points the clip to it.
-export function openWaveEditor(clip, engine) {
+// onSave(id, name, seconds): optional, used for a channel's sample instead of a clip.
+export function openWaveEditor(clip, engine, { onSave } = {}) {
   (async () => {
     const buf = getBuffer(clip.sampleId) || (await loadBuffer(clip.sampleId));
     if (!buf) return hint(t('Sample missing on this device'));
@@ -381,6 +382,12 @@ export function openWaveEditor(clip, engine) {
       const bytes = encodeWav(chs, sr, 16);
       const name = (clip.name || 'Sample').replace(/ \(edit\)$/, '') + ' (edit)';
       const id = await addSample(name, 'Edits', bytes);
+      if (onSave) {
+        onSave(id, name, len() / sr);
+        hint(t('Saved as a new sample: ') + name);
+        m.close();
+        return;
+      }
       const rate = Math.pow(2, (clip.pitch || 0) / 12);
       const spt = 60 / (store.project.bpm * 96);
       store.change(() => {
