@@ -18,7 +18,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 <img src="https://img.shields.io/badge/license-MIT-0a7bbb" alt="license MIT">
 <img src="https://img.shields.io/badge/status-beta-8e9ba1" alt="status beta">
 
-[Screenshots](#screenshots) · [Features](#features) · [Piano roll](#piano-roll) · [Browser and samples](#browser-and-samples) · [Plugins and themes](#plugins-and-themes) · [AI (MCP)](#ai-assistant-mcp) · [Updates](#updates) · [Privacy](#privacy) · [Building](#building)
+[Screenshots](#screenshots) · [Features](#features) · [Piano roll](#piano-roll) · [Browser and samples](#browser-and-samples) · [Plugins and themes](#plugins-and-themes) · [Vocals](#features) · [AI (MCP)](#ai-assistant-mcp) · [Updates](#updates) · [Privacy](#privacy) · [Building](#building)
 
 </div>
 
@@ -43,6 +43,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 - **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard or a USB MIDI keyboard, slide notes (808 glides), scale highlighting (11 scales), and tools: chords, arpeggiate, strum, humanize, legato, reverse, flip, double or half length, snap to scale.
 - **Playlist**: PAT and SONG modes, 16 tracks, pattern, audio and automation clips, stretch, select, copy, paste, duplicate and split clips, loop region, markers with tempo changes, audio clip gain, pitch and fades.
 - **Automation**: clips that move a channel or mixer parameter over the song (volume, pan, filter, sends, EQ), with a curve editor and LFO shapes.
+- **Vocals**: auto tune (key and scale, hard or natural), voice changer, harmonizer, noise gate, de-esser, doubler, reverb, tempo synced echo and robot voice; ready vocal chains (trap, R&B, rap, ad libs, radio, deep voice) on a one tap vocal insert, your own saved chains, live monitoring with the effects, lyrics on screen, loop recording into takes and a tuner.
 - **Recording**: microphone takes straight into the playlist, notes from the piano roll keyboard or a MIDI keyboard, one bar count in.
 - **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, three band EQ, mute, solo, level meters, routing to buses and 4 effect slots each, with built in compressor, limiter, filter, distortion and sidechain.
 - **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.

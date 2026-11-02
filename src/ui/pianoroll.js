@@ -8,7 +8,7 @@ import { store, currentPattern, notesOf, notesFor, patternLength, getChannel } f
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, NKEYS, SNAPS, snapTicks, noteName, isBlack, clamp, NOTE_NAMES } from '../constants.js';
 import { t } from '../i18n.js';
-import { SCALES, CHORDS, inScale, snapToScale, chordify, arpeggiate, strum, humanize, legato, reverseNotes, flipNotes, stretchNotes } from '../notetools.js';
+import { detectKey, SCALES, CHORDS, inScale, snapToScale, chordify, arpeggiate, strum, humanize, legato, reverseNotes, flipNotes, stretchNotes } from '../notetools.js';
 
 const KEYS_W = 58;
 const RULER_H = 22;
@@ -1000,6 +1000,18 @@ export function createPianoRoll(engine) {
     };
     openMenu(anchor, [
       { label: t('No scale'), checked: sc.type === 'none', onClick: () => setScale(sc.root, 'none') },
+      { label: t('Detect from the notes'), icon: 'Search', onClick: () => {
+        const all = [];
+        const p = store.project;
+        for (const pt of p.patterns) for (const [cid, arr] of Object.entries(pt.notes)) {
+          const c = p.channels.find((x) => x.id === cid);
+          if (c && !['kick', 'snare', 'clap', 'hat', 'ohat', 'crash', 'tom', 'rim', 'cowbell'].includes(c.instrument)) all.push(...arr);
+        }
+        const k = detectKey(all);
+        if (!k) return hint(t('No melodic notes to analyse'));
+        setScale(k.root, k.type);
+        hint(t('Detected key: ') + NOTE_NAMES[k.root] + ' ' + t(k.type === 'major' ? 'Major' : 'Minor'));
+      } },
       { label: t('Root note') + ': ' + NOTE_NAMES[sc.root] + '...', icon: 'Piano', onClick: () => openMenu(anchor, NOTE_NAMES.map((nm, i) => ({ label: nm, checked: i === sc.root, onClick: () => setScale(i, sc.type === 'none' ? 'major' : sc.type) }))) },
       { sep: true },
       ...SCALES.map((x) => ({ label: t(x.name), checked: sc.type === x.id, onClick: () => setScale(sc.root, x.id) })),

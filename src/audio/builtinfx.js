@@ -160,6 +160,232 @@ export const BUILTIN_EFFECTS = [
       return self;
     },
   },
+  // Vocal effects
+  {
+    id: 'astudio-autotune',
+    name: 'Auto tune',
+    vocal: true,
+    worklet: 'astudio-vox-tune',
+    params: [choice('key', 'Key', ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']), choice('scale', 'Scale', ['Chromatic', 'Major', 'Minor', 'Harmonic minor', 'Major pentatonic', 'Minor pentatonic', 'Blues']), knob('retune', 'Retune ms', 0, 400, 20), knob('mix', 'Mix', 0, 1, 1)],
+    presets: [
+      { name: 'Hard tune (robotic)', values: { retune: 0, mix: 1 } },
+      { name: 'Natural', values: { retune: 120, mix: 1 } },
+      { name: 'Light touch', values: { retune: 250, mix: 0.7 } },
+    ],
+  },
+  {
+    id: 'astudio-pitch',
+    name: 'Voice changer',
+    vocal: true,
+    worklet: 'astudio-vox-shift',
+    params: [knob('semitones', 'Semitones', -12, 12, 0), knob('tone', 'Tone', -1, 1, 0), knob('mix', 'Mix', 0, 1, 1)],
+    presets: [
+      { name: 'Deep voice', values: { semitones: -5, tone: -0.5, mix: 1 } },
+      { name: 'Monster', values: { semitones: -10, tone: -0.8, mix: 1 } },
+      { name: 'Chipmunk', values: { semitones: 7, tone: 0.5, mix: 1 } },
+      { name: 'Octave up layer', values: { semitones: 12, tone: 0, mix: 0.35 } },
+      { name: 'Octave down layer', values: { semitones: -12, tone: -0.2, mix: 0.4 } },
+    ],
+  },
+  {
+    id: 'astudio-harmonizer',
+    name: 'Harmonizer',
+    vocal: true,
+    worklet: 'astudio-vox-harmony',
+    params: [knob('voiceA', 'Voice 1 semitones', -12, 12, 4), knob('voiceB', 'Voice 2 semitones', -12, 12, 7), knob('level', 'Level', 0, 1, 0.5)],
+    presets: [
+      { name: 'Major third and fifth', values: { voiceA: 4, voiceB: 7, level: 0.5 } },
+      { name: 'Minor third and fifth', values: { voiceA: 3, voiceB: 7, level: 0.5 } },
+      { name: 'Octaves', values: { voiceA: 12, voiceB: -12, level: 0.4 } },
+      { name: 'Fifth below', values: { voiceA: -5, voiceB: 0, level: 0.5 } },
+    ],
+  },
+  {
+    id: 'astudio-gate',
+    name: 'Noise gate',
+    vocal: true,
+    worklet: 'astudio-vox-gate',
+    params: [knob('threshold', 'Threshold dB', -80, 0, -45), knob('release', 'Release ms', 5, 1000, 120)],
+    presets: [{ name: 'Quiet room', values: { threshold: -50, release: 150 } }, { name: 'Noisy room', values: { threshold: -35, release: 80 } }],
+  },
+  {
+    id: 'astudio-deesser',
+    name: 'De-esser',
+    vocal: true,
+    worklet: 'astudio-vox-deess',
+    params: [knob('freq', 'Frequency Hz', 3000, 10000, 6000), knob('threshold', 'Threshold dB', -60, 0, -30), knob('amount', 'Amount', 0, 1, 0.7)],
+    presets: [{ name: 'Soft', values: { freq: 6500, threshold: -28, amount: 0.5 } }, { name: 'Strong', values: { freq: 5500, threshold: -36, amount: 0.9 } }],
+  },
+  {
+    id: 'astudio-doubler',
+    name: 'Doubler',
+    vocal: true,
+    params: [knob('width', 'Width', 0, 1, 0.8), knob('depth', 'Detune', 0, 1, 0.4), knob('mix', 'Mix', 0, 1, 0.5)],
+    presets: [{ name: 'Wide chorus', values: { width: 1, depth: 0.6, mix: 0.6 } }, { name: 'Subtle double', values: { width: 0.7, depth: 0.3, mix: 0.35 } }],
+    create(ctx) {
+      const input = ctx.createGain();
+      const out = ctx.createGain();
+      const dry = ctx.createGain();
+      input.connect(dry);
+      dry.connect(out);
+      const voices = [[0.017, 0.31, -1], [0.026, 0.47, 1]].map(([base, rate, side]) => {
+        const d = ctx.createDelay(0.1);
+        d.delayTime.value = base;
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = rate;
+        const depth = ctx.createGain();
+        lfo.connect(depth);
+        depth.connect(d.delayTime);
+        lfo.start();
+        const pan = ctx.createStereoPanner();
+        const g = ctx.createGain();
+        input.connect(d);
+        d.connect(pan);
+        pan.connect(g);
+        g.connect(out);
+        return { depth, pan, g, side };
+      });
+      return {
+        input,
+        output: out,
+        set(v) {
+          dry.gain.value = 1 - v.mix * 0.4;
+          for (const x of voices) {
+            x.depth.gain.value = 0.004 * v.depth;
+            x.pan.pan.value = x.side * v.width;
+            x.g.gain.value = v.mix * 0.8;
+          }
+        },
+      };
+    },
+  },
+  {
+    id: 'astudio-reverb',
+    name: 'Reverb',
+    vocal: true,
+    params: [knob('size', 'Size s', 0.3, 6, 2), knob('damp', 'Damping', 0, 1, 0.4), knob('predelay', 'Pre delay ms', 0, 150, 20), knob('mix', 'Mix', 0, 1, 0.25)],
+    presets: [
+      { name: 'Vocal plate', values: { size: 1.8, damp: 0.3, predelay: 30, mix: 0.22 } },
+      { name: 'Small room', values: { size: 0.6, damp: 0.6, predelay: 5, mix: 0.2 } },
+      { name: 'Big hall', values: { size: 4.5, damp: 0.4, predelay: 60, mix: 0.3 } },
+    ],
+    create(ctx) {
+      const input = ctx.createGain();
+      const out = ctx.createGain();
+      const dry = ctx.createGain();
+      const pre = ctx.createDelay(0.5);
+      const conv = ctx.createConvolver();
+      const damp = ctx.createBiquadFilter();
+      damp.type = 'lowpass';
+      const wet = ctx.createGain();
+      input.connect(dry);
+      dry.connect(out);
+      input.connect(pre);
+      pre.connect(conv);
+      conv.connect(damp);
+      damp.connect(wet);
+      wet.connect(out);
+      let size = 0;
+      return {
+        input,
+        output: out,
+        set(v) {
+          if (Math.abs(v.size - size) > 0.05) {
+            size = v.size;
+            const sr = ctx.sampleRate;
+            const len = Math.floor(sr * size);
+            const b = ctx.createBuffer(2, len, sr);
+            for (let c = 0; c < 2; c++) {
+              const d = b.getChannelData(c);
+              for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+            }
+            conv.buffer = b;
+          }
+          damp.frequency.value = 18000 * Math.pow(1500 / 18000, v.damp);
+          pre.delayTime.value = v.predelay / 1000;
+          wet.gain.value = v.mix * 1.2;
+          dry.gain.value = 1 - v.mix * 0.5;
+        },
+      };
+    },
+  },
+  {
+    id: 'astudio-echo',
+    name: 'Echo',
+    vocal: true,
+    tempo: true,
+    params: [choice('time', 'Time', ['1/4', '1/8', '1/8 dotted', '1/16', '1/4 dotted', '1/2'], 2), knob('feedback', 'Feedback', 0, 0.9, 0.35), knob('tone', 'Tone', 0, 1, 0.6), knob('mix', 'Mix', 0, 1, 0.25)],
+    presets: [{ name: 'Slap back', values: { time: 3, feedback: 0.1, tone: 0.7, mix: 0.25 } }, { name: 'Trap echo', values: { time: 2, feedback: 0.45, tone: 0.5, mix: 0.3 } }],
+    create(ctx) {
+      const input = ctx.createGain();
+      const out = ctx.createGain();
+      const del = ctx.createDelay(4);
+      const fb = ctx.createGain();
+      const tone = ctx.createBiquadFilter();
+      tone.type = 'lowpass';
+      const wet = ctx.createGain();
+      input.connect(out);
+      input.connect(del);
+      del.connect(tone);
+      tone.connect(fb);
+      fb.connect(del);
+      tone.connect(wet);
+      wet.connect(out);
+      return {
+        input,
+        output: out,
+        set(v, bpm = 120) {
+          const beats = [1, 0.5, 0.75, 0.25, 1.5, 2][v.time] || 0.75;
+          del.delayTime.value = Math.min(4, (60 / bpm) * beats);
+          fb.gain.value = v.feedback;
+          tone.frequency.value = 1000 * Math.pow(16, v.tone);
+          wet.gain.value = v.mix;
+        },
+      };
+    },
+  },
+  {
+    id: 'astudio-robot',
+    name: 'Robot voice',
+    vocal: true,
+    params: [knob('freq', 'Frequency Hz', 20, 400, 90), knob('mix', 'Mix', 0, 1, 0.8)],
+    presets: [{ name: 'Robot', values: { freq: 60, mix: 1 } }, { name: 'Metallic', values: { freq: 230, mix: 0.6 } }],
+    create(ctx) {
+      // Ring modulation: the voice is multiplied by a sine wave.
+      const input = ctx.createGain();
+      const out = ctx.createGain();
+      const dry = ctx.createGain();
+      const ring = ctx.createGain();
+      ring.gain.value = 0;
+      const osc = ctx.createOscillator();
+      osc.connect(ring.gain);
+      osc.start();
+      const wet = ctx.createGain();
+      input.connect(dry);
+      dry.connect(out);
+      input.connect(ring);
+      ring.connect(wet);
+      wet.connect(out);
+      return {
+        input,
+        output: out,
+        set(v) {
+          osc.frequency.value = v.freq;
+          wet.gain.value = v.mix * 1.4;
+          dry.gain.value = 1 - v.mix;
+        },
+      };
+    },
+  },
 ].map((fx) => ({ ...fx, type: 'effect', builtin: true, version: '1.0.0', author: 'A Studio', category: t('Built in'), code: '' }));
+
+// Effects running in the vocal AudioWorklet module (see voxworklet.js).
+for (const fx of BUILTIN_EFFECTS) {
+  if (!fx.worklet) continue;
+  fx.create = (ctx, params) => {
+    const node = new AudioWorkletNode(ctx, fx.worklet, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params } });
+    return { input: node, output: node, node, set: (v) => node.port.postMessage({ type: 'params', values: v }) };
+  };
+}
 
 export const getBuiltinEffect = (id) => BUILTIN_EFFECTS.find((x) => x.id === id) || null;

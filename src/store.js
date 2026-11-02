@@ -235,6 +235,8 @@ export function normalizeProject(raw) {
       if (rt) {
         t.name = str(rt.name, t.name);
         t.mute = !!rt.mute;
+        const ins = Math.round(num(rt.insert, 0, 0, MIXER_SIZE - 1));
+        if (ins) t.insert = ins;
       }
     });
   }
@@ -260,6 +262,7 @@ export function normalizeProject(raw) {
           if (pitch) clip.pitch = pitch;
           if (fadeIn) clip.fadeIn = fadeIn;
           if (fadeOut) clip.fadeOut = fadeOut;
+          if (c.reverse) clip.reverse = true;
         } else if (c.type === 'auto') {
           clip.type = 'auto';
           clip.target = c.target;

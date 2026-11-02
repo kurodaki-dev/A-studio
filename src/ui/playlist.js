@@ -225,6 +225,27 @@ export function createPlaylist(engine) {
     openAutomationEditor(clip, engine);
   }
 
+  // Track menu: rename, mute, and the mixer insert its audio clips play through.
+  function trackMenu(p, tr) {
+    const track = store.project.playlist.tracks[tr];
+    const anchor = { getBoundingClientRect: () => { const r = cv.getBoundingClientRect(); return { left: r.left + p.x, right: r.left + p.x, top: r.top + p.y, bottom: r.top + p.y }; } };
+    openMenu(anchor, [
+      { header: track.name },
+      { label: t('Rename'), icon: 'Pencil', onClick: async () => {
+        const v = await promptText(t('Track name'), track.name);
+        if (v) store.change(() => { track.name = v.slice(0, 40); });
+      } },
+      { label: track.mute ? t('Unmute') : t('Mute'), icon: 'Volume2', onClick: () => store.change(() => { track.mute = !track.mute; }) },
+      { label: t('Mixer insert for audio clips') + ': ' + (track.insert ? track.insert : 'Master') + '...', icon: 'SlidersVertical', onClick: () => openMenu(anchor, [
+        { header: t('Audio clips of this track play through') },
+        ...store.project.mixer.map((m, i) => ({ label: i === 0 ? 'Master' : i + '  ' + m.name, checked: (track.insert || 0) === i, onClick: () => store.change(() => {
+          if (i) track.insert = i;
+          else delete track.insert;
+        }) })),
+      ]) },
+    ]);
+  }
+
   function clipMenu(p, hit) {
     const c = hit.c;
     const at = tickAt(p.x);
@@ -557,7 +578,11 @@ export function createPlaylist(engine) {
       g.fillStyle = t.mute ? th.colors.panel3 : th.colors.green;
       g.fillRect(8, y + view.rowH / 2 - 5, 10, 10);
       g.fillStyle = t.mute ? th.colors.dim : th.colors.text;
-      g.fillText(t.name, 26, y + view.rowH / 2);
+      g.fillText(t.name, 26, y + view.rowH / 2 - (t.insert ? 6 : 0));
+      if (t.insert) {
+        g.fillStyle = th.colors.dim;
+        g.fillText('→ ' + t.insert + ' ' + p.mixer[t.insert].name, 26, y + view.rowH / 2 + 8);
+      }
     }
     g.restore();
     g.fillStyle = '#151a1d';
@@ -793,6 +818,11 @@ export function createPlaylist(engine) {
       }
     },
     longPress(p, st) {
+      if (st.region === 'head') {
+        const tr = trackAt(p.y);
+        if (tr >= 0 && tr < TRACKS) trackMenu(p, tr);
+        return;
+      }
       if (st.region === 'ruler') {
         addMarker(Math.max(0, tickAt(p.x)));
         return;

@@ -119,6 +119,15 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
               h('button', { class: 'b tb', type: 'button', onClick: () => checkForUpdate({ silent: false }) }, t('Check now')),
             ), t('Installed version: ') + APP_VERSION)
           : row(t('Version'), h('span', null, APP_VERSION)),
+        row(t('Metronome volume'), h('input', { type: 'range', class: 'range', min: 0, max: 1, step: 0.05, value: engine ? engine.metroVol : 0.5, 'aria-label': t('Metronome volume'), onInput: (e) => {
+          if (!engine) return;
+          engine.metroVol = Number(e.target.value);
+          try {
+            localStorage.setItem('astudio:metrovol', String(engine.metroVol));
+          } catch {
+            /* ignore */
+          }
+        } })),
         row(t('MIDI keyboard'), midiSupported()
           ? h('div', { class: 'set-inline' },
               h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: midiEnabled(), onChange: (e) => { setMidiEnabled(e.target.checked); render(); } }), h('span', null, midiEnabled() ? t('On') : t('Off'))),

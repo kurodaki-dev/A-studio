@@ -1,4 +1,5 @@
-import { h, icon, openModal, dropdown } from './dom.js';
+import { h, icon, openModal, dropdown, openMenu, promptText, hint, confirmBox } from './dom.js';
+import { VOCAL_CHAINS, chainSlots, userChains, saveUserChain, deleteUserChain } from '../vocal.js';
 import { t } from '../i18n.js';
 import { store, FX_SLOTS } from '../store.js';
 import { pluginEffects, getPlugin } from '../plugins.js';
@@ -22,7 +23,7 @@ export function openFxDialog(index, engine, onShowPlugins) {
       const select = dropdown({
         label: t('Effect slot ') + (i + 1),
         value: slot ? slot.plugin : '',
-        options: [{ value: '', label: t('Empty') }, ...effects.map((p) => ({ value: p.id, label: p.builtin ? t(p.name) : p.name, group: p.builtin ? t('Built in') : t('Plugins') })), ...(slot && !plugin ? [{ value: slot.plugin, label: slot.plugin + ' (' + t('missing') + ')' }] : [])],
+        options: [{ value: '', label: t('Empty') }, ...effects.map((p) => ({ value: p.id, label: p.builtin ? t(p.name) : p.name, group: p.builtin ? (p.vocal ? t('Voice') : t('Mix')) : t('Plugins') })), ...(slot && !plugin ? [{ value: slot.plugin, label: slot.plugin + ' (' + t('missing') + ')' }] : [])],
         onChange: (v) => {
           const fresh = { plugin: v, on: true, params: {} };
           if (getPlugin(v) && getPlugin(v).sidechain) {
@@ -71,12 +72,47 @@ export function openFxDialog(index, engine, onShowPlugins) {
       if (!slot) break; // one empty slot at a time
     }
     const parts = [
-      h('p', { class: 'set-note' }, t('Built in effects: compressor, limiter, filter, distortion and sidechain. Add more with effect plugins.')),
+      h('p', { class: 'set-note' }, t('Built in effects: compressor, limiter, filter, distortion, sidechain, and for voices auto tune, voice changer, harmonizer, noise gate, de-esser, doubler, reverb, echo and robot. Add more with effect plugins.')),
+      h('div', { class: 'set-actions' },
+        h('button', { class: 'b tb primary', type: 'button', onClick: (e) => chainMenu(e.currentTarget) }, icon('Mic', 16), t('Vocal chains')),
+        h('button', { class: 'b tb', type: 'button', onClick: () => saveChain() }, icon('Save', 16), t('Save this chain')),
+      ),
       ...rows,
       h('div', { class: 'set-actions' }, h('button', { class: 'b tb', type: 'button', onClick: () => onShowPlugins && onShowPlugins() }, icon('Puzzle', 16), t('Plugins and themes'))),
     ];
     body.replaceChildren(...parts.filter(Boolean));
   }
+  function applyChain(slots, name) {
+    m.fx = slots;
+    emit();
+    render();
+    hint(t('Chain loaded: ') + name);
+  }
+
+  function chainMenu(anchor) {
+    const mine = userChains();
+    openMenu(anchor, [
+      { header: t('Replaces the effects of this insert') },
+      ...VOCAL_CHAINS.map((c) => ({ label: t(c.name), icon: 'Mic', onClick: () => applyChain(chainSlots(c), t(c.name)) })),
+      ...(mine.length ? [{ sep: true }, { header: t('My chains') }, ...mine.map((c) => ({ label: c.name, icon: 'Save', onClick: () => applyChain(chainSlots(c), c.name) }))] : []),
+      ...(mine.length ? [{ sep: true }, { label: t('Delete one of my chains') + '...', icon: 'Trash', onClick: () => openMenu(anchor, mine.map((c) => ({ label: c.name, icon: 'Trash', onClick: async () => {
+        if (await confirmBox(t('Delete chain'), c.name, t('Delete'))) deleteUserChain(c.name);
+      } }))) }] : []),
+    ]);
+  }
+
+  async function saveChain() {
+    if (!m.fx.length) return hint(t('Add effects first'));
+    const name = await promptText(t('Chain name'), m.name);
+    if (!name) return;
+    try {
+      saveUserChain(name, m.fx);
+      hint(t('Chain saved: ') + name);
+    } catch {
+      hint(t('Could not save'));
+    }
+  }
+
   render();
   openModal({ title: t('Effects: ') + m.name, body, wide: true });
 }
