@@ -11,6 +11,7 @@ import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck, orien
 import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
 import { APP_VERSION } from '../version.js';
 import { measureLatency } from '../recorder.js';
+import { audioBufferMode } from '../audio/engine.js';
 import { midiSupported, midiEnabled, setMidiEnabled, midiInputs, onMidiChange } from '../midiin.js';
 
 const safeGet = (k) => {
@@ -137,6 +138,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
             ), t('Installed version: ') + APP_VERSION)
           : row(t('Version'), h('span', null, APP_VERSION)),
         updatesSupported() ? row(t('Screen orientation'), dropdown({ label: t('Screen orientation'), value: orientationPref(), options: [{ value: 'landscape', label: t('Landscape') }, { value: 'auto', label: t('Automatic (portrait allowed)') }], onChange: (v) => applyOrientation(v) })) : null,
+        row(t('Audio quality'), dropdown({ label: t('Audio quality'), value: audioBufferMode(), options: [{ value: 'stable', label: t('Stable (no crackles)') }, { value: 'fast', label: t('Low latency') }], onChange: (v) => { safeSet('astudio:audiobuf', v); hint(t('Restart the app to apply.')); } }), t('Stable avoids crackles and stutters when playback starts on tablets. Low latency answers faster when you play live, but can crackle on slow devices.')),
         row(t('Recording latency'), h('div', { class: 'set-inline' },
           h('input', { class: 'input latency-input', type: 'number', min: 0, max: 500, step: 1, value: Number(safeGet('astudio:latency') || 0), 'aria-label': t('Recording latency'), onChange: (e) => {
             const v = Math.max(0, Math.min(500, Math.round(Number(e.target.value) || 0)));

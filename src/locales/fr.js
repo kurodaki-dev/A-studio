@@ -952,4 +952,9 @@ export default {
   "OPTIONS": "OPTIONS",
   "TOOLS": "OUTILS",
   "HELP": "AIDE",
+  "Audio quality": "Qualité audio",
+  "Stable (no crackles)": "Stable (sans grésillements)",
+  "Low latency": "Faible latence",
+  "Restart the app to apply.": "Redémarre l'app pour appliquer.",
+  "Stable avoids crackles and stutters when playback starts on tablets. Low latency answers faster when you play live, but can crackle on slow devices.": "Stable évite les grésillements et les accrocs au lancement de la lecture sur tablette. Faible latence répond plus vite quand tu joues en direct, mais peut grésiller sur les appareils lents.",
 };
