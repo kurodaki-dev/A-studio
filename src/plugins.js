@@ -5,6 +5,7 @@
 // values and returns sound. API reference: /doc/#plugins.
 import { BUILTIN_EFFECTS, getBuiltinEffect } from './audio/builtinfx.js';
 import { loadVox, voxReady } from './audio/voxworklet.js';
+import { DSP_LIB } from './dsplib.js';
 const KEY = 'astudio:plugins';
 const MAX_CODE = 256 * 1024;
 const CATS = ['drums', 'keys', 'bass', 'synth', 'strings', 'winds', 'mallets'];
@@ -229,6 +230,30 @@ export function moduleSource(p) {
   return p.type === 'effect' ? effectSource(p) : instrumentSource(p);
 }
 
+// Line of the plugin file where an error happened, from the stack of the worklet
+// error (the generated module adds the host code and the dsp library before it).
+export function pluginErrorLine(p, stack) {
+  if (!stack) return null;
+  const src = moduleSource(p);
+  const first = src.slice(0, src.indexOf('// @astudio-user-code')).split('\n').length + 1;
+  const m = /:(\d+):(\d+)\)?\s*$/m.exec(String(stack).split('\n').find((l) => /blob:|:\d+:\d+/.test(l) && !/registerProcessor/.test(l)) || '');
+  if (!m) return null;
+  const line = Number(m[1]) - first + 1;
+  return line >= 1 && line <= p.code.split('\n').length ? line : null;
+}
+
+// Error listeners (the plugin editor shows errors of the plugin it edits).
+const errorListeners = new Set();
+export const onPluginErrorEvent = (fn) => {
+  errorListeners.add(fn);
+  return () => errorListeners.delete(fn);
+};
+export function reportPluginError(p, message, stack) {
+  const line = pluginErrorLine(p, stack);
+  for (const fn of errorListeners) fn(p, message, line);
+  return line;
+}
+
 // Effects process the sound of a mixer insert: process(inL, inR, outL, outR, params).
 function effectSource(p) {
   return `"use strict";
@@ -247,6 +272,8 @@ function __tick() {
   if (__transport.playing) __transport.beat = (__anchor.position + (currentTime - __anchor.at) * __transport.bpm * 96 / 60) / 96;
 }
 
+${DSP_LIB}
+// @astudio-user-code
 ${p.code}
 ;
 registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkletProcessor {
@@ -277,7 +304,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
   fail(err) {
     if (this.reported) return;
     this.reported = true;
-    this.port.postMessage({ type: 'error', message: String((err && err.message) || err) });
+    this.port.postMessage({ type: 'error', message: String((err && err.message) || err), stack: String((err && err.stack) || '') });
   }
   process(inputs, outputs) {
     const out = outputs[0];
@@ -329,6 +356,8 @@ function __tick() {
 
 const MAX_VOICES = 32;
 const MAX_TAIL = 10;
+${DSP_LIB}
+// @astudio-user-code
 ${p.code}
 ;
 registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkletProcessor {
@@ -370,7 +399,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
   fail(err) {
     if (this.reported) return;
     this.reported = true;
-    this.port.postMessage({ type: 'error', message: String((err && err.message) || err) });
+    this.port.postMessage({ type: 'error', message: String((err && err.message) || err), stack: String((err && err.stack) || '') });
   }
   start(ev, offset) {
     if (!__Voice) return this.fail('registerVoice was not called');

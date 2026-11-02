@@ -151,6 +151,17 @@ function cleanParams(o) {
 
 // Validate and complete a project loaded from storage or a file.
 export function normalizeProject(raw) {
+  // Parsing may change the bar length; give it back if parsing fails.
+  const prevBar = BAR;
+  try {
+    return normalizeInner(raw);
+  } catch (e) {
+    setBeatsPerBar(prevBar / 96);
+    throw e;
+  }
+}
+
+function normalizeInner(raw) {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.channels) || !Array.isArray(raw.patterns)) {
     throw new Error(t('Invalid project file'));
   }

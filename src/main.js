@@ -30,7 +30,7 @@ import { saveFile } from './platform.js';
 import { BAR, STEP, NKEYS, TRACKS, clamp } from './constants.js';
 import { createExtensionHost } from './extensions.js';
 import { isInstrumentId, CATALOG } from './audio/catalog.js';
-import { pluginInstruments, getPlugin } from './plugins.js';
+import { pluginInstruments, getPlugin, reportPluginError } from './plugins.js';
 import { createChannel } from './ui/rack.js';
 import { encodeMidi } from './midi.js';
 import { APP_VERSION } from './version.js';
@@ -54,7 +54,11 @@ if (saved) {
 }
 
 const engine = new Engine(store, () => (ui.live ? 'live' : ui.songMode ? 'song' : 'pattern'), () => ui.metronome);
-engine.onPluginError = (p, msg) => alertBox(t('Plugin error'), p.name + ': ' + msg);
+engine.onPluginError = (p, msg, stack) => {
+  const line = reportPluginError(p, msg, stack);
+  // The plugin editor shows its own errors; elsewhere an alert says where it broke.
+  if (!document.querySelector('.code-editor')) alertBox(t('Plugin error'), p.name + ': ' + msg + (line ? ' (' + t('line ') + line + ')' : ''));
+};
 
 const actions = {
   openPianoRoll(id) {
@@ -299,7 +303,12 @@ async function finishAudioRecording() {
   audioRec = null;
   const spt = 60 / (r.bpm * 96);
   const playedTicks = Math.max(0, (engine.ctx.currentTime - (engine.startAt || 0)) / spt);
-  const n = (store.project.playlist.clips.filter((c) => c.type === 'audio' && /^Take /.test(c.name || '')).length || 0) + 1;
+  // Next take number: one more than the highest "Take N" (loop takes are "Take N.k").
+  let n = 1;
+  for (const c of store.project.playlist.clips) {
+    const mt = /^Take (\d+)/.exec(c.name || '');
+    if (mt) n = Math.max(n, Number(mt[1]) + 1);
+  }
   const name = 'Take ' + n;
   const res = await stopMic(name).catch(() => null);
   if (!res) {
@@ -662,6 +671,8 @@ function setSongMode(on) {
 }
 
 function togglePlay() {
+  // Pausing during a microphone take ends the take (its length must match the playback).
+  if (audioRec) return stop();
   if (!engine.playing && ui.recording && ui.countIn) engine.play({ countIn: 1 });
   else engine.togglePlay();
   refreshToolbar();
@@ -1151,8 +1162,15 @@ function extensionsChanged() {
 // Render loop
 let dirty = true;
 let projectEventTimer = null;
+let lyricsGen = store.gen;
 store.subscribe(() => {
   dirty = true;
+  // Another project was opened: show its lyrics in the panel.
+  if (lyricsEl && store.gen !== lyricsGen) {
+    const area = lyricsEl.querySelector('textarea');
+    if (area && document.activeElement !== area) area.value = store.project.notes || '';
+  }
+  lyricsGen = store.gen;
   engine.sync();
   scheduleSave();
   preloadSamples();

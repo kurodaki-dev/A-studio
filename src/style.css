@@ -706,3 +706,12 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .guide-dots { display: flex; gap: 6px; margin-top: 10px; }
 .guide-dots i { width: 8px; height: 8px; background: var(--panel3); }
 .guide-dots i.on { background: var(--accent); }
+
+/* Plugin editor: gutter, test keys */
+.code-wrap { display: flex; min-height: 0; flex: 1; border: 1px solid var(--line); }
+.code-wrap .code-editor { border: 0; flex: 1; }
+.code-gutter { margin: 0; padding: 8px 6px; min-width: 38px; text-align: right; overflow: hidden; color: var(--dim); background: var(--panel2); font: 12px/1.5 ui-monospace, monospace; user-select: none; border-right: 1px solid var(--line); }
+.test-keys { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.test-key { width: 30px; height: 44px; border: 1px solid var(--line); background: #e6eaec; color: #3c474c; font-size: 10px; border-radius: 2px; touch-action: none; }
+.test-key.black { background: #1b1f21; color: #aab6bb; }
+.small-link { margin-left: 8px; height: 24px; font-size: 12px; }
