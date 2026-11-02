@@ -14,6 +14,7 @@ import { pickBinary } from './platform.js';
 import { exportProjectZip, importProjectZip } from './projectzip.js';
 import { listBackups, maybeBackup } from './backups.js';
 import { openGuide, guideSeen } from './ui/guide.js';
+import { splitByChannel } from './arrange.js';
 import { zipSync } from 'fflate';
 import { createRack } from './ui/rack.js';
 import { createPianoRoll } from './ui/pianoroll.js';
@@ -716,6 +717,14 @@ function patternMenu(anchor) {
       pp.patterns.splice(pp.patterns.indexOf(cur) + 1, 0, copy);
       pp.currentPattern = copy.id;
     }) },
+    { label: t('Split by channel'), icon: 'Layers', onClick: () => {
+      let made = [];
+      store.change((pp) => { made = splitByChannel(pp, cur.id); });
+      if (!made.length) {
+        store.undoStack.pop();
+        hint(t('The pattern needs notes on at least two channels'));
+      } else hint(made.length + t(' patterns made, one per channel. Playlist clips were replaced.'));
+    } },
     { label: t('Delete pattern'), icon: 'Trash', disabled: p.patterns.length < 2, onClick: async () => {
       if (!(await confirmBox(t('Delete pattern'), t('Pattern “') + cur.name + t('” and its playlist clips will be deleted.'), t('Delete')))) return;
       store.change((pp) => {

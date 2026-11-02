@@ -10,6 +10,7 @@ import { renderChannels } from '../audio/engine.js';
 import { encodeWav } from '../wav.js';
 import { addSample } from '../samples.js';
 import { tickToSec } from '../tempo.js';
+import { insertTime, deleteTime } from '../arrange.js';
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, PPQ, TRACKS, PATTERN_COLORS, clamp } from '../constants.js';
 import { getSampleMeta, getBuffer, loadBuffer, waveform } from '../samples.js';
@@ -69,6 +70,7 @@ export function createPlaylist(engine) {
       loopBtn,
       btn('Flag', t('Add a marker at the play position'), () => addMarker()),
       btn('Activity', t('Add an automation clip'), (e) => automationMenu(e.currentTarget)),
+      btn('Columns3', t('Insert or delete bars'), (e) => barsMenu(e.currentTarget)),
       btn('Copy', t('Copy selected clips'), () => copyClips()),
       btn('ClipboardPaste', t('Paste clips at the play position'), () => pasteClips()),
       btn('Trash', t('Delete selected clips'), () => deleteSelected()),
@@ -197,6 +199,18 @@ export function createPlaylist(engine) {
         });
       } },
       { label: t('Delete marker'), icon: 'Trash', onClick: () => store.change((p) => { p.markers = p.markers.filter((x) => x !== m); }) },
+    ]);
+  }
+
+  function barsMenu(anchor) {
+    const at = Math.floor(engine.position() / BAR) * BAR;
+    const bar = Math.floor(at / BAR) + 1;
+    openMenu(anchor, [
+      { header: t('At the play position (bar ') + bar + ')' },
+      { label: t('Insert a bar'), icon: 'Plus', onClick: () => { store.change((p) => insertTime(p, at, BAR)); hint(t('Bar inserted at bar ') + bar); } },
+      { label: t('Insert 4 bars'), icon: 'Plus', onClick: () => { store.change((p) => insertTime(p, at, BAR * 4)); hint(t('4 bars inserted at bar ') + bar); } },
+      { label: t('Delete this bar'), icon: 'Minus', onClick: () => { store.change((p) => deleteTime(p, at, BAR)); hint(t('Bar deleted: ') + bar); } },
+      { label: t('Delete 4 bars from here'), icon: 'Minus', onClick: () => { store.change((p) => deleteTime(p, at, BAR * 4)); hint(t('4 bars deleted from bar ') + bar); } },
     ]);
   }
 
