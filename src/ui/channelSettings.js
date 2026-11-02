@@ -10,6 +10,9 @@ import { WAVES, cleanSynth, SYNTH_PRESETS } from '../audio/osc3.js';
 import { equalSlices, detectSlices, sliceNotes } from '../slicer.js';
 import { t } from '../i18n.js';
 
+// The tab stays the same from one channel to the next, like in FL Studio.
+let lastTab = 'sound';
+
 export function openChannelSettings(id, engine) {
   const c = getChannel(store.project, id);
   if (!c) return;
@@ -131,24 +134,118 @@ export function openChannelSettings(id, engine) {
       knob({ value: c.params[key], min: 0, max, def, size: 36, label, format: fmt, onInput: (v) => set(() => { c.params[key] = v; }) }),
       h('span', null, label),
     );
-  const body = h('div', { class: 'form' },
-    h('label', { class: 'field' }, h('span', null, t('Name')), name),
-    h('label', { class: 'field' }, h('span', null, 'Instrument'), inst),
-    h('label', { class: 'field' }, h('span', null, t('Mixer insert')), insert),
-    h('label', { class: 'field' }, h('span', null, 'Transposition'), h('div', { class: 'rangebox' }, pitch, pitchOut)),
-    c.instrument === 'sampler' ? samplerSection() : null,
-    c.instrument === 'osc3' ? synthSection() : null,
-    h('div', { class: 'knobs' },
-      k(t('Attack'), 'attack', 2, 0, sec),
-      k(t('Decay'), 'decay', 3, 0, sec),
-      k(t('Sustain'), 'sustain', 1, 1, (v) => Math.round(v * 100) + '%'),
-      k(t('Release'), 'release', 3, 0, sec),
-      k(t('Slide time'), 'glide', 1, 0.1, sec),
-      k(t('Filter'), 'cutoff', 1, 1, (v) => Math.round(cutoffHz(v)) + ' Hz'),
-      k(t('Resonance'), 'reso', 1, 0, (v) => Math.round(v * 100) + '%'),
+  // FL Studio style channel window with tabs: sound, envelopes, LFO, arpeggiator, misc.
+  const kk = (label, obj, key, min, max, def, fmt, size = 36) => h('label', { class: 'kl big' },
+    knob({ value: obj[key] == null ? def : obj[key], min, max, def, size, label, format: fmt, onInput: (v) => set(() => { obj[key] = v; }) }),
+    h('span', null, label));
+  const pct = (v) => Math.round(v * 100) + '%';
+  const sw = (label, obj, key, after) => h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: !!obj[key], onChange: (e) => { set(() => { obj[key] = e.target.checked; }); if (after) after(); } }), h('span', null, label));
+  const pick = (label, obj, key, options, def = 0) => h('div', { class: 'pcell' }, h('span', { class: 'pcell-label' }, label),
+    dropdown({ label, value: obj[key] == null ? def : obj[key], options: options.map((o, i) => ({ value: i, label: o })), onChange: (v) => set(() => { obj[key] = v; }) }));
+
+  const tabs = {
+    sound: () => h('div', { class: 'form' },
+      h('label', { class: 'field' }, h('span', null, t('Name')), name),
+      h('label', { class: 'field' }, h('span', null, t('Instrument')), inst),
+      h('label', { class: 'field' }, h('span', null, t('Mixer insert')), insert),
+      h('label', { class: 'field' }, h('span', null, t('Transposition')), h('div', { class: 'rangebox' }, pitch, pitchOut)),
+      c.instrument === 'sampler' ? samplerSection() : null,
+      c.instrument === 'osc3' ? synthSection() : null,
+      pluginKnobs(),
     ),
-    pluginKnobs(),
-    h('button', { class: 'b tb', type: 'button', onClick: () => engine.preview(c, 60, 0.8, 0.6) }, t('Preview')),
-  );
-  const modal = openModal({ title: t('Channel settings'), body, wide: true });
+    env: () => h('div', { class: 'form' },
+      h('div', { class: 'field' }, h('span', null, t('Volume envelope'))),
+      h('div', { class: 'knobs' },
+        k(t('Attack'), 'attack', 2, 0, sec),
+        k(t('Decay'), 'decay', 3, 0, sec),
+        k(t('Sustain'), 'sustain', 1, 1, pct),
+        k(t('Release'), 'release', 3, 0, sec),
+      ),
+      h('div', { class: 'field' }, h('span', null, t('Filter'))),
+      h('div', { class: 'knobs' },
+        k(t('Cutoff'), 'cutoff', 1, 1, (v) => Math.round(cutoffHz(v)) + ' Hz'),
+        k(t('Resonance'), 'reso', 1, 0, pct),
+        kk(t('Envelope amount'), c.params, 'fenvAmt', -1, 1, 0, (v) => (v > 0 ? '+' : '') + Math.round(v * 7 * 10) / 10 + ' oct'),
+        kk(t('Env attack'), c.params, 'fenvA', 0, 2, 0.005, sec),
+        kk(t('Env decay'), c.params, 'fenvD', 0.01, 4, 0.3, sec),
+        kk(t('Env sustain'), c.params, 'fenvS', 0, 1, 0, pct),
+      ),
+      h('div', { class: 'field' }, h('span', null, t('Pitch envelope'))),
+      h('div', { class: 'knobs' },
+        kk(t('Amount'), c.params, 'penvAmt', -24, 24, 0, (v) => (v > 0 ? '+' : '') + Math.round(v) + ' st'),
+        kk(t('Decay'), c.params, 'penvDecay', 0.005, 2, 0.1, sec),
+      ),
+      h('p', { class: 'set-note' }, t('The filter envelope opens the filter of each note (a short decay makes plucks and basses). The pitch envelope bends the start of each note (808 and kick drops).')),
+    ),
+    lfo: () => {
+      if (!c.lfo) c.lfo = { on: false, target: 0, shape: 0, rate: 5, sync: 0, amount: 0.5 };
+      return h('div', { class: 'form' },
+        sw(t('LFO on'), c.lfo, 'on'),
+        h('div', { class: 'set-inline' },
+          pick(t('Target'), c.lfo, 'target', [t('Volume (tremolo)'), t('Pitch (vibrato)'), t('Filter (wobble)')]),
+          pick(t('Shape'), c.lfo, 'shape', [t('Sine'), t('Triangle'), t('Square'), t('Saw')]),
+          pick(t('Tempo sync'), c.lfo, 'sync', [t('Free (Hz)'), '1/16', '1/8', '1/4', '1/2', t('1 bar'), t('2 bars')]),
+        ),
+        h('div', { class: 'knobs' },
+          kk(t('Rate'), c.lfo, 'rate', 0.05, 20, 5, (v) => v.toFixed(2) + ' Hz'),
+          kk(t('Amount'), c.lfo, 'amount', 0, 1, 0.5, pct),
+        ),
+        h('p', { class: 'set-note' }, t('Rate is used when Tempo sync is Free. A filter LFO synced to 1/8 gives the dubstep wobble.')),
+      );
+    },
+    arp: () => {
+      if (!c.arp) c.arp = { on: false, dir: 0, range: 1, step: 1, gate: 0.8 };
+      return h('div', { class: 'form' },
+        sw(t('Arpeggiator on'), c.arp, 'on'),
+        h('div', { class: 'set-inline' },
+          pick(t('Direction'), c.arp, 'dir', [t('Up'), t('Down'), t('Up and down'), t('Random')]),
+          h('div', { class: 'pcell' }, h('span', { class: 'pcell-label' }, t('Range')),
+            dropdown({ label: t('Range'), value: c.arp.range || 1, options: [1, 2, 3, 4].map((n) => ({ value: n, label: n + ' oct' })), onChange: (v) => set(() => { c.arp.range = v; }) })),
+          pick(t('Time'), c.arp, 'step', ['1/32', '1/16', '1/8', '1/4'], 1),
+        ),
+        h('div', { class: 'knobs' }, kk(t('Gate'), c.arp, 'gate', 0.05, 1, 0.8, pct)),
+        h('p', { class: 'set-note' }, t('Chords and long notes of this channel are played as arpeggios. The notes in the piano roll do not change.')),
+      );
+    },
+    misc: () => h('div', { class: 'form' },
+      sw(t('Mono: a new note stops the previous one'), c.params, 'mono'),
+      sw(t('Portamento: every note glides from the previous one'), c.params, 'porta'),
+      h('div', { class: 'knobs' }, k(t('Slide time'), 'glide', 1, 0.1, sec)),
+      h('p', { class: 'set-note' }, t('Mono with portamento gives the classic 808 and lead glides without marking each note as a slide.')),
+    ),
+  };
+  const TAB_LIST = [['sound', t('Sound')], ['env', t('Envelope')], ['lfo', 'LFO'], ['arp', 'Arp'], ['misc', t('Misc')]];
+  const page = h('div', { class: 'ch-page' });
+  const tabBar = h('div', { class: 'ch-tabs', role: 'tablist' });
+  function showTab(id) {
+    lastTab = id;
+    tabBar.replaceChildren(...TAB_LIST.map(([tid, label]) => h('button', { class: 'b tb ch-tab' + (tid === id ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': String(tid === id), onClick: () => showTab(tid) }, label)));
+    page.replaceChildren(tabs[id]());
+  }
+  // Test keyboard: C5 to C6, hold the keys.
+  const keys = h('div', { class: 'test-keys' }, h('span', { class: 'pcell-label' }, t('Test')),
+    ...['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C'].map((nm, i) => {
+      const b = h('button', { class: 'test-key' + (nm.length > 1 ? ' black' : ''), type: 'button', 'aria-label': nm }, nm);
+      let voice = null;
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        try {
+          b.setPointerCapture(e.pointerId);
+        } catch {
+          /* synthetic event */
+        }
+        voice = engine.noteOn(c, 60 + i, 0.8);
+      });
+      const up = () => {
+        if (voice) engine.noteOff(voice);
+        voice = null;
+      };
+      b.addEventListener('pointerup', up);
+      b.addEventListener('pointercancel', up);
+      return b;
+    }),
+    h('button', { class: 'b tb', type: 'button', onClick: () => engine.preview(c, 60, 0.8, 0.6) }, t('Preview')));
+  const body = h('div', { class: 'ch-settings' }, tabBar, page, keys);
+  showTab(lastTab in tabs ? lastTab : 'sound');
+  const modal = openModal({ title: c.name + ': ' + t('Channel settings'), body, wide: true });
 }

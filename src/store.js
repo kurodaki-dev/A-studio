@@ -205,6 +205,8 @@ function normalizeInner(raw) {
     zones: Array.isArray(c.zones) ? c.zones.filter((z) => z && typeof z.sample === 'string' && Number.isFinite(z.key)).slice(0, 128).map((z) => ({ key: Math.round(clamp(z.key, 0, NKEYS - 1)), sample: z.sample.slice(0, 80) })) : undefined,
     pluginParams: cleanParams(c.pluginParams),
     synth: c.instrument === 'osc3' ? cleanSynth(c.synth) : undefined,
+    arp: c.arp && typeof c.arp === 'object' ? { on: !!c.arp.on, dir: Math.round(num(c.arp.dir, 0, 0, 3)), range: Math.round(num(c.arp.range, 1, 1, 4)), step: Math.round(num(c.arp.step, 1, 0, 3)), gate: num(c.arp.gate, 0.8, 0.05, 1) } : undefined,
+    lfo: c.lfo && typeof c.lfo === 'object' ? { on: !!c.lfo.on, target: Math.round(num(c.lfo.target, 0, 0, 2)), shape: Math.round(num(c.lfo.shape, 0, 0, 3)), rate: num(c.lfo.rate, 5, 0.05, 30), sync: Math.round(num(c.lfo.sync, 0, 0, 6)), amount: num(c.lfo.amount, 0.5, 0, 1) } : undefined,
     params: {
       pitch: Math.round(num(c.params?.pitch, 0, -24, 24)),
       attack: num(c.params?.attack, 0, 0, 2),
@@ -218,6 +220,14 @@ function normalizeInner(raw) {
       start: num(c.params?.start, 0, 0, 1),
       end: num(c.params?.end, 1, 0, 1),
       loop: !!c.params?.loop,
+      fenvAmt: num(c.params?.fenvAmt, 0, -1, 1),
+      fenvA: num(c.params?.fenvA, 0.005, 0, 2),
+      fenvD: num(c.params?.fenvD, 0.3, 0.01, 4),
+      fenvS: num(c.params?.fenvS, 0, 0, 1),
+      penvAmt: num(c.params?.penvAmt, 0, -24, 24),
+      penvDecay: num(c.params?.penvDecay, 0.1, 0.005, 2),
+      mono: !!c.params?.mono,
+      porta: !!c.params?.porta,
     },
   }));
   const ids = new Set(p.channels.map((c) => c.id));

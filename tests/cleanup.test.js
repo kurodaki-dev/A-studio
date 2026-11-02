@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fft, reduceNoise, removeHum, removeRumble, removeDC, reduceBreaths, normalizeLoudness, centerMask, toMono } from '../src/cleanup.js';
+import { fft, reduceNoise, removeHum, removeRumble, removeDC, reduceBreaths, normalizeLoudness, centerMask, toMono, removeClicks, repairClipping, spectrogram } from '../src/cleanup.js';
 import { measureLoudness } from '../src/loudness.js';
 
 const SR = 44100;
@@ -109,4 +109,50 @@ test('vocal removal and isolation work on the centre of a stereo mix', () => {
   assert.ok(level(mid(il), 660) < 0.1, 'side removed ' + level(mid(il), 660).toFixed(3));
   const m = toMono([L, R]);
   assert.equal(m[0][100], m[1][100]);
+});
+
+test('clicks are found and smoothed', () => {
+  const x = sine(220, 1, 0.3);
+  const clean = x.slice();
+  for (const at of [5000, 15000, 30000]) x[at] += 0.8;
+  const { channels, count } = removeClicks([x], SR, 0.5);
+  assert.equal(count, 3);
+  let worst = 0;
+  for (let i = 0; i < x.length; i++) worst = Math.max(worst, Math.abs(channels[0][i] - clean[i]));
+  assert.ok(worst < 0.05, 'error after repair ' + worst.toFixed(3));
+  // A clean sine has no clicks.
+  assert.equal(removeClicks([clean], SR, 0.5).count, 0);
+});
+
+test('clipping is redrawn and the level lowered', () => {
+  const orig = sine(200, 0.5, 1.4);
+  const clipped = orig.map((v) => Math.max(-1, Math.min(1, v)));
+  const { channels, count } = repairClipping([clipped]);
+  assert.ok(count > 50, 'runs ' + count);
+  let peak = 0;
+  for (const v of channels[0]) peak = Math.max(peak, Math.abs(v));
+  assert.ok(peak <= 0.98 + 1e-6);
+  // The repaired wave is closer to the original shape than the clipped one.
+  const corr = (a, b) => {
+    let ab = 0, aa = 0, bb = 0;
+    for (let i = 0; i < a.length; i++) { ab += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i]; }
+    return ab / Math.sqrt(aa * bb);
+  };
+  assert.ok(corr(channels[0], orig) > corr(clipped, orig), 'repair ' + corr(channels[0], orig).toFixed(4) + ' clipped ' + corr(clipped, orig).toFixed(4));
+});
+
+test('karaoke strength and spectrogram', () => {
+  const c = sine(440, 1.5, 0.3);
+  const L = c.slice();
+  const R = c.slice();
+  const [half] = centerMask([L, R], false, SR, 0.5);
+  const [full] = centerMask([L, R], false, SR, 1);
+  const mid = (x) => x.subarray(SR * 0.4, SR * 1.1);
+  assert.ok(level(mid(full), 440) < level(mid(half), 440));
+  const sp = spectrogram(sine(1000, 0.5), SR, 10, 40);
+  assert.equal(sp.length, 10);
+  const col = sp[5];
+  const loudest = col.indexOf(Math.max(...col));
+  const f = 40 * Math.pow(SR / 2 / 40, (loudest + 0.5) / 40);
+  assert.ok(f > 800 && f < 1300, 'peak at ' + f.toFixed(0));
 });

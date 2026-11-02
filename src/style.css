@@ -717,3 +717,10 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .small-link { margin-left: 8px; height: 24px; font-size: 12px; }
 .pitch-wrap { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .pitch-graph { width: 100%; height: auto; border: 1px solid var(--line); }
+
+/* Channel settings (FL Studio style tabs) */
+.ch-settings { display: flex; flex-direction: column; gap: 10px; }
+.ch-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.ch-tab { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.ch-tab.on { background: var(--panel3); color: var(--accent); }
+.ch-page { min-height: 240px; }

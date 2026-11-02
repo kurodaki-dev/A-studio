@@ -6,6 +6,7 @@ import { getPlugin, paramValues, loadPluginModule, pluginReady, processorName, a
 import { encodeWav } from '../wav.js';
 import { faderGain, cutoffHz } from './levels.js';
 import { osc3Instrument } from './osc3.js';
+import { channelNotes, LFO_SYNC } from '../channelfx.js';
 import { autoValue, targetParam, fxTarget } from '../automation.js';
 import { bpmAt, nextTempoChange, tickToSec } from '../tempo.js';
 
@@ -236,8 +237,10 @@ export function syncGraph(G, project, smooth) {
       setParam(G, ch.in.gain, 0, smooth);
     } else if (!held(k + 'vol')) setParam(G, ch.in.gain, c.vol, smooth);
     if (!held(k + 'pan')) setParam(G, ch.pan.pan, c.pan, smooth);
-    if (!held(k + 'cutoff')) setParam(G, ch.filt.frequency, cutoffHz(c.params.cutoff), smooth);
-    if (!held(k + 'reso')) setParam(G, ch.filt.Q, 0.7 + c.params.reso * 14, smooth);
+    // With a filter envelope or a filter LFO the filter is per note; the channel one stays open.
+    const perNote = c.params.fenvAmt || (c.lfo && c.lfo.on && c.lfo.target === 2);
+    if (!held(k + 'cutoff')) setParam(G, ch.filt.frequency, perNote ? 20000 : cutoffHz(c.params.cutoff), smooth);
+    if (!held(k + 'reso')) setParam(G, ch.filt.Q, perNote ? 0.7 : 0.7 + c.params.reso * 14, smooth);
   }
   for (const [id, ch] of G.channels) {
     if (!seen.has(id) && !id.startsWith('__preview_')) {
@@ -291,6 +294,84 @@ function glide(ctx, sources, cents, t, time) {
   cs.stop(t + Math.max(0.005, time) + 0.05);
 }
 
+// Per note modulation from the channel settings: filter envelope (a filter per
+// note), LFO on volume, pitch or filter, and pitch envelope. Returns the node the
+// note's sound goes into.
+function voiceChain(G, channel, t, off, vg) {
+  const ctx = G.ctx;
+  const p = channel.params;
+  const lfo = channel.lfo && channel.lfo.on && channel.lfo.amount > 0 ? channel.lfo : null;
+  const fenv = p.fenvAmt || 0;
+  let entry = vg;
+  let trem = null;
+  let vf = null;
+  if (lfo && lfo.target === 0) {
+    trem = ctx.createGain();
+    trem.connect(vg);
+    entry = trem;
+  }
+  if (fenv || (lfo && lfo.target === 2)) {
+    vf = ctx.createBiquadFilter();
+    vf.type = 'lowpass';
+    vf.Q.value = 0.7 + (p.reso || 0) * 14;
+    const base = cutoffHz(p.cutoff == null ? 1 : p.cutoff);
+    vf.frequency.setValueAtTime(base, t);
+    if (fenv) {
+      const a = Math.max(0.001, p.fenvA == null ? 0.005 : p.fenvA);
+      const d = Math.max(0.01, p.fenvD == null ? 0.3 : p.fenvD);
+      const peak = Math.max(30, Math.min(20000, base * Math.pow(2, fenv * 7)));
+      const sus = base * Math.pow(peak / base, p.fenvS || 0);
+      vf.frequency.exponentialRampToValueAtTime(peak, t + a);
+      vf.frequency.setTargetAtTime(sus, t + a, d / 3);
+      if (Number.isFinite(off)) vf.frequency.setTargetAtTime(base, off, d / 3);
+    }
+    vf.connect(entry);
+    entry = vf;
+  }
+  return { entry, vf, trem, lfo };
+}
+
+function voiceMods(G, channel, t, end, sources, chain) {
+  const ctx = G.ctx;
+  const p = channel.params;
+  const stopAt = Number.isFinite(end) ? end : null;
+  const pitchParams = sources.map((s) => s && s.detune).filter(Boolean);
+  if (p.penvAmt && pitchParams.length) {
+    const cs = ctx.createConstantSource();
+    const dec = Math.max(0.005, p.penvDecay || 0.1);
+    cs.offset.setValueAtTime(p.penvAmt * 100, t);
+    cs.offset.setTargetAtTime(0, t, dec / 3);
+    for (const prm of pitchParams) cs.connect(prm);
+    cs.start(t);
+    cs.stop(t + dec * 2 + 0.05);
+  }
+  const lfo = chain.lfo;
+  if (!lfo) return [];
+  const sync = LFO_SYNC[lfo.sync || 0];
+  const bpm = (G.transport && G.transport.bpm) || 120;
+  const hz = sync && sync.beats ? bpm / 60 / sync.beats : Math.max(0.05, lfo.rate || 5);
+  const osc = ctx.createOscillator();
+  osc.type = ['sine', 'triangle', 'square', 'sawtooth'][lfo.shape || 0];
+  osc.frequency.value = hz;
+  const depth = ctx.createGain();
+  osc.connect(depth);
+  if (lfo.target === 0 && chain.trem) {
+    // Tremolo: the gain swings between 1 - amount and 1.
+    chain.trem.gain.value = 1 - lfo.amount / 2;
+    depth.gain.value = lfo.amount / 2;
+    depth.connect(chain.trem.gain);
+  } else if (lfo.target === 1) {
+    depth.gain.value = lfo.amount * 200; // up to 2 semitones
+    for (const prm of pitchParams) depth.connect(prm);
+  } else if (lfo.target === 2 && chain.vf) {
+    depth.gain.value = cutoffHz(p.cutoff == null ? 1 : p.cutoff) * 0.9 * lfo.amount;
+    depth.connect(chain.vf.frequency);
+  }
+  osc.start(t);
+  if (stopAt) osc.stop(stopAt);
+  return [osc];
+}
+
 // Sample of a sampler note: key zones (multi sample instrument), slices or one sample.
 function samplerSource(channel, key) {
   const p = channel.params;
@@ -331,11 +412,12 @@ function playSampler(G, channel, ch, t, key, vel, dur, fromKey) {
   const ctx = G.ctx;
   const vg = ctx.createGain();
   vg.connect(ch.in);
+  const chain = voiceChain(G, channel, t, Number.isFinite(dur) ? t + dur : Infinity, vg);
   const s = ctx.createBufferSource();
   s.buffer = buf;
   const rate = Math.pow(2, (src.rateKey + (p.pitch || 0) - src.root) / 12);
   s.playbackRate.value = rate;
-  s.connect(vg);
+  s.connect(chain.entry);
   const off = src.a * buf.duration;
   const segEnd = src.b * buf.duration;
   const att = Math.max(0, p.attack || 0);
@@ -365,7 +447,8 @@ function playSampler(G, channel, ch, t, key, vel, dur, fromKey) {
   s.start(t, off);
   if (Number.isFinite(end)) s.stop(end);
   if (fromKey != null) glide(ctx, [s], (fromKey - key) * 100, t, p.glide || 0.1);
-  const voice = { vg, sources: [s], rel, end, oneShot: !loop };
+  const extra = voiceMods(G, channel, t, end, [s], chain);
+  const voice = { vg, sources: [s, ...extra], rel, end, oneShot: !loop };
   s.onended = () => {
     voice.ended = true;
     try {
@@ -481,9 +564,10 @@ export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
   const f = 440 * Math.pow(2, (key + (p.pitch || 0) - 69) / 12);
   const vg = ctx.createGain();
   vg.connect(ch.in);
-  const v = inst.play(ctx, vg, t, f, vel, dur);
-  const rel = Math.max(inst.release || 0.05, p.release || 0);
   const off = Number.isFinite(dur) ? t + Math.max(dur, 0.005) : Infinity;
+  const chain = voiceChain(G, channel, t, off, vg);
+  const v = inst.play(ctx, chain.entry, t, f, vel, dur);
+  const rel = Math.max(inst.release || 0.05, p.release || 0);
   const att = Math.max(0, p.attack || 0);
   if (!inst.oneShot) {
     if (att > 0) {
@@ -506,7 +590,8 @@ export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
     if (v.length) end = Math.min(end, t + v.length);
   } else end = v.length ? t + v.length : Infinity;
   if (fromKey != null) glide(ctx, v.sources, (fromKey - key) * 100, t, p.glide || 0.1);
-  const voice = { vg, sources: v.sources, rel, end, oneShot: !!inst.oneShot };
+  const extra = voiceMods(G, channel, t, end, v.sources, chain);
+  const voice = { vg, sources: [...v.sources, ...extra], rel, end, oneShot: !!inst.oneShot };
   if (Number.isFinite(end)) for (const s of v.sources) s.stop(end);
   if (v.sources[0]) {
     v.sources[0].onended = () => {
@@ -543,6 +628,7 @@ export function releaseVoice(ctx, voice, fast = false) {
 
 // Key a slide note glides from: the previous note of the same channel.
 export function slideFrom(arr, n) {
+  if (n.slideFromKey != null) return n.slideFromKey;
   if (!n.slide || !arr) return null;
   let best = null;
   for (const x of arr) if (x !== n && x.t < n.t && (!best || x.t > best.t)) best = x;
@@ -558,7 +644,7 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
     for (const [cid, notes] of Object.entries(pat.notes)) {
       const c = chans.get(cid);
       if (!c) continue;
-      for (const n of notes) if (n.t >= from && n.t < to) cb(c, n, n.t, pat);
+      for (const n of channelNotes(c, notes)) if (n.t >= from && n.t < to) cb(c, n, n.t, pat);
     }
     return;
   }
@@ -585,7 +671,7 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
       for (const [cid, notes] of Object.entries(pat.notes)) {
         const c = chans.get(cid);
         if (!c) continue;
-        for (const n of notes) {
+        for (const n of channelNotes(c, notes)) {
           if (n.t >= L) continue;
           const tt = base + n.t;
           if (tt >= from && tt < to && tt >= s && tt < s + len) cb(c, n, tt, pat);
@@ -1079,7 +1165,7 @@ export class Engine {
         for (const [cid, notes] of Object.entries(pat.notes)) {
           const c = chans.get(cid);
           if (!c) continue;
-          for (const n of notes) {
+          for (const n of channelNotes(c, notes)) {
             const tt = k * L + n.t;
             if (n.t < L && tt >= a && tt < b) cb(c, n, tt, pat);
           }

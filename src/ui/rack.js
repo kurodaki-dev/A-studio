@@ -1,4 +1,4 @@
-import { h, btn, icon, hint, openMenu, promptText, confirmBox, dropdown } from './dom.js';
+import { h, btn, icon, hint, openMenu, closeMenu, promptText, confirmBox, dropdown } from './dom.js';
 import { knob, led } from './controls.js';
 import { store, currentPattern, notesOf, notesFor, patternLength, isStepChannel, makeChannel } from '../store.js';
 import { ui } from '../ui-state.js';
@@ -132,7 +132,23 @@ export function createRack(engine, actions) {
       });
       const ins = h('button', { class: 'rack-ins', type: 'button', title: t('Mixer insert'), onClick: (e) => insertMenu(e.currentTarget, c) }, c.insert === 0 ? 'M' : String(c.insert));
       const missing = c.instrument === 'sampler' && !getSampleMeta(c.sample);
-      const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: missing ? t('Sample missing on this device') : instrumentName(c.instrument), onClick: (e) => channelMenu(e.currentTarget, c, ci) }, c.name);
+      // Tap: channel menu. Double tap: channel settings window, like FL Studio. The menu
+      // waits a moment so the second tap of a double tap does not land on it.
+      let tapTimer = null;
+      const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: (missing ? t('Sample missing on this device') : instrumentName(c.instrument)) + '. ' + t('Double tap: channel settings'), onClick: (e) => {
+        const anchor = e.currentTarget;
+        if (tapTimer) {
+          clearTimeout(tapTimer);
+          tapTimer = null;
+          closeMenu();
+          actions.channelSettings(c.id);
+          return;
+        }
+        tapTimer = setTimeout(() => {
+          tapTimer = null;
+          if (anchor.isConnected) channelMenu(anchor, c, ci);
+        }, 260);
+      } }, c.name);
       let body;
       let stepEls = [];
       if (stepMode) {
