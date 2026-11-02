@@ -3,6 +3,8 @@ import { t, lang, LANGS, setLang } from '../i18n.js';
 import { allThemes, currentTheme, applyTheme, installTheme, removeTheme } from '../themes.js';
 import { allPlugins, installPlugin, removePlugin } from '../plugins.js';
 import { openPluginEditor } from './pluginEditor.js';
+import { openGithubInstall } from './githubInstall.js';
+import { fetchText } from '../github.js';
 import { pickFile } from '../platform.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from '../update.js';
 import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
@@ -36,6 +38,18 @@ export function openSettings({ section = 'general', onExtensionsChange, engine }
       render();
     } catch (e) {
       alertBox(t('Install failed'), String((e && e.message) || e));
+    }
+  }
+
+  async function updateFromSource(p) {
+    try {
+      const code = await fetchText(p.source);
+      const updated = installPlugin(code, p.source);
+      hint(t('Updated: ') + updated.name + ' ' + updated.version);
+      onExtensionsChange && onExtensionsChange();
+      render();
+    } catch (e) {
+      alertBox(t('Update failed'), String((e && e.message) || e));
     }
   }
 
@@ -100,6 +114,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine }
                 h('span', { class: 'set-item-name static' }, p.name,
                   h('small', null, [p.type === 'effect' ? t('effect') : p.type === 'extension' ? t('extension') : t('instrument'), p.version, p.author].filter(Boolean).join(' · ')),
                   p.type === 'extension' ? h('small', null, t('Permissions: ') + (p.permissions.length ? p.permissions.join(', ') : t('none'))) : null),
+                p.source ? btn('RefreshCw', t('Update from GitHub'), () => updateFromSource(p)) : null,
                 btn('Pencil', t('Edit'), () => editor(p.code)),
                 btn('Trash', t('Delete'), async () => {
                   if (await confirmBox(t('Delete plugin'), p.name + '. ' + t('Channels using it will go silent.'), t('Delete'))) {
@@ -113,6 +128,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine }
           : h('p', { class: 'empty' }, t('No plugin installed. A plugin is a JavaScript file that generates the sound of an instrument; see the documentation to write one.')),
         h('div', { class: 'set-actions' },
           h('button', { class: 'b tb', type: 'button', onClick: () => importFile('plugin') }, icon('Upload', 16), t('Install a plugin')),
+          h('button', { class: 'b tb', type: 'button', onClick: () => openGithubInstall({ onInstalled: () => { onExtensionsChange && onExtensionsChange(); render(); } }) }, icon('GitBranch', 16), t('Install from GitHub')),
           h('button', { class: 'b tb', type: 'button', onClick: () => editor() }, icon('Pencil', 16), t('Write a plugin')),
           h('button', { class: 'b tb', type: 'button', onClick: () => openExternal(DOCS_URL + '#plugins') }, icon('BookOpen', 16), t('How to create plugins and themes')),
         ),

@@ -99,7 +99,9 @@ function read() {
     return list
       .map((x) => {
         try {
-          return parsePlugin(x && x.code);
+          const p = parsePlugin(x && x.code);
+          if (x && typeof x.source === 'string' && x.source.startsWith('https://raw.githubusercontent.com/')) p.source = x.source;
+          return p;
         } catch {
           return null;
         }
@@ -118,11 +120,13 @@ export const pluginEffects = () => cache.filter((p) => p.type === 'effect');
 export const pluginExtensions = () => cache.filter((p) => p.type === 'extension');
 export const getPlugin = (id) => cache.find((p) => p.id === id) || null;
 
-export function installPlugin(code) {
+// source: the raw GitHub address the plugin came from, used to update it.
+export function installPlugin(code, source) {
   const p = parsePlugin(code);
+  if (typeof source === 'string' && source.startsWith('https://raw.githubusercontent.com/')) p.source = source;
   const list = cache.filter((x) => x.id !== p.id);
   list.push(p);
-  localStorage.setItem(KEY, JSON.stringify(list.map((x) => ({ code: x.code }))));
+  localStorage.setItem(KEY, JSON.stringify(list.map((x) => ({ code: x.code, source: x.source }))));
   cache = list;
   return p;
 }
@@ -130,7 +134,7 @@ export function installPlugin(code) {
 export function removePlugin(id) {
   cache = cache.filter((x) => x.id !== id);
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache.map((x) => ({ code: x.code }))));
+    localStorage.setItem(KEY, JSON.stringify(cache.map((x) => ({ code: x.code, source: x.source }))));
   } catch {
     /* ignore */
   }

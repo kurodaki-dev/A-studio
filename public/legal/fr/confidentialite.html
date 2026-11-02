@@ -25,7 +25,7 @@
 <ul>
   <li>L'application ne collecte aucune donnée personnelle.</li>
   <li>Elle ne demande pas de compte, ne contient pas de publicité et n'utilise aucun outil de mesure d'audience.</li>
-  <li>La seule connexion de l'application sert à vérifier sur GitHub si une nouvelle version existe. Elle n'envoie aucune information vous concernant et peut être désactivée.</li>
+  <li>Les seules connexions de l'application vont vers GitHub : vérifier si une nouvelle version existe (désactivable), la télécharger si vous acceptez, et installer des plugins depuis un lien GitHub que vous saisissez. Elles n'envoient aucune information vous concernant.</li>
   <li>Vos projets restent sur votre appareil.</li>
 </ul>
 
@@ -45,6 +45,9 @@
 <p>Au démarrage, l'application Android demande à GitHub quelle est la dernière version publiée (adresse <code>api.github.com/repos/kurodaki-dev/A-studio/releases/latest</code>). Cette requête ne contient ni identifiant, ni cookie, ni information sur vos projets ou votre appareil. Comme pour toute connexion à internet, GitHub reçoit l'adresse IP du téléphone, qu'il traite selon sa <a href="https://docs.github.com/fr/site-policy/privacy-policies/github-general-privacy-statement">déclaration de confidentialité</a>. Nous ne recevons rien.</p>
 <p>Si une version plus récente existe, l'application vous la propose. Le téléchargement ne démarre que si vous touchez « Télécharger » : l'application récupère alors le fichier APK depuis la page des versions du projet sur GitHub, puis ouvre l'installateur d'Android, qui vous demande de confirmer. Seules les adresses des versions publiées de ce projet sont acceptées.</p>
 <p>Vous pouvez couper la vérification automatique dans Paramètres, option « Vérifier au démarrage ». La vérification manuelle reste disponible avec « Rechercher une mise à jour ».</p>
+
+<h2>Installation depuis GitHub</h2>
+<p>Quand vous collez un lien dans « Installer depuis GitHub », ou touchez « Mettre à jour depuis GitHub », l'application demande à GitHub la liste des fichiers de ce dépôt (api.github.com) et télécharge les fichiers que vous choisissez (raw.githubusercontent.com). Les requêtes contiennent le lien saisi et rien sur vous ; GitHub reçoit l'adresse IP du téléphone, comme pour toute connexion. Rien n'est envoyé sans action de votre part.</p>
 
 <h2>Fichiers que vous exportez</h2>
 <p>Quand vous exportez un fichier WAV ou un fichier projet, l'application ouvre le menu de partage d'Android. C'est vous qui choisissez où le fichier part (un dossier, une application de stockage, une messagerie). L'application n'envoie rien d'elle même. Le service que vous choisissez applique sa propre politique de confidentialité.</p>
