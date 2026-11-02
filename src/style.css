@@ -724,3 +724,9 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .ch-tab { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .ch-tab.on { background: var(--panel3); color: var(--accent); }
 .ch-page { min-height: 240px; }
+
+/* Waveform in the channel settings */
+.sample-view { display: flex; flex-direction: column; gap: 6px; }
+.sample-wrap { position: relative; height: 170px; border: 1px solid var(--line); touch-action: none; }
+.sample-wrap.short { height: 110px; }
+.sample-wrap .cv { position: absolute; inset: 0; }

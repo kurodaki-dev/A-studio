@@ -220,6 +220,8 @@ function normalizeInner(raw) {
       start: num(c.params?.start, 0, 0, 1),
       end: num(c.params?.end, 1, 0, 1),
       loop: !!c.params?.loop,
+      fadeIn: num(c.params?.fadeIn, 0, 0, 0.5),
+      fadeOut: num(c.params?.fadeOut, 0, 0, 0.5),
       fenvAmt: num(c.params?.fenvAmt, 0, -1, 1),
       fenvA: num(c.params?.fenvA, 0.005, 0, 2),
       fenvD: num(c.params?.fenvD, 0.3, 0.01, 4),
