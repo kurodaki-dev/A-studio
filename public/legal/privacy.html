@@ -26,7 +26,7 @@
 <ul>
   <li>The app collects no personal data.</li>
   <li>No account, no ads, no analytics.</li>
-  <li>Its only connection asks GitHub whether a new version exists and downloads it when you accept. It sends nothing about you and the check can be turned off.</li>
+  <li>Its only connections go to GitHub: checking for a new version of the app (can be turned off), downloading it when you accept, and installing plugins from a GitHub link you enter. They send nothing about you.</li>
   <li>Your projects, samples, plugins and themes stay on your device.</li>
 </ul>
 
@@ -45,6 +45,9 @@
 <p>At startup the Android app asks GitHub for the latest published version (<code>api.github.com/repos/kurodaki-dev/A-studio/releases/latest</code>). The request contains no identifier, no cookie and nothing about your projects or device. Like any internet connection, GitHub receives the phone's IP address, which it handles under its <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">privacy statement</a>. We receive nothing.</p>
 <p>If a newer version exists, the app offers it. The download only starts when you tap Download: the app fetches the APK from this project's GitHub releases, then opens the Android installer, which asks you to confirm. Only release addresses of this project are accepted.</p>
 <p>You can turn off the startup check in Settings. The manual check stays available.</p>
+
+<h2>Installing from GitHub</h2>
+<p>When you paste a link in Install from GitHub, or tap Update from GitHub, the app asks GitHub for that repository's file list (api.github.com) and downloads the files you choose (raw.githubusercontent.com). The requests contain the link you entered and nothing about you; GitHub receives the phone's IP address, as for any connection. Nothing is sent without your action.</p>
 
 <h2>Files you export or import</h2>
 <p>When you export a WAV or project file, the app opens the Android share menu and you choose where the file goes. The app sends nothing by itself; the service you pick applies its own privacy policy.</p>

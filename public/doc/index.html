@@ -133,7 +133,7 @@
   <li><strong>Effects</strong> (<code>@type effect</code>) process the sound of a mixer insert: distortion, delay, filters, compressors. Each insert has 4 effect slots behind its FX button.</li>
   <li><strong>Extensions</strong> (<code>@type extension</code>) change the interface: buttons in the top bar, menu items, and whole panels with your own HTML, CSS and JavaScript, opened from the left rail. They can drive playback and read or write the project. See <a href="#extensions">Extensions</a>.</li>
 </ul>
-<p>Install a plugin from Menu, Plugins and themes, Install a plugin, or write one directly on the phone with <strong>Write a plugin</strong>: the editor has an instrument template and an effect template, checks the header as you go, installs the plugin and plays a test chord, and exports the file to share it. Installed plugins can be edited again with the pencil button.</p>
+<p>Install a plugin from Menu, Plugins and themes: <strong>Install a plugin</strong> picks a file on the phone, <strong>Install from GitHub</strong> takes a link (see <a href="#github">Install from GitHub</a>), or write one directly on the phone with <strong>Write a plugin</strong>: the editor has an instrument template and an effect template, checks the header as you go, installs the plugin and plays a test chord, and exports the file to share it. Installed plugins can be edited again with the pencil button.</p>
 
 <h3>Where the code runs</h3>
 <p>Plugin code runs only inside an <a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletGlobalScope">AudioWorklet</a>, the audio thread of the app. That scope has no access to the interface, to storage (projects, samples, settings), to the network or to files: a plugin receives notes and parameter values and returns samples. The host also protects the app:</p>
@@ -248,6 +248,23 @@ registerEffect(SoftClip);</code></pre>
   <tr><td><code>button(id, params)</code></td><td>Optional. Called when a <code>@button</code> is pressed.</td></tr>
 </table>
 <p>If an effect throws an error, its slot lets the sound through unchanged and the error is shown once.</p>
+
+<h3 id="github">Install from GitHub</h3>
+<p>Paste the link of a public repository, folder or file in Menu, Plugins and themes, <strong>Install from GitHub</strong>. The app lists the plugins and themes it finds and installs the ones you choose. Accepted links:</p>
+<table>
+  <tr><th>Link</th><th>What the app looks at</th></tr>
+  <tr><td><code>https://github.com/user/repo</code></td><td>The root of the repository, then its <code>plugins</code> folder</td></tr>
+  <tr><td><code>https://github.com/user/repo/tree/main/some/folder</code></td><td>That folder</td></tr>
+  <tr><td><code>https://github.com/user/repo/blob/main/my-synth.astudio-plugin.js</code></td><td>That file</td></tr>
+  <tr><td><code>https://raw.githubusercontent.com/user/repo/main/my-synth.astudio-plugin.js</code></td><td>That file</td></tr>
+</table>
+<p>Plugins installed this way remember where they come from: the <strong>Update from GitHub</strong> button next to them downloads the latest version. Try it with the examples of this documentation: <code>https://github.com/kurodaki-dev/A-studio/tree/main/public/doc/examples</code>.</p>
+<h3>Publish your plugin</h3>
+<ol>
+  <li>Create a public GitHub repository.</li>
+  <li>Name your files <code>something.astudio-plugin.js</code> (plugins) or <code>something.astudio-theme.json</code> (themes) and put them at the root or in a <code>plugins</code> folder.</li>
+  <li>Share the repository link. To ship an update, push the new file and raise <code>@version</code>.</li>
+</ol>
 
 <h3 id="extensions">Extensions</h3>
 <p>An extension adds interface to the app. Its code runs in an isolated frame (a sandboxed iframe with no origin): it cannot read the app page, its storage, your projects on disk, your samples or your files. It talks to the app only through the <code>astudio</code> API, and the app refuses any call that needs a permission the header does not declare.</p>

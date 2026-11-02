@@ -71,8 +71,11 @@ export const BOOTSTRAP = `(() => {
 // Text placed inside a <script> element of srcdoc must not close it early.
 const scriptSafe = (code) => String(code).replace(/<\/(script)/gi, '<\\/$1');
 
+// Extra policy for extension frames: no network at all, inline code only.
+export const FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
+
 export function frameDoc(code, html = '') {
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script>' + scriptSafe(BOOTSTRAP) + '</script>' +
+  return '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + FRAME_CSP + '"><meta name="viewport" content="width=device-width, initial-scale=1"><script>' + scriptSafe(BOOTSTRAP) + '</script>' +
     (code ? '<script>' + scriptSafe(code) + '</script>' : '') + '</head><body>' + html + '</body></html>';
 }
 
