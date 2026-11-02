@@ -1,13 +1,20 @@
 // Song arrangement helpers (they change the project; the caller commits).
 import { BAR, TRACKS, PATTERN_COLORS } from './constants.js';
 import { clipLength, makePattern, nextPatternIndex, newId } from './store.js';
+import { autoValue } from './automation.js';
 
 // Insert `len` ticks of silence at `at`: everything that starts at or after it moves right.
 // A clip that crosses `at` gets longer, like FL Studio's insert space.
 export function insertTime(project, at, len = BAR) {
   for (const c of project.playlist.clips) {
     if (c.start >= at) c.start += len;
-    else if (c.start + clipLength(project, c) > at && c.type === 'auto') c.len = clipLength(project, c) + len;
+    else if (c.start + clipLength(project, c) > at && c.type === 'auto') {
+      // The curve holds its value through the inserted time, the rest moves right.
+      const d = at - c.start;
+      const v = autoValue(c.points, d);
+      c.len = clipLength(project, c) + len;
+      c.points = [...c.points.filter((q) => q[0] < d), [d, v], [d + len, v], ...c.points.filter((q) => q[0] > d).map((q) => [q[0] + len, q[1]])];
+    }
   }
   for (const m of project.markers || []) if (m.t >= at) m.t += len;
   const lp = project.loop;
@@ -27,12 +34,22 @@ export function deleteTime(project, at, len = BAR) {
     const cEnd = c.start + cl;
     if (c.start >= at && cEnd <= end) continue;
     if (c.start >= end) c.start -= len;
-    else if (c.start < at && cEnd > at) c.len = Math.max(1, cl - (Math.min(cEnd, end) - at));
-    else if (c.start >= at && c.start < end) {
+    else if (c.start < at && cEnd > at) {
+      if (c.type === 'auto') {
+        // Remove the deleted part of the curve and join both sides.
+        const a = at - c.start;
+        const b = Math.min(cEnd, end) - c.start;
+        const va = autoValue(c.points, a);
+        const vb = autoValue(c.points, b);
+        c.points = [...c.points.filter((q) => q[0] < a), [a, va], ...(cEnd > end ? [[a, vb]] : []), ...c.points.filter((q) => q[0] > b).map((q) => [q[0] - (b - a), q[1]])];
+      }
+      c.len = Math.max(1, cl - (Math.min(cEnd, end) - at));
+    } else if (c.start >= at && c.start < end) {
       // Starts inside the range and goes past it: keep the part after.
       const cut = end - c.start;
       c.len = cl - cut;
-      if (c.type !== 'auto') c.offset = (c.offset || 0) + cut;
+      if (c.type === 'auto') c.points = [[0, autoValue(c.points, cut)], ...c.points.filter((q) => q[0] > cut).map((q) => [q[0] - cut, q[1]])];
+      else c.offset = (c.offset || 0) + cut;
       c.start = at;
     }
     keep.push(c);

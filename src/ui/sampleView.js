@@ -257,11 +257,15 @@ export function soundView({ project, c, onMakeSample }) {
     g = cv.getContext('2d');
     draw();
   });
+  // Only the latest render is shown (an older one can finish after a newer one).
+  let token = 0;
   const refresh = async () => {
+    const mine = ++token;
     busy = true;
-    buf = null;
     draw();
-    buf = await renderNote(project, c, 1.6).catch(() => null);
+    const res = await renderNote(project, c, 1.6).catch(() => null);
+    if (mine !== token) return;
+    buf = res;
     busy = false;
     draw();
   };
