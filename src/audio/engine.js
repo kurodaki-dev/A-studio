@@ -205,7 +205,13 @@ export function syncGraph(G, project, smooth) {
     }
   });
   G.duckers = [];
-  for (const ins of G.inserts) for (const e of ins.fxNodes || []) if (e.fx && e.fx.duck && e.slot.source) G.duckers.push({ source: e.slot.source, fx: e.fx });
+  G.tuneFollowers = [];
+  for (const ins of G.inserts) {
+    for (const e of ins.fxNodes || []) {
+      if (e.fx && e.fx.duck && e.slot.source) G.duckers.push({ source: e.slot.source, fx: e.fx });
+      if (e.fx && e.fx.target && e.slot.source) G.tuneFollowers.push({ source: e.slot.source, fx: e.fx });
+    }
+  }
   setParam(G, G.delay.delayTime, Math.min(2, (60 / project.bpm) * 0.75), smooth);
 
   const seen = new Set();
@@ -460,6 +466,14 @@ export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
   if (!ch) return null;
   // Sidechain: notes of a source channel duck the inserts that listen to it.
   for (const d of G.duckers) if (d.source === channel.id && !channel.mute) d.fx.duck(t);
+  // Auto tune in MIDI mode: the notes of its source channel become the target notes.
+  if (G.tuneFollowers) {
+    for (const f of G.tuneFollowers) {
+      if (f.source !== channel.id) continue;
+      const sr = ctx.sampleRate;
+      f.fx.target(key + (channel.params.pitch || 0), Math.round(t * sr), Math.round((t + (Number.isFinite(dur) ? dur : 600)) * sr));
+    }
+  }
   if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel, dur, fromKey);
   if (channel.instrument.startsWith('plugin:')) return playPlugin(G, channel, ch, t, key, vel, dur);
   const inst = channel.instrument === 'osc3' ? osc3Instrument(channel) : INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
@@ -816,6 +830,13 @@ export class Engine {
     return true;
   }
 
+  // Running instance of the effect in a mixer slot (the FX window draws its pitch graph).
+  effectInstance(insert, slot) {
+    const ins = this.G && this.G.inserts[insert];
+    const e = ins && ins.fxNodes.find((x) => x.slot === slot);
+    return e ? e.fx || null : null;
+  }
+
   // Push button of a plugin on a channel.
   channelButton(channelId, id) {
     const e = this.G && this.G.pluginNodes.get(channelId);
@@ -923,6 +944,7 @@ export class Engine {
       for (const id of this.G.fxTimers) clearTimeout(id);
       this.G.fxTimers.clear();
       this.G.fxHold.clear();
+      for (const f of this.G.tuneFollowers || []) f.fx.clearTargets();
       for (const ins of this.G.inserts) for (const e of ins.fxNodes || []) e.params = '';
       syncGraph(this.G, this.store.project, true);
     }
@@ -1271,5 +1293,7 @@ async function renderBuffer(project, mode) {
     });
     node.connect(G.channels.get(cid).in);
   }
+  // Messages (MIDI targets of auto tune) need a moment to reach the audio thread.
+  if (G.tuneFollowers && G.tuneFollowers.length) await new Promise((r) => setTimeout(r, 50));
   return ctx.startRendering();
 }

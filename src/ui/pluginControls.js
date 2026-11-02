@@ -8,6 +8,8 @@ import { t } from '../i18n.js';
 // all values after every change.
 export function pluginControls(plugin, stored, { onChange, onButton }) {
   if (!plugin.params.length) return null;
+  // Built in effects are translated; plugins show their own names.
+  const tr = (x) => (plugin.builtin ? t(x) : x);
   let values = paramValues(plugin, stored);
   const root = h('div', { class: 'pctl-wrap' });
   const fmt = (v) => (Math.abs(v) >= 100 ? String(Math.round(v)) : v.toFixed(2));
@@ -24,7 +26,7 @@ export function pluginControls(plugin, stored, { onChange, onButton }) {
   }
 
   function presetBar(current) {
-    const factory = plugin.presets.map((p) => ({ value: 'f:' + p.name, label: p.name, group: t('Factory presets'), p }));
+    const factory = plugin.presets.map((p) => ({ value: 'f:' + p.name, label: tr(p.name), group: t('Factory presets'), p }));
     const mine = userPresets(plugin.id).map((p) => ({ value: 'u:' + p.name, label: p.name, group: t('My presets'), p }));
     const options = [...factory, ...mine];
     const cur = options.find((o) => o.label === current);
@@ -58,8 +60,8 @@ export function pluginControls(plugin, stored, { onChange, onButton }) {
       plugin.params.map((p) => {
         if (p.kind === 'knob') {
           return h('label', { class: 'kl big' },
-            knob({ value: values[p.id], min: p.min, max: p.max, def: p.def, size: 36, label: p.name, format: fmt, onInput: (v) => set(p.id, v) }),
-            h('span', null, p.name));
+            knob({ value: values[p.id], min: p.min, max: p.max, def: p.def, size: 36, label: tr(p.name), format: fmt, onInput: (v) => set(p.id, v) }),
+            h('span', null, tr(p.name)));
         }
         if (p.kind === 'toggle') {
           const b = h('button', { class: 'b tb ptoggle' + (values[p.id] ? ' on' : ''), type: 'button', 'aria-pressed': String(!!values[p.id]), onClick: () => {
@@ -67,13 +69,13 @@ export function pluginControls(plugin, stored, { onChange, onButton }) {
             b.classList.toggle('on', !!v);
             b.setAttribute('aria-pressed', String(!!v));
             set(p.id, v);
-          } }, h('i', { class: 'ptoggle-led' }), p.name);
+          } }, h('i', { class: 'ptoggle-led' }), tr(p.name));
           return h('div', { class: 'pcell' }, b);
         }
         if (p.kind === 'choice') {
           return h('div', { class: 'pcell' },
-            h('span', { class: 'pcell-label' }, p.name),
-            dropdown({ label: p.name, value: values[p.id], options: p.options.map((o, i) => ({ value: i, label: o })), onChange: (v) => set(p.id, v) }));
+            h('span', { class: 'pcell-label' }, tr(p.name)),
+            dropdown({ label: tr(p.name), value: values[p.id], options: p.options.map((o, i) => ({ value: i, label: tr(o) })), onChange: (v) => set(p.id, v) }));
         }
         return h('div', { class: 'pcell' }, h('button', { class: 'b tb', type: 'button', onClick: () => {
           onButton(p.id);

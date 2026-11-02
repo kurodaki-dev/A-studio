@@ -43,7 +43,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 - **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard or a USB MIDI keyboard, slide notes (808 glides), scale highlighting (11 scales), and tools: chords, arpeggiate, strum, humanize, legato, reverse, flip, double or half length, snap to scale.
 - **Playlist**: PAT and SONG modes, 16 tracks, pattern, audio and automation clips, stretch, select, copy, paste, duplicate and split clips, loop region, markers with tempo changes, audio clip gain, pitch and fades.
 - **Automation**: clips that move a channel or mixer parameter over the song (volume, pan, filter, sends, EQ), with a curve editor and LFO shapes.
-- **Vocals**: auto tune (key and scale, hard or natural), voice changer, harmonizer, noise gate, de-esser, doubler, reverb, tempo synced echo and robot voice; ready vocal chains (trap, R&B, rap, ad libs, radio, deep voice) on a one tap vocal insert, your own saved chains, live monitoring with the effects, lyrics on screen, loop recording into takes and a tuner.
+- **Vocals**: auto tune (key and scale or the MIDI notes of a channel, hard or natural, flex tune, natural vibrato kept or added, formant control, low latency mode, live pitch graph, no warble between notes), voice changer, harmonizer, noise gate, de-esser, doubler, reverb, tempo synced echo and robot voice; ready vocal chains (trap, R&B, rap, ad libs, radio, deep voice) on a one tap vocal insert, your own saved chains, live monitoring with the effects, lyrics on screen, loop recording into takes and a tuner.
 - **Recording**: microphone takes straight into the playlist, notes from the piano roll keyboard or a MIDI keyboard, one bar count in.
 - **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, three band EQ, mute, solo, level meters, routing to buses and 4 effect slots each, with built in compressor, limiter, filter, distortion and sidechain.
 - **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.
@@ -86,7 +86,7 @@ An AI assistant such as Claude can work in A Studio: read the project, write not
 
 ## Updates
 
-Every push to `main` builds a signed APK and publishes a release `v1.0.<run number>`. At startup the app checks the latest release; when you tap Download it fetches the APK and opens the Android installer, which asks you to confirm. Tap Open at the end to restart on the new version. Your projects are kept. The startup check can be turned off in Settings.
+Every push to `main` builds a signed APK and publishes a release `v1.0.<n>`, where n is the previous release plus one. At startup the app checks the latest release; when you tap Download it fetches the APK and opens the Android installer, which asks you to confirm. Tap Open at the end to restart on the new version. Your projects are kept. The startup check can be turned off in Settings.
 
 ## Privacy
 
@@ -107,7 +107,7 @@ cd android && ./gradlew assembleDebug
 
 ### Releases
 
-- `.github/workflows/android.yml` builds a signed APK on every push to `main` and publishes a release. Pull requests build a test APK only.
+- `.github/workflows/android.yml` builds a signed APK on every push to `main` and publishes a release (the previous version plus one, so pull request builds do not skip numbers). Pull requests build a test APK only.
 - `.github/workflows/pages.yml` publishes the web version, the documentation (`/doc`) and the legal pages on GitHub Pages.
 
 Android only installs an update signed with the same key as the installed app. The key is never committed; the workflow reads it from two repository secrets:

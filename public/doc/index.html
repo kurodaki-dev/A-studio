@@ -191,11 +191,12 @@
   <li><strong>Comping</strong>: split takes with the Slice tool, then long press the best piece of each and choose Send to the comp track. The pieces are copied to a track named Comp and the take tracks are muted.</li>
   <li><strong>Keep formants</strong>: the voice changer and auto tune can shift the pitch with TD-PSOLA, which repeats or drops pitch periods instead of speeding the voice up, so the timbre stays natural. Auto tune uses it by default; turn it off in the voice changer for the cartoon effect.</li>
 </ul>
+<p><strong>Auto tune MIDI mode</strong>: write the melody in a channel (it can be muted), set Target to "MIDI notes of a channel" and choose that channel in "Melody from". The voice goes exactly to those notes, which helps on hard melodies.</p>
 <p><strong>Delay compensation</strong>: Keep formants delays the voice by about 34 ms. The app starts the clips and notes that go through that insert earlier by the same time, in playback and in exports, so the vocal stays on the beat (the live monitoring itself cannot be compensated).</p>
 <h3>Voice effects</h3>
 <table>
   <tr><th>Effect</th><th>What it does</th></tr>
-  <tr><td>Auto tune</td><td>Detects the pitch of the voice and moves it to the nearest note of the key and scale you choose. Retune 0 ms gives the hard, robotic effect; 100 ms and more sounds natural. Mix blends with the dry voice.</td></tr>
+  <tr><td>Auto tune</td><td>Detects the pitch of the voice and moves it to the nearest note of the key and scale (or, in MIDI mode, to the notes of a channel). <strong>Retune</strong> 0 ms gives the hard, robotic effect; 50 to 200 ms sounds natural. <strong>Flex tune</strong> corrects only the notes you are close to and leaves slides and expressive notes alone. <strong>Keep vibrato</strong> keeps your natural vibrato while the note is corrected; <strong>Add vibrato</strong> adds one. <strong>Formant</strong> makes the timbre deeper or brighter without changing the note. <strong>Low latency</strong> is for hearing yourself live (the timbre is a little less natural). The detection is smoothed and the note only changes when you clearly reach the next one, so the voice does not warble between two notes. The FX window shows a live graph of the sung and corrected pitch.</td></tr>
   <tr><td>Voice changer</td><td>Shifts the voice up or down by up to 12 semitones, with a tone control. Presets: deep voice, monster, chipmunk, octave layers.</td></tr>
   <tr><td>Harmonizer</td><td>Adds two shifted voices (for example a third and a fifth) to the voice, left and right.</td></tr>
   <tr><td>Noise gate</td><td>Mutes the room noise between phrases.</td></tr>

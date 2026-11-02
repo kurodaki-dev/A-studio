@@ -25,11 +25,11 @@ class Shifter {
   }
   // Window as a whole number of periods of the input, so each wrap of the
   // delay line lands in phase (no pitch drift, fewer artifacts).
-  setPeriod(freq) {
+  setPeriod(freq, seconds = 0.035) {
     if (!(freq > 0)) return;
     const period = SR / freq;
     // Even count: the two taps (half a window apart) stay in phase.
-    const k = Math.max(2, 2 * Math.round((SR * 0.035) / period / 2));
+    const k = Math.max(2, 2 * Math.round((SR * seconds) / period / 2));
     const w = Math.min(this.N / 2 - 4, Math.round(k * period));
     if (Math.abs(w - this.win) > 1) this.win = w;
   }
@@ -72,27 +72,61 @@ class Psola {
     this.lastC = -1;
     this.hop = 256;
   }
-  grain(s, c, P, gain) {
+  // Grain of 2 periods around c, added at s. fs > 1 reads the input faster inside the
+  // grain, which moves the formants up without changing the pitch (formant shift).
+  grain(s, c, P, gain, fs = 1) {
     const m = this.m;
-    for (let j = -P; j < P; j++) {
-      const w = 0.5 - 0.5 * Math.cos((Math.PI * (j + P)) / P);
-      this.out[(s + j) & m] += this.inp[(c + j) & m] * w * gain;
+    if (fs === 1) {
+      for (let j = -P; j < P; j++) {
+        const w = 0.5 - 0.5 * Math.cos((Math.PI * (j + P)) / P);
+        this.out[(s + j) & m] += this.inp[(c + j) & m] * w * gain;
+      }
+      return;
+    }
+    const G = Math.max(8, Math.round(P / fs));
+    const g2 = gain * (P / G);
+    for (let j = -G; j < G; j++) {
+      const w = 0.5 - 0.5 * Math.cos((Math.PI * (j + G)) / G);
+      const r = c + j * fs;
+      const i0 = Math.floor(r);
+      const f = r - i0;
+      const a = this.inp[i0 & m];
+      const b = this.inp[(i0 + 1) & m];
+      this.out[(s + j) & m] += (a + (b - a) * f) * w * g2;
     }
   }
-  run(x, ratio, freq) {
+  // Pitch mark: the highest sample within a quarter period of the predicted point,
+  // so every grain is centred on the same part of the vocal cycle.
+  mark(c, P) {
+    const m = this.m;
+    const q = Math.max(1, Math.floor(P / 4));
+    let best = c;
+    let bv = -Infinity;
+    for (let j = c - q; j <= c + q; j++) {
+      if (j + P > this.n || j - P < this.n - this.N + 4) continue;
+      const v = this.inp[j & m];
+      if (v > bv) { bv = v; best = j; }
+    }
+    return best;
+  }
+  run(x, ratio, freq, fs = 1) {
     const m = this.m;
     this.inp[this.n & m] = x;
+    // Marks are kept as fractions: rounding the period or the spacing to whole
+    // samples would put the output pitch a few cents off.
     while (this.next <= this.n - this.maxP) {
-      const s0 = this.next;
+      const s0 = Math.round(this.next);
       if (freq > 0 && freq < 1000) {
-        const P = Math.max(16, Math.min(this.maxP, Math.round(SR / freq)));
+        const Pf = Math.max(16, Math.min(this.maxP, SR / freq));
+        const P = Math.round(Pf);
         // Pitch synchronous analysis point near the synthesis point.
-        let c = this.lastC < 0 ? s0 : this.lastC + Math.round((s0 - this.lastC) / P) * P;
+        let c = this.lastC < 0 ? s0 : Math.round(this.lastC + Math.round((s0 - this.lastC) / Pf) * Pf);
         if (c + P > this.n || c - P < this.n - this.N + 4) c = s0;
-        const Pout = Math.max(8, P / ratio);
-        this.grain(s0, c, P, Pout / P);
+        c = this.mark(c, P);
+        const Pout = Math.max(8, Pf / ratio);
+        this.grain(s0, c, P, Pout / P, fs);
         this.lastC = c;
-        this.next = s0 + Math.round(Pout);
+        this.next += Pout;
       } else {
         const P = this.hop;
         this.grain(s0, s0, P, 1);
@@ -219,6 +253,15 @@ class Base extends AudioWorkletProcessor {
   }
 }
 
+// Auto tune. Detection is smoothed (median of the last detections, octave errors
+// folded back), the target note changes only when the voice clearly reaches another
+// note (no warble), Flex lets notes far from the target through, the natural
+// vibrato can be kept, and in MIDI mode the target comes from a channel's notes.
+const median = (a) => {
+  const s = a.slice().sort((x, y) => x - y);
+  const h = s.length >> 1;
+  return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
+};
 class Tune extends Base {
   constructor(opts) {
     super(opts);
@@ -227,7 +270,25 @@ class Tune extends Base {
     this.ps = new Psola();
     this.dd = new DryDelay(this.ps.D);
     this.ratio = 1;
-    this.target = 1;
+    this.goal = 1;
+    this.hist = [];
+    this.mSlow = 0;
+    this.note = null;
+    this.voiced = 0;
+    this.targets = [];
+    this.vphase = 0;
+    this.post = 0;
+    this.inM = 0;
+    this.outM = 0;
+    const base = this.port.onmessage;
+    this.port.onmessage = (e) => {
+      const d = e.data;
+      if (d && d.type === 'target') {
+        this.targets.push({ key: d.key, from: d.from, to: d.to });
+        if (this.targets.length > 256) this.targets.splice(0, this.targets.length - 256);
+      } else if (d && d.type === 'clearTargets') this.targets = [];
+      else base(e);
+    };
   }
   nearest(m) {
     const key = Math.round(this.p.key || 0);
@@ -244,6 +305,91 @@ class Tune extends Base {
     }
     return best;
   }
+  // MIDI mode: the note of the source channel sounding at this frame (latest started).
+  midiTarget(frame) {
+    const shift = this.lowLatency() || !this.keepFormants() ? 0 : this.ps.D;
+    let best = null;
+    for (const t of this.targets) {
+      if (t.from - shift <= frame && frame < t.to - shift && (!best || t.from > best.from)) best = t;
+    }
+    if (this.targets.length && frame - SR > this.targets[0].to) this.targets = this.targets.filter((t) => t.to > frame - SR);
+    return best ? best.key : null;
+  }
+  keepFormants() {
+    return this.p.formant == null ? 1 : this.p.formant;
+  }
+  lowLatency() {
+    return !!this.p.lowLatency;
+  }
+  analyse(frame) {
+    const f = this.det.freq;
+    const hopSec = (this.det.hop * 2) / SR;
+    if (!(f > 0)) {
+      // Short gaps (consonants) keep the last correction for a few hops.
+      if (this.voiced > 0) this.voiced--;
+      if (this.voiced === 0) {
+        this.goal = 1;
+        this.note = null;
+        this.hist = [];
+        this.inM = 0;
+        this.armed = false;
+      }
+      return;
+    }
+    this.lastF = f;
+    // First detection after silence: the analysis window still holds part of the
+    // silence, so it is dropped.
+    if (this.voiced === 0 && !this.armed) {
+      this.armed = true;
+      return;
+    }
+    let m = 69 + 12 * Math.log2(f / 440);
+    if (this.hist.length) {
+      const med = median(this.hist);
+      if (Math.abs(m - med - 12) < 1.2) m -= 12;
+      else if (Math.abs(m - med + 12) < 1.2) m += 12;
+    }
+    this.hist.push(m);
+    if (this.hist.length > 5) this.hist.shift();
+    const mm = median(this.hist);
+    const onset = this.voiced === 0;
+    this.voiced = 4;
+    // The very first detection of a note is the least reliable: wait for a second one.
+    if (this.hist.length < 2) {
+      this.goal = 1;
+      this.inM = 0;
+      this.mSlow = mm;
+      return;
+    }
+    this.mSlow = onset || this.hist.length < 4 ? mm : this.mSlow + (mm - this.mSlow) * (1 - Math.exp(-hopSec / 0.12));
+    const midi = Math.round(this.p.mode || 0) === 1 ? this.midiTarget(frame) : null;
+    let note;
+    if (midi != null) note = midi;
+    else {
+      const cand = this.nearest(this.mSlow);
+      // Hysteresis: switch only when the voice is clearly closer to the new note.
+      // The first detections of a note are less precise, so no hysteresis yet.
+      if (this.note == null || this.hist.length < 4 || Math.abs(this.mSlow - cand) + 0.18 < Math.abs(this.mSlow - this.note)) note = cand;
+      else note = this.note;
+    }
+    this.note = note;
+    let amount = 1;
+    const flex = this.p.flex || 0;
+    if (flex > 0 && midi == null) {
+      const dev = Math.abs(this.mSlow - note) * 100;
+      const W = 60 * (1 - flex) + 8;
+      amount = dev <= W ? 1 : Math.max(0, 1 - (dev - W) / 25);
+    }
+    const keepVib = this.p.vibrato || 0;
+    const want = note + keepVib * (m - this.mSlow);
+    const outM = m + amount * (want - m);
+    this.goal = Math.pow(2, (outM - m) / 12);
+    if (onset || this.hist.length === 2) this.ratio = this.goal;
+    this.inM = m;
+    this.outM = outM;
+    if (this.lowLatency()) this.sh.setPeriod(f, 0.012);
+    else this.sh.setPeriod(f);
+  }
   process(inputs, outputs) {
     const inp = inputs[0];
     const out = outputs[0];
@@ -253,20 +399,22 @@ class Tune extends Base {
     const n = out[0].length;
     const mix = this.p.mix == null ? 1 : this.p.mix;
     const retune = Math.max(0, this.p.retune || 0);
-    const k = retune <= 1 ? 1 : 1 - Math.exp(-(this.det.hop * 2) / (SR * retune / 1000));
+    const ks = retune <= 1 ? 1 : 1 - Math.exp(-1 / ((SR * retune) / 1000));
+    const keep = this.keepFormants() && !this.lowLatency();
+    const fs = keep ? Math.pow(2, (this.p.formantShift || 0) * 0.5) : 1;
+    const depth = this.p.vibDepth || 0;
+    const rate = this.p.vibRate || 5.5;
     for (let i = 0; i < n; i++) {
       const x = L ? (L[i] + R[i]) * 0.5 : 0;
-      if (this.det.push(x)) {
-        const f = this.det.freq;
-        if (f > 0) {
-          this.sh.setPeriod(f);
-          const m = 69 + 12 * Math.log2(f / 440);
-          this.target = Math.pow(2, (this.nearest(m) - m) / 12);
-        } else this.target = 1;
-        this.ratio += (this.target - this.ratio) * (this.det.freq > 0 ? k : 0.2);
+      if (this.det.push(x)) this.analyse(currentFrame + i);
+      this.ratio += (this.goal - this.ratio) * ks;
+      let r = this.ratio;
+      if (depth > 0 && this.voiced > 0) {
+        this.vphase += (2 * Math.PI * rate) / SR;
+        if (this.vphase > 2 * Math.PI) this.vphase -= 2 * Math.PI;
+        r *= Math.pow(2, (depth * Math.sin(this.vphase)) / 1200);
       }
-      const keep = this.p.formant == null ? 1 : this.p.formant;
-      const y = keep ? this.ps.run(x, this.ratio, this.det.freq) : this.sh.run(x, this.ratio);
+      const y = keep ? this.ps.run(x, r, this.voiced > 0 ? this.det.freq || this.lastF || 0 : 0, fs) : this.sh.run(x, r);
       const dl = inp && inp[0] ? inp[0][i] : x;
       const dr = inp && inp[1] ? inp[1][i] : dl;
       const d = this.dd.run(dl, dr);
@@ -274,6 +422,13 @@ class Tune extends Base {
         const dry = keep ? d[c ? 1 : 0] : c ? dr : dl;
         out[c][i] = dry * (1 - mix) + y * mix;
       }
+    }
+    // Pitch graph data for the FX window, about 25 times per second.
+    this.post += n;
+    if (this.post >= SR / 25) {
+      this.post = 0;
+      const on = this.voiced > 0 && this.inM > 0;
+      this.port.postMessage({ type: 'pitch', input: on ? this.inM : null, output: on ? this.outM : null, note: this.note });
     }
     return true;
   }

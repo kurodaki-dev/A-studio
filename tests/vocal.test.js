@@ -21,10 +21,12 @@ function processors() {
   return reg;
 }
 
-function run(Proc, params, input) {
+function run(Proc, params, input, setup) {
   const p = new Proc({ processorOptions: { params } });
+  if (setup) setup(p);
   const out = new Float32Array(input.length);
   for (let i = 0; i < input.length; i += 128) {
+    globalThis.currentFrame = i;
     const inp = input.subarray(i, i + 128);
     const L = new Float32Array(128);
     const R = new Float32Array(128);
@@ -157,7 +159,8 @@ test('keep formants: PSOLA shifts the pitch and keeps the resonance in place', (
     const a = sig.subarray(sig.length - SR / 2);
     let num = 0;
     let den = 0;
-    for (let f = 200; f <= 4000; f += 25) {
+    // 2 Hz steps: wider steps miss harmonics that do not fall on the grid.
+    for (let f = 200; f <= 4000; f += 2) {
       let re = 0;
       let im = 0;
       const ww = (2 * Math.PI * f) / SR;
@@ -188,4 +191,76 @@ test('with keep formants, the dry signal is delayed like the wet one', () => {
   for (let i = 0; i < out.length; i++) if (Math.abs(out[i]) > 0.5) { at = i; break; }
   const D = 2 * Math.ceil(SR / 70) + 256;
   assert.equal(at, 1000 + D);
+});
+
+
+// Pitch over time: one value every 20 ms (0 when unvoiced).
+function track(sig) {
+  const out = [];
+  for (let i = 0; i + 2048 <= sig.length; i += SR / 50) out.push(detectPitch(sig.subarray(i, i + 2048), SR));
+  return out;
+}
+const cents = (f, ref) => 1200 * Math.log2(f / ref);
+const vibratoSine = (f0, cent, rate, sec) => {
+  let ph = 0;
+  return Float32Array.from({ length: Math.floor(SR * sec) }, (_, i) => {
+    const f = f0 * Math.pow(2, (cent * Math.sin((2 * Math.PI * rate * i) / SR)) / 1200);
+    ph += (2 * Math.PI * f) / SR;
+    return 0.5 * Math.sin(ph);
+  });
+};
+
+test('auto tune does not warble between two notes', () => {
+  const { 'astudio-vox-tune': Tune } = processors();
+  // Singing half way between A (440) and A# (466) with a little vibrato: the output
+  // must stay on one note instead of jumping between both.
+  const sig = vibratoSine(453, 15, 5, 3);
+  const out = run(Tune, { key: 0, scale: 0, retune: 0, mix: 1, formant: 1 }, sig);
+  const notes = track(out.subarray(SR)).filter((f) => f > 0).map((f) => Math.round(69 + 12 * Math.log2(f / 440)));
+  const changes = notes.filter((n, i) => i && n !== notes[i - 1]).length;
+  assert.ok(changes <= 1, 'note changes: ' + changes);
+});
+
+test('keep vibrato: 0 flattens the vibrato, 1 keeps it', () => {
+  const { 'astudio-vox-tune': Tune } = processors();
+  const sig = vibratoSine(440, 40, 5, 3);
+  const spread = (out) => {
+    const fs = track(out.subarray(SR)).filter((f) => f > 0).map((f) => cents(f, 440));
+    return Math.max(...fs) - Math.min(...fs);
+  };
+  const flat = spread(run(Tune, { key: 9, scale: 0, retune: 0, vibrato: 0, mix: 1, formant: 1 }, sig));
+  const kept = spread(run(Tune, { key: 9, scale: 0, retune: 0, vibrato: 1, mix: 1, formant: 1 }, sig));
+  assert.ok(flat < 35, 'flattened spread ' + flat.toFixed(0));
+  assert.ok(kept > 55, 'kept spread ' + kept.toFixed(0));
+});
+
+test('flex tune leaves notes far from the target alone', () => {
+  const { 'astudio-vox-tune': Tune } = processors();
+  // 40 cents sharp of A: hard tune corrects it, full flex leaves it.
+  const sig = sine(440 * Math.pow(2, 40 / 1200), 2);
+  const hard = pitchOf(run(Tune, { key: 9, scale: 0, retune: 0, flex: 0, mix: 1, formant: 1 }, sig));
+  const flex = pitchOf(run(Tune, { key: 9, scale: 0, retune: 0, flex: 1, mix: 1, formant: 1 }, sig));
+  assert.ok(Math.abs(cents(hard, 440)) < 8, 'hard ' + cents(hard, 440).toFixed(1));
+  assert.ok(cents(flex, 440) > 30, 'flex ' + cents(flex, 440).toFixed(1));
+});
+
+test('MIDI mode follows the notes of the source channel', () => {
+  const { 'astudio-vox-tune': Tune } = processors();
+  const sig = sine(440, 2);
+  // Target C6 (MIDI 72 = 523.25 Hz) for the whole take, though A is in the scale.
+  const out = run(Tune, { key: 9, scale: 0, mode: 1, retune: 0, mix: 1, formant: 1 }, sig, (p) => {
+    p.port.onmessage({ data: { type: 'target', key: 72, from: 0, to: SR * 10 } });
+  });
+  const f = pitchOf(out);
+  assert.ok(Math.abs(cents(f, 523.25)) < 10, 'got ' + f.toFixed(1));
+});
+
+test('added vibrato and formant shift', () => {
+  const { 'astudio-vox-tune': Tune } = processors();
+  const sig = sine(440, 3);
+  const fs = track(run(Tune, { key: 9, scale: 0, retune: 0, vibDepth: 50, vibRate: 5, mix: 1, formant: 1 }, sig).subarray(SR)).filter((f) => f > 0).map((f) => cents(f, 440));
+  assert.ok(Math.max(...fs) - Math.min(...fs) > 60, 'vibrato spread ' + (Math.max(...fs) - Math.min(...fs)).toFixed(0));
+  // Formant shift keeps the pitch where it is.
+  const sh = pitchOf(run(Tune, { key: 9, scale: 0, retune: 0, formantShift: 0.6, mix: 1, formant: 1 }, sig));
+  assert.ok(Math.abs(cents(sh, 440)) < 10, 'formant shift moved the pitch: ' + sh.toFixed(1));
 });
