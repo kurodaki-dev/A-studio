@@ -3,7 +3,7 @@ import { attachPointer, fitCanvas } from './pointer.js';
 import { registerDrop } from './dnd.js';
 import { currentTheme } from '../themes.js';
 import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
-import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId, serialize } from '../store.js';
+import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId, serialize, makePattern, nextPatternIndex } from '../store.js';
 import { autoTargets, autoLabel, targetValue, autoValue } from '../automation.js';
 import { openAutomationEditor, openClipProperties, openWaveEditor, stretchClip, clipBpm, cleanClip } from './clipEditors.js';
 import { renderChannels } from '../audio/engine.js';
@@ -30,6 +30,23 @@ const SNAPS = [
 export function createPlaylist(engine, actions) {
   // Last tap on a pattern clip or a track name, to open the piano roll on a double tap.
   let lastClipTap = { clip: null, at: 0 };
+
+  // Gives a clip its own copy of its pattern: editing it no longer changes the other clips.
+  function makeUnique(clip) {
+    store.change((proj) => {
+      const src = getPattern(proj, clip.patternId);
+      if (!src) return;
+      const fresh = makePattern(nextPatternIndex(proj));
+      const copy = JSON.parse(JSON.stringify(src));
+      copy.id = fresh.id;
+      copy.name = fresh.name;
+      copy.color = fresh.color;
+      proj.patterns.push(copy);
+      clip.patternId = copy.id;
+      proj.currentPattern = copy.id;
+    });
+    hint(t('This clip now has its own pattern: ') + getPattern(store.project, clip.patternId).name);
+  }
 
   // Piano roll of a pattern, on its first channel with notes.
   function openPatternPiano(patternId) {
@@ -343,7 +360,10 @@ export function createPlaylist(engine, actions) {
         ? { label: t('Edit automation'), icon: 'Activity', onClick: () => openAutomationEditor(c, engine) }
         : c.type === 'audio'
         ? { label: t('Clip properties'), icon: 'SlidersVertical', onClick: () => openClipProperties(c) }
-        : { label: t('Open in the piano roll'), icon: 'Piano', onClick: () => { store.project.currentPattern = c.patternId; store.emit(); } },
+        : { label: t('Open in the piano roll'), icon: 'Piano', onClick: () => openPatternPiano(c.patternId) },
+      ...(!c.type && store.project.playlist.clips.some((o) => o !== c && !o.type && o.patternId === c.patternId) ? [
+        { label: t('Make unique (edit this clip alone)'), icon: 'Copy', onClick: () => makeUnique(c) },
+      ] : []),
       ...(c.type === 'audio' ? [
         { label: t('Edit audio') + '...', icon: 'AudioWaveform', onClick: () => openWaveEditor(c, engine) },
         { label: t('Clean up voice (one tap)'), icon: 'WandSparkles', onClick: () => cleanClip(c) },
@@ -721,6 +741,20 @@ export function createPlaylist(engine, actions) {
     const proj = store.project;
     const tr = trackAt(p.y);
     if (tr < 0 || tr >= TRACKS) return null;
+    // First clip on an empty track while the pattern already plays on another track:
+    // the track gets its own new pattern, so editing it does not change the others.
+    // More clips on the same track repeat that track's pattern.
+    const onTrack = proj.playlist.clips.filter((c) => c.track === tr && !c.type);
+    const elsewhere = proj.playlist.clips.some((c) => c.track !== tr && !c.type && c.patternId === proj.currentPattern);
+    if (!onTrack.length && elsewhere) {
+      const pat = makePattern(nextPatternIndex(proj));
+      proj.patterns.push(pat);
+      proj.currentPattern = pat.id;
+      hint(t('New pattern for this track: ') + pat.name);
+    } else if (onTrack.length && !onTrack.some((c) => c.patternId === proj.currentPattern) && elsewhere) {
+      // Track already has its own pattern: keep repeating it.
+      proj.currentPattern = onTrack[onTrack.length - 1].patternId;
+    }
     const clip = { id: newId('k'), patternId: proj.currentPattern, track: tr, start: Math.max(0, Math.floor(tickAt(p.x) / snap()) * snap()) };
     proj.playlist.clips.push(clip);
     return clip;
