@@ -113,3 +113,20 @@ export async function checkForUpdate({ silent }) {
     if (!silent) alertBox(t('Updates'), t('Could not reach GitHub. Check your connection and try again.'));
   }
 }
+
+// Screen orientation on Android: 'landscape' or 'auto'. Stored on the device.
+export function orientationPref() {
+  try {
+    return localStorage.getItem('astudio:orientation') === 'auto' ? 'auto' : 'landscape';
+  } catch {
+    return 'landscape';
+  }
+}
+export function applyOrientation(mode = orientationPref()) {
+  try {
+    localStorage.setItem('astudio:orientation', mode);
+  } catch {
+    /* ignore */
+  }
+  if (isNative()) AppUpdater.setOrientation({ mode }).catch(() => {});
+}

@@ -1,5 +1,5 @@
 import { h, icon, openModal, dropdown, openMenu, promptText, hint, confirmBox } from './dom.js';
-import { VOCAL_CHAINS, chainSlots, userChains, saveUserChain, deleteUserChain } from '../vocal.js';
+import { VOCAL_CHAINS, MASTER_CHAINS, chainSlots, userChains, saveUserChain, deleteUserChain } from '../vocal.js';
 import { t } from '../i18n.js';
 import { store, FX_SLOTS } from '../store.js';
 import { pluginEffects, getPlugin } from '../plugins.js';
@@ -74,7 +74,7 @@ export function openFxDialog(index, engine, onShowPlugins) {
     const parts = [
       h('p', { class: 'set-note' }, t('Built in effects: compressor, limiter, filter, distortion, sidechain, and for voices auto tune, voice changer, harmonizer, noise gate, de-esser, doubler, reverb, echo and robot. Add more with effect plugins.')),
       h('div', { class: 'set-actions' },
-        h('button', { class: 'b tb primary', type: 'button', onClick: (e) => chainMenu(e.currentTarget) }, icon('Mic', 16), t('Vocal chains')),
+        h('button', { class: 'b tb primary', type: 'button', onClick: (e) => chainMenu(e.currentTarget) }, icon(index === 0 ? 'SlidersVertical' : 'Mic', 16), index === 0 ? t('Mastering chains') : t('Vocal chains')),
         h('button', { class: 'b tb', type: 'button', onClick: () => saveChain() }, icon('Save', 16), t('Save this chain')),
       ),
       ...rows,
@@ -93,7 +93,8 @@ export function openFxDialog(index, engine, onShowPlugins) {
     const mine = userChains();
     openMenu(anchor, [
       { header: t('Replaces the effects of this insert') },
-      ...VOCAL_CHAINS.map((c) => ({ label: t(c.name), icon: 'Mic', onClick: () => applyChain(chainSlots(c), t(c.name)) })),
+      ...(index === 0 ? MASTER_CHAINS : VOCAL_CHAINS).map((c) => ({ label: t(c.name), icon: index === 0 ? 'SlidersVertical' : 'Mic', onClick: () => applyChain(chainSlots(c), t(c.name)) })),
+      ...(index === 0 ? [{ sep: true }, ...VOCAL_CHAINS.map((c) => ({ label: t(c.name), icon: 'Mic', onClick: () => applyChain(chainSlots(c), t(c.name)) }))] : []),
       ...(mine.length ? [{ sep: true }, { header: t('My chains') }, ...mine.map((c) => ({ label: c.name, icon: 'Save', onClick: () => applyChain(chainSlots(c), c.name) }))] : []),
       ...(mine.length ? [{ sep: true }, { label: t('Delete one of my chains') + '...', icon: 'Trash', onClick: () => openMenu(anchor, mine.map((c) => ({ label: c.name, icon: 'Trash', onClick: async () => {
         if (await confirmBox(t('Delete chain'), c.name, t('Delete'))) deleteUserChain(c.name);

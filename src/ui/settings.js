@@ -7,9 +7,10 @@ import { openGithubInstall } from './githubInstall.js';
 import { openCatalog } from './catalog.js';
 import { fetchText } from '../github.js';
 import { pickFile } from '../platform.js';
-import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from '../update.js';
+import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck, orientationPref, applyOrientation } from '../update.js';
 import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
 import { APP_VERSION } from '../version.js';
+import { measureLatency } from '../recorder.js';
 import { midiSupported, midiEnabled, setMidiEnabled, midiInputs, onMidiChange } from '../midiin.js';
 
 // Settings window. section: 'general' | 'extensions' scrolls to that part.
@@ -119,6 +120,30 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
               h('button', { class: 'b tb', type: 'button', onClick: () => checkForUpdate({ silent: false }) }, t('Check now')),
             ), t('Installed version: ') + APP_VERSION)
           : row(t('Version'), h('span', null, APP_VERSION)),
+        updatesSupported() ? row(t('Screen orientation'), dropdown({ label: t('Screen orientation'), value: orientationPref(), options: [{ value: 'landscape', label: t('Landscape') }, { value: 'auto', label: t('Automatic (portrait allowed)') }], onChange: (v) => applyOrientation(v) })) : null,
+        row(t('Recording latency'), h('div', { class: 'set-inline' },
+          h('input', { class: 'input latency-input', type: 'number', min: 0, max: 500, step: 1, value: Number(localStorage.getItem('astudio:latency') || 0), 'aria-label': t('Recording latency'), onChange: (e) => {
+            const v = Math.max(0, Math.min(500, Math.round(Number(e.target.value) || 0)));
+            localStorage.setItem('astudio:latency', String(v));
+          } }),
+          h('span', null, 'ms'),
+          h('button', { class: 'b tb', type: 'button', onClick: async (e) => {
+            if (!engine) return;
+            const b = e.currentTarget;
+            b.disabled = true;
+            hint(t('Measuring: keep the phone quiet, speaker on, no headphones...'));
+            try {
+              engine.init();
+              const ms = await measureLatency(engine.ctx);
+              localStorage.setItem('astudio:latency', String(Math.max(0, Math.min(500, ms))));
+              hint(t('Recording latency: ') + ms + ' ms');
+              render();
+            } catch (err) {
+              alertBox(t('Recording latency'), String((err && err.message) || err));
+            }
+            b.disabled = false;
+          } }, t('Measure')),
+        ), t('Takes are moved earlier by this time so they sit on the beat. Measure plays clicks and records them: use the speaker, not headphones.')),
         row(t('Metronome volume'), h('input', { type: 'range', class: 'range', min: 0, max: 1, step: 0.05, value: engine ? engine.metroVol : 0.5, 'aria-label': t('Metronome volume'), onInput: (e) => {
           if (!engine) return;
           engine.metroVol = Number(e.target.value);

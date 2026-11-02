@@ -11,17 +11,21 @@ import { VOCAL_CHAINS, chainSlots, noteOfFreq, detectPitch, projectKey } from '.
 import { TEMPLATES } from './templates.js';
 import { TIME_SIGS } from './constants.js';
 import { pickBinary } from './platform.js';
+import { exportProjectZip, importProjectZip } from './projectzip.js';
+import { listBackups, maybeBackup } from './backups.js';
+import { openGuide, guideSeen } from './ui/guide.js';
 import { zipSync } from 'fflate';
 import { createRack } from './ui/rack.js';
 import { createPianoRoll } from './ui/pianoroll.js';
 import { createPlaylist } from './ui/playlist.js';
 import { createMixer } from './ui/mixer.js';
+import { createLive } from './ui/live.js';
 import { createSidebar } from './ui/sidebar.js';
 import { addSampler } from './ui/rack.js';
 import { initSamples, onSamplesChange, getSampleMeta, getBuffer, loadBuffer } from './samples.js';
 import { openChannelSettings } from './ui/channelSettings.js';
 import { loadCurrent, saveCurrent, saveProject, loadProject, listProjects } from './persist.js';
-import { saveFile, pickFile } from './platform.js';
+import { saveFile } from './platform.js';
 import { BAR, STEP, NKEYS, TRACKS, clamp } from './constants.js';
 import { createExtensionHost } from './extensions.js';
 import { isInstrumentId, CATALOG } from './audio/catalog.js';
@@ -29,7 +33,7 @@ import { pluginInstruments, getPlugin } from './plugins.js';
 import { createChannel } from './ui/rack.js';
 import { encodeMidi } from './midi.js';
 import { APP_VERSION } from './version.js';
-import { checkForUpdate, updatesSupported, autoCheckEnabled } from './update.js';
+import { checkForUpdate, updatesSupported, autoCheckEnabled, applyOrientation } from './update.js';
 import { t, locale, lang } from './i18n.js';
 import { initTheme } from './themes.js';
 import { openSettings, refreshOpenSettings } from './ui/settings.js';
@@ -48,7 +52,7 @@ if (saved) {
   }
 }
 
-const engine = new Engine(store, () => (ui.songMode ? 'song' : 'pattern'), () => ui.metronome);
+const engine = new Engine(store, () => (ui.live ? 'live' : ui.songMode ? 'song' : 'pattern'), () => ui.metronome);
 engine.onPluginError = (p, msg) => alertBox(t('Plugin error'), p.name + ': ' + msg);
 
 const actions = {
@@ -82,6 +86,7 @@ const panels = {
   rack: createRack(engine, actions),
   piano: createPianoRoll(engine),
   playlist: createPlaylist(engine, actions),
+  live: createLive(engine, { modeChanged: () => refreshToolbar(), stop: () => stop() }),
   mixer: createMixer(engine, () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine, extHost })),
 };
 const sidebar = createSidebar(engine, actions);
@@ -309,7 +314,9 @@ async function finishAudioRecording() {
   for (let i = 0; i < TRACKS && track < 0; i++) if (free(i) && !p.playlist.clips.some((c) => c.track === i)) track = i;
   if (track < 0) track = 0;
   const lp = p.loop;
-  const leadTicks = r.lead > 0.01 ? Math.round(r.lead / spt) : 0;
+  // Lead before playback plus the measured recording latency (Settings).
+  const latency = Math.max(0, Number(pref('latency', '0')) || 0) / 1000;
+  const leadTicks = Math.max(0, Math.round((Math.max(0, r.lead) + latency) / spt));
   const firstLen = lp && lp.on ? lp.end - r.start : len;
   if (lp && lp.on && len > firstLen + BAR / 4) {
     // Loop recording: one take per pass of the loop, each on its own track; only the last one plays.
@@ -377,6 +384,7 @@ const railDefs = [
   ['rack', 'Grid3x3', 'Channel rack'],
   ['piano', 'Piano', 'Piano roll'],
   ['mixer', 'SlidersVertical', 'Mixer'],
+  ['live', 'LayoutGrid', 'Live'],
 ];
 const railBtns = railDefs.map(([id, ic, label]) => {
   const b = h('button', { class: 'rail-btn', type: 'button', title: label, 'aria-label': label, onClick: () => showPanel(id) }, icon(ic, 20), h('span', null, label.split(' ')[0]));
@@ -399,6 +407,8 @@ setSidebar(window.innerWidth >= 900);
 
 function showPanel(id) {
   if (!panels[id]) id = 'rack';
+  // In portrait the browser covers the stage: picking a panel closes it.
+  if (ui.sidebar && window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 760px)').matches && typeof setSidebar === 'function') setSidebar(false);
   ui.panel = id;
   for (const [k, p] of Object.entries(panels)) p.el.classList.toggle('active', k === id);
   [...railBtns, ...extRail.children].forEach((b) => b.classList.toggle('on', b.dataset.panel === id));
@@ -635,6 +645,11 @@ function setBpm(v) {
 }
 
 function setSongMode(on) {
+  if (ui.live) {
+    ui.live = false;
+    engine.stop();
+    ui.songMode = !on;
+  }
   if (ui.songMode === on) return;
   const was = engine.playing;
   engine.stop();
@@ -722,8 +737,8 @@ function fmtTime(t) {
 
 function refreshToolbar() {
   const p = store.project;
-  patBtn.classList.toggle('on', !ui.songMode);
-  songBtn.classList.toggle('on', ui.songMode);
+  patBtn.classList.toggle('on', !ui.songMode && !ui.live);
+  songBtn.classList.toggle('on', ui.songMode && !ui.live);
   playBtn.replaceChildren(icon(engine.playing ? 'Pause' : 'Play'));
   playBtn.classList.toggle('on', engine.playing);
   metroBtn.classList.toggle('on', ui.metronome);
@@ -771,6 +786,7 @@ function newProj() {
       h('p', { class: 'set-note' }, t('The current project will be closed. Save it first if needed.')),
       h('div', { class: 'plist' }, TEMPLATES.map((tp) => h('button', { class: 'brow-name', type: 'button', onClick: () => {
         m.close();
+        maybeBackup(store.project, true);
         engine.stop();
         store.load(tp.make());
         ui.prChannel = null;
@@ -806,17 +822,60 @@ async function exportProject() {
   }
 }
 
+// Accepts a .astudio file or a project ZIP with its samples.
 async function importProject() {
-  const text = await pickFile();
-  if (!text) return;
+  const f = await pickBinary('.astudio,.zip,application/json,application/zip');
+  if (!f) return;
   try {
-    const p = normalizeProject(JSON.parse(text));
+    let raw;
+    let added = 0;
+    if (f.bytes[0] === 0x50 && f.bytes[1] === 0x4b) ({ raw, added } = await importProjectZip(f.bytes));
+    else raw = JSON.parse(new TextDecoder().decode(f.bytes));
+    const p = normalizeProject(raw);
+    maybeBackup(store.project, true);
     engine.stop();
     store.load(p);
-    hint(t('Project imported: ') + p.name);
+    hint(t('Project imported: ') + p.name + (added ? ', ' + added + ' ' + t('samples') : ''));
   } catch {
     alertBox(t('Import failed'), t('This file is not a valid A Studio project.'));
   }
+}
+
+async function exportProjectWithSamples() {
+  const m = openModal({ title: t('Export project with samples'), body: h('p', null, t('Packing...')), actions: [] });
+  try {
+    const zip = await exportProjectZip(store.project);
+    m.close();
+    const base = (store.project.name || 'project').replace(/[\\/:*?"<>|]/g, '_');
+    await saveFile(base + '.zip', zip.buffer, 'application/zip');
+  } catch (e) {
+    m.close();
+    alertBox(t('Export failed'), String(e.message || e));
+  }
+}
+
+function restoreBackupDialog() {
+  const list = listBackups().reverse();
+  if (!list.length) return alertBox(t('Backups'), t('No backup yet. A backup is made every 5 minutes while you work.'));
+  const m = openModal({
+    title: t('Restore a backup'),
+    body: h('div', { class: 'plist' },
+      h('p', { class: 'set-note' }, t('The current project is backed up first, so you can come back to it.')),
+      list.map((b) => h('button', { class: 'brow-name', type: 'button', onClick: () => {
+        m.close();
+        try {
+          const p = normalizeProject(JSON.parse(b.data));
+          maybeBackup(store.project, true);
+          engine.stop();
+          store.load(p);
+          hint(t('Backup restored: ') + p.name);
+        } catch {
+          alertBox(t('Import failed'), t('This backup could not be read.'));
+        }
+      } }, icon('RefreshCw', 14), b.name, h('span', { class: 'brow-date' }, new Date(b.at).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })))),
+    ),
+    actions: [{ label: t('Cancel') }],
+  });
 }
 
 async function exportMidi() {
@@ -1045,6 +1104,8 @@ function mainMenu(anchor) {
     { label: t('Import project file'), icon: 'Upload', onClick: importProject },
     { label: t('Import MIDI file'), icon: 'FileMusic', onClick: importMidiFile },
     { label: t('Export project file'), icon: 'Share2', onClick: exportProject },
+    { label: t('Export project with samples (ZIP)'), icon: 'FileArchive', onClick: exportProjectWithSamples },
+    { label: t('Restore a backup'), icon: 'RefreshCw', onClick: restoreBackupDialog },
     { label: ui.songMode ? t('Export song (WAV, MP3)') : t('Export pattern (WAV, MP3)'), icon: 'Download', onClick: exportWav },
     { label: ui.songMode ? t('Export song as MIDI') : t('Export pattern as MIDI'), icon: 'FileMusic', onClick: exportMidi },
     { label: ui.songMode ? t('Export song stems (ZIP)') : t('Export pattern stems (ZIP)'), icon: 'FileArchive', onClick: exportStems },
@@ -1056,6 +1117,7 @@ function mainMenu(anchor) {
     { sep: true },
     ...(extHost.menuItems().length ? [{ sep: true }, ...extHost.menuItems().map((m) => ({ label: m.label, icon: m.icon || 'Puzzle', onClick: m.onClick }))] : []),
     { sep: true },
+    { label: t('Getting started'), icon: 'Lightbulb', onClick: () => openGuide() },
     { label: t('Documentation'), icon: 'BookOpen', onClick: () => openExternal(DOCS_URL) },
     { label: t('Keyboard shortcuts'), icon: 'Keyboard', onClick: shortcutsDialog },
     { label: t('Report a bug'), icon: 'Bug', onClick: () => openExternal(bugReportUrl()) },
@@ -1105,7 +1167,10 @@ initSamples();
 let saveTimer = null;
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => saveCurrent(store.project), 600);
+  saveTimer = setTimeout(() => {
+    saveCurrent(store.project);
+    maybeBackup(store.project);
+  }, 600);
 }
 window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') saveCurrent(store.project);
@@ -1189,3 +1254,5 @@ extHost.reload();
 requestAnimationFrame(frame);
 
 if (updatesSupported() && autoCheckEnabled()) setTimeout(() => checkForUpdate({ silent: true }), 3000);
+if (updatesSupported()) applyOrientation();
+if (!guideSeen() && !saved) setTimeout(() => { if (!document.querySelector('.overlay')) openGuide(); }, 900);

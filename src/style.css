@@ -661,3 +661,48 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .lyrics-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px; }
 .lyrics-head span { flex: 1; }
 .lyrics-text { flex: 1; resize: none; border: 0; padding: 10px; background: var(--input); color: var(--text); font-family: inherit; line-height: 1.45; }
+
+/* Spectrum and loudness */
+.meter-dlg { display: flex; flex-direction: column; gap: 10px; }
+.spectrum { width: 100%; height: auto; border: 1px solid var(--line); }
+.loud-big { font-size: 28px; font-weight: 700; font-family: ui-monospace, monospace; }
+.loud-result ul { margin: 6px 0 0 18px; padding: 0; }
+.osc-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.osc-num { width: 18px; color: var(--dim); font-family: ui-monospace, monospace; }
+.wave-wrap { position: relative; height: 200px; border: 1px solid var(--line); touch-action: none; }
+.wave-wrap .cv { position: absolute; inset: 0; }
+
+/* Live (performance) */
+.live-scroll { flex: 1; overflow: auto; padding: 10px; }
+.live-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.live-pad { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 84px; padding: 10px; background: var(--panel2); border: 2px solid var(--line); border-radius: var(--radius); color: var(--text); text-align: left; cursor: pointer; }
+.live-pad small { color: var(--dim); }
+.live-led { width: 12px; height: 12px; opacity: 0.35; }
+.live-pad.on { background: var(--panel3); }
+.live-pad.on .live-led { opacity: 1; }
+.live-pad.queued .live-led { opacity: 1; outline: 2px solid var(--accent); }
+.live-note { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; }
+
+/* Portrait phones: the rail moves to the bottom, the browser covers the stage. */
+@media (orientation: portrait) and (max-width: 760px) {
+  .body { flex-direction: column-reverse; position: relative; }
+  .rail { width: auto; height: 56px; flex-direction: row; border-right: 0; border-top: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; padding: 3px; }
+  .rail-btn { min-width: 58px; padding: 4px 2px; }
+  .rail-btn span { display: block; font-size: 10px; }
+  .rail-sep { display: none; }
+  .ext-rail { display: flex; flex-direction: row; gap: 2px; }
+  .sidebar { position: absolute; left: 0; right: 0; top: 0; bottom: 56px; width: auto; z-index: 20; }
+  .topbar { flex-wrap: nowrap; overflow-x: auto; }
+  .ptools { flex-wrap: nowrap; overflow-x: auto; }
+  .strip { width: 58px; }
+  .lyrics { height: 32vh; }
+}
+
+/* Getting started guide */
+.guide { display: flex; gap: 16px; align-items: flex-start; }
+.guide-ic { flex: none; width: 56px; height: 56px; display: grid; place-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius); color: var(--accent); }
+.guide h3 { margin: 0 0 6px; font-size: 16px; }
+.guide p { margin: 0 0 6px; line-height: 1.5; }
+.guide-dots { display: flex; gap: 6px; margin-top: 10px; }
+.guide-dots i { width: 8px; height: 8px; background: var(--panel3); }
+.guide-dots i.on { background: var(--accent); }

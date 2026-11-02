@@ -4,9 +4,13 @@
 import { t } from '../i18n.js';
 
 const knob = (id, name, min, max, def) => ({ kind: 'knob', id, name, min, max, def });
+const toggle = (id, name, def = 0) => ({ kind: 'toggle', id, name, min: 0, max: 1, def });
 const choice = (id, name, options, def = 0) => ({ kind: 'choice', id, name, options, min: 0, max: options.length - 1, def });
 
 const db = (v) => Math.pow(10, v / 20);
+// DynamicsCompressorNode adds its own makeup gain (Web Audio spec: the inverse of the
+// gain at 0 dBFS, raised to 0.6). Returns it in dB so the effects can cancel it.
+export const autoMakeupDb = (threshold, ratio) => 0.6 * -threshold * (1 - 1 / ratio);
 
 function curve(drive, kind) {
   const n = 2048;
@@ -44,7 +48,7 @@ export const BUILTIN_EFFECTS = [
           comp.knee.value = 6;
           comp.attack.value = v.attack / 1000;
           comp.release.value = v.release / 1000;
-          out.gain.value = db(v.makeup);
+          out.gain.value = db(v.makeup - autoMakeupDb(v.threshold, v.ratio));
         },
       };
     },
@@ -68,9 +72,10 @@ export const BUILTIN_EFFECTS = [
         input: pre,
         output: out,
         set(v) {
+          // The native compressor lets short peaks through: keep a 2 dB margin under the ceiling.
           pre.gain.value = db(v.gain);
-          lim.threshold.value = v.ceiling - 1;
-          out.gain.value = db(v.ceiling) / db(v.ceiling - 1);
+          lim.threshold.value = v.ceiling - 2;
+          out.gain.value = db(-autoMakeupDb(v.ceiling - 2, 20));
         },
       };
     },
@@ -166,7 +171,7 @@ export const BUILTIN_EFFECTS = [
     name: 'Auto tune',
     vocal: true,
     worklet: 'astudio-vox-tune',
-    params: [choice('key', 'Key', ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']), choice('scale', 'Scale', ['Chromatic', 'Major', 'Minor', 'Harmonic minor', 'Major pentatonic', 'Minor pentatonic', 'Blues']), knob('retune', 'Retune ms', 0, 400, 20), knob('mix', 'Mix', 0, 1, 1)],
+    params: [choice('key', 'Key', ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']), choice('scale', 'Scale', ['Chromatic', 'Major', 'Minor', 'Harmonic minor', 'Major pentatonic', 'Minor pentatonic', 'Blues']), knob('retune', 'Retune ms', 0, 400, 20), knob('mix', 'Mix', 0, 1, 1), toggle('formant', 'Keep formants', 1)],
     presets: [
       { name: 'Hard tune (robotic)', values: { retune: 0, mix: 1 } },
       { name: 'Natural', values: { retune: 120, mix: 1 } },
@@ -178,9 +183,11 @@ export const BUILTIN_EFFECTS = [
     name: 'Voice changer',
     vocal: true,
     worklet: 'astudio-vox-shift',
-    params: [knob('semitones', 'Semitones', -12, 12, 0), knob('tone', 'Tone', -1, 1, 0), knob('mix', 'Mix', 0, 1, 1)],
+    params: [knob('semitones', 'Semitones', -12, 12, 0), knob('tone', 'Tone', -1, 1, 0), knob('mix', 'Mix', 0, 1, 1), toggle('formant', 'Keep formants', 0)],
     presets: [
-      { name: 'Deep voice', values: { semitones: -5, tone: -0.5, mix: 1 } },
+      { name: 'Deep voice', values: { semitones: -5, tone: -0.5, mix: 1, formant: 0 } },
+      { name: 'Natural lower', values: { semitones: -3, tone: 0, mix: 1, formant: 1 } },
+      { name: 'Natural higher', values: { semitones: 3, tone: 0, mix: 1, formant: 1 } },
       { name: 'Monster', values: { semitones: -10, tone: -0.8, mix: 1 } },
       { name: 'Chipmunk', values: { semitones: 7, tone: 0.5, mix: 1 } },
       { name: 'Octave up layer', values: { semitones: 12, tone: 0, mix: 0.35 } },

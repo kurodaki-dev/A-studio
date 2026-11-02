@@ -29,6 +29,9 @@
   <a href="#mixer">Mixer</a>
   <a href="#recording">Recording and MIDI</a>
   <a href="#vocals">Vocals</a>
+  <a href="#audio-editing">Audio editing</a>
+  <a href="#mastering">Mastering</a>
+  <a href="#live">Live mode</a>
   <a href="#browser">Browser and samples</a>
   <a href="#projects">Projects and export</a>
   <a href="#settings">Settings and language</a>
@@ -124,7 +127,7 @@
 </ul>
 
 <h2 id="automation">Automation</h2>
-<p>An automation clip moves one parameter while the song plays: the volume, pan or filter of a channel, or the volume, pan, sends or EQ of a mixer insert.</p>
+<p>An automation clip moves one parameter while the song plays: the volume, pan or filter of a channel, the volume, pan, sends or EQ of a mixer insert, or any knob of an effect in a mixer slot (auto tune retune, filter cutoff, echo mix, limiter gain, effect plugins...).</p>
 <ul>
   <li>In the playlist, tap the automation button (wave icon) and pick the parameter. A clip is placed on a free track over the length of the song.</li>
   <li>In the editor, tap to add a point, drag a point to move it, long press or right click a point to delete it. Shapes give a ramp up or down, sine, saw or square curves in time with the tempo.</li>
@@ -155,12 +158,14 @@
   <li><strong>Chop (slicer)</strong>: cut the sample into 4, 8 or 16 equal slices, or Auto (cuts on the hits). C5 plays the first slice, C#5 the second and so on, and a pattern that replays the loop is written, ready to rearrange in the piano roll.</li>
   <li><strong>Multi sample instrument</strong>: on a folder of the browser, Make an instrument from this folder. Name the samples after their note (<code>Piano C4.wav</code>, <code>Piano F#4.wav</code>, or the MIDI number <code>Piano 60.wav</code>; packs name middle C "C4"). Each key plays the nearest sample, transposed.</li>
   <li>Every channel has a full envelope: attack, decay, sustain, release.</li>
+  <li><strong>3x Osc</strong> (Synths): a synth with three oscillators (sine, triangle, saw, square; coarse in semitones, fine in cents, level) plus noise, the channel envelope and filter, and presets (supersaw lead, reese bass, square lead, soft pad, pluck, sub bass).</li>
 </ul>
 
 <h2 id="recording">Recording and MIDI</h2>
 <ul>
   <li>The Record button (red circle) opens a menu: <strong>Notes</strong> arms note recording (piano roll keyboard and MIDI keyboard), <strong>Audio from the microphone</strong> records into the playlist, and <strong>Count in one bar</strong> plays one bar of metronome before recording starts.</li>
   <li><strong>Microphone</strong>: playback starts in SONG mode from the play position (after the count in) and Stop places the take as an audio clip on a free track. Takes are kept in the browser under Recordings. Android asks for the microphone permission the first time. Use headphones so the song is not recorded with your voice.</li>
+  <li><strong>MIDI learn</strong>: right click or long press any knob or fader, choose MIDI learn, then move a knob of your MIDI controller. The link is kept on the device.</li>
   <li><strong>MIDI keyboard</strong>: connect a USB MIDI keyboard. It plays the channel open in the piano roll, with velocity, and records notes while recording is armed. Turn it on or off in Settings. Web MIDI depends on the device: Settings shows when it is not supported.</li>
   <li><strong>Import MIDI file</strong> (menu): a <code>.mid</code> file becomes a new pattern with one channel per track and the tempo of the file. Drums on MIDI channel 10 are split into the built in drum sounds.</li>
 </ul>
@@ -178,6 +183,11 @@
   <li><strong>Tuner</strong>: shows the note you sing or play and how many cents off it is.</li>
   <li>Each playlist track can play its audio clips through a mixer insert (long press the track name). Clip properties add reverse and normalize.</li>
 </ul>
+<ul>
+  <li><strong>Recording latency</strong> (Settings): Android records slightly late. Tap Measure once (speaker on, no headphones, quiet room): the app plays clicks, records them and stores the delay; every take is then moved earlier by that time so it sits on the beat. You can also type the value.</li>
+  <li><strong>Comping</strong>: split takes with the Slice tool, then long press the best piece of each and choose Send to the comp track. The pieces are copied to a track named Comp and the take tracks are muted.</li>
+  <li><strong>Keep formants</strong>: the voice changer and auto tune can shift the pitch with TD-PSOLA, which repeats or drops pitch periods instead of speeding the voice up, so the timbre stays natural. Auto tune uses it by default; turn it off in the voice changer for the cartoon effect.</li>
+</ul>
 <h3>Voice effects</h3>
 <table>
   <tr><th>Effect</th><th>What it does</th></tr>
@@ -193,8 +203,29 @@
 </table>
 <p>The FX window of an insert has <strong>Vocal chains</strong> (the same ready chains) and <strong>Save this chain</strong> to keep your own settings and reuse them in other projects. Pitch effects (auto tune, voice changer, harmonizer) shift the formants with the pitch: large shifts sound cartoonish, which is what the deep voice and chipmunk presets play on.</p>
 
+<h2 id="audio-editing">Audio editing</h2>
+<p>Long press an audio clip in the playlist:</p>
+<ul>
+  <li><strong>Edit audio</strong> opens the waveform editor: drag to select, then cut, trim to the selection, silence, +3 or -3 dB, fade in, fade out, reverse, normalize, play, undo. Save stores the result as a new sample (the original stays in the browser) and the clip uses it.</li>
+  <li><strong>Detect BPM</strong> finds the tempo of a loop. <strong>Fit to the project tempo</strong> stretches it to the project tempo without changing its pitch, and <strong>Change speed</strong> slows it down or speeds it up the same way (time stretch, WSOLA).</li>
+  <li>On a pattern clip, <strong>Render to an audio clip</strong> turns it (with its repeats, channels and mixer effects) into an audio clip, for resampling or to save processing power.</li>
+</ul>
+
+<h2 id="mastering">Mastering</h2>
+<ul>
+  <li>The FX window of the master has <strong>Mastering chains</strong>: Loud, Balanced and Gentle (compressor and limiter).</li>
+  <li>The wave button in the mixer header opens <strong>Master: spectrum and loudness</strong>: a live spectrum of the master, and Measure loudness, which renders the song and gives its integrated loudness in LUFS (ITU BS.1770) and its peak, compared with the levels used by Spotify and YouTube (-14 LUFS), Apple Music (-16) and loud rap or club releases (about -9).</li>
+</ul>
+
+<h2 id="live">Live mode</h2>
+<p>The Live panel (left rail) shows one pad per pattern. Tap a pad: it starts on the next bar and loops; tap it again to stop it on the next bar. Pads of different lengths stay in time because every pattern loops from bar 1. With the record button of the panel on, what you play is written to the playlist as clips. PAT or SONG leaves Live mode.</p>
+
 <h2 id="projects">Projects and export</h2>
 <ul>
+  <li><strong>Export project with samples (ZIP)</strong> packs the project with every sample, recording and render it uses. Import project file opens it on another device with its sounds.</li>
+  <li><strong>Backups</strong>: the open project is backed up every 5 minutes of work (the last 12 are kept). Menu, Restore a backup.</li>
+  <li><strong>Getting started</strong> (menu) shows the short guide of the first launch again.</li>
+  <li><strong>Portrait</strong>: Settings, Screen orientation, Automatic. The left rail moves to the bottom of the screen in portrait.</li>
   <li><strong>New project</strong> offers templates: empty, hip hop, trap (with an 808 glide) and house.</li>
   <li><strong>Time signature</strong> (Project info): 2/4 to 7/4. Bars, the grid and the metronome follow it.</li>
   <li>The top bar shows the voices playing and the load of the sequencer (CPU).</li>

@@ -1,4 +1,5 @@
-import { h, hint } from './dom.js';
+import { h, hint, openMenu } from './dom.js';
+import { t } from '../i18n.js';
 import { clamp } from '../constants.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -8,10 +9,75 @@ const svg = (tag, attrs) => {
   return e;
 };
 
+// MIDI learn: a controller knob (CC number) is linked to a control by its label.
+// The link is kept on the device and works whenever that control is on screen.
+const MAP_KEY = 'astudio:midimap';
+const targets = new Map(); // label -> { el, apply(v01) }
+let learning = null;
+function readMap() {
+  try {
+    const m = JSON.parse(localStorage.getItem(MAP_KEY) || '{}');
+    return m && typeof m === 'object' ? m : {};
+  } catch {
+    return {};
+  }
+}
+function writeMap(m) {
+  try {
+    localStorage.setItem(MAP_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore */
+  }
+}
+export function midiLearning() {
+  return learning;
+}
+// Called by the MIDI input for every control change. Returns true when used.
+export function handleMidiCC(cc, value) {
+  const map = readMap();
+  if (learning) {
+    for (const k of Object.keys(map)) if (map[k] === learning) delete map[k];
+    map[cc] = learning;
+    writeMap(map);
+    hint(t('MIDI control ') + cc + ' → ' + learning);
+    learning = null;
+    return true;
+  }
+  const label = map[cc];
+  const tg = label && targets.get(label);
+  if (!tg || !tg.el.isConnected) return false;
+  tg.apply(value / 127);
+  return true;
+}
+
 // Vertical drag helper shared by knobs and faders.
 function dragValue(el, { get, set, min, max, def, range = 160, label, format, onStart }) {
   let start = null;
   let lastTap = 0;
+  let lastCc = 0;
+  if (label) {
+    targets.set(label, {
+      el,
+      apply(v01) {
+        const now = performance.now();
+        if (now - lastCc > 800) onStart && onStart();
+        lastCc = now;
+        const v = min + v01 * (max - min);
+        set(v);
+        hint(label + ' : ' + format(v));
+      },
+    });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const map = readMap();
+      const linked = Object.keys(map).find((k) => map[k] === label);
+      openMenu(el, [
+        { header: label },
+        { label: t('MIDI learn: move a knob on your controller'), icon: 'Keyboard', onClick: () => { learning = label; hint(t('Move a knob or fader on the MIDI controller')); } },
+        ...(linked ? [{ label: t('Forget MIDI control ') + linked, icon: 'Trash', onClick: () => { delete map[linked]; writeMap(map); } }] : []),
+      ]);
+    });
+  }
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     el.setPointerCapture(e.pointerId);

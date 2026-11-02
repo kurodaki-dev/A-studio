@@ -3,6 +3,7 @@
 import { store, currentPattern, getChannel, notesFor, patternLength } from './store.js';
 import { ui } from './ui-state.js';
 import { snapTicks, STEP } from './constants.js';
+import { handleMidiCC } from './ui/controls.js';
 
 const KEY = 'astudio:midi';
 let access = null;
@@ -64,7 +65,8 @@ function onMessage(e) {
   if (!midiEnabled()) return;
   const [st, a, b] = e.data;
   const type = st & 0xf0;
-  if (type === 0x90 && b > 0) noteOn(a, b);
+  if (type === 0xb0) handleMidiCC(a, b);
+  else if (type === 0x90 && b > 0) noteOn(a, b);
   else if (type === 0x80 || (type === 0x90 && b === 0)) noteOff(a);
 }
 

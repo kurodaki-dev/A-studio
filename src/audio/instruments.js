@@ -1,3 +1,4 @@
+import { osc3Instrument } from './osc3.js';
 // Synthesized instruments.
 // play(ctx, out, t, freq, vel, dur) connects to `out` and returns
 // { sources, length }. `sources` are stopped by the voice wrapper when the
@@ -514,3 +515,6 @@ export const INSTRUMENTS = {
     },
   },
 };
+
+// 3x Osc with its default settings (channels use their own settings, see engine.js).
+INSTRUMENTS.osc3 = osc3Instrument({});

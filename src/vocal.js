@@ -84,6 +84,31 @@ export const VOCAL_CHAINS = [
   },
 ];
 
+// Chains for the master insert.
+export const MASTER_CHAINS = [
+  {
+    id: 'loud',
+    name: 'Loud master',
+    fx: [
+      { plugin: 'astudio-compressor', params: { threshold: -14, ratio: 2, attack: 30, release: 200, makeup: 2 } },
+      { plugin: 'astudio-limiter', params: { gain: 4, ceiling: -0.5 } },
+    ],
+  },
+  {
+    id: 'balanced',
+    name: 'Balanced master',
+    fx: [
+      { plugin: 'astudio-compressor', params: { threshold: -12, ratio: 1.8, attack: 40, release: 250, makeup: 1 } },
+      { plugin: 'astudio-limiter', params: { gain: 2, ceiling: -1 } },
+    ],
+  },
+  {
+    id: 'gentle',
+    name: 'Gentle master',
+    fx: [{ plugin: 'astudio-limiter', params: { gain: 0, ceiling: -1 } }],
+  },
+];
+
 // Copy of a chain as mixer slots.
 export const chainSlots = (chain) => chain.fx.map((f) => ({ plugin: f.plugin, on: true, params: { ...f.params } }));
 

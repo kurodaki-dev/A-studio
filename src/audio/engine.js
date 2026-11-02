@@ -5,7 +5,8 @@ import { getBuffer, loadBuffer } from '../samples.js';
 import { getPlugin, paramValues, loadPluginModule, pluginReady, processorName, allPlugins } from '../plugins.js';
 import { encodeWav } from '../wav.js';
 import { faderGain, cutoffHz } from './levels.js';
-import { autoValue, targetParam } from '../automation.js';
+import { osc3Instrument } from './osc3.js';
+import { autoValue, targetParam, fxTarget } from '../automation.js';
 import { bpmAt, nextTempoChange, tickToSec } from '../tempo.js';
 
 export { faderGain, cutoffHz };
@@ -42,7 +43,7 @@ function makeEq(ctx) {
 }
 
 export function createGraph(ctx, dest) {
-  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 }, duckers: [], autoHold: new Set(), autoStarted: new Set(), silent: new Set() };
+  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 }, duckers: [], fxHold: new Map(), autoHold: new Set(), autoStarted: new Set(), silent: new Set() };
   const masterIn = ctx.createGain();
   const masterPan = ctx.createStereoPanner();
   const masterVol = ctx.createGain();
@@ -152,7 +153,7 @@ function syncEffects(G, ins, m, bpm) {
     // Same chain: only push parameter changes.
     ins.fxNodes.forEach((e, i) => {
       const x = ready[i];
-      const values = paramValues(x.p, x.f.params);
+      const values = { ...paramValues(x.p, x.f.params), ...(G.fxHold.get(x.f) || {}) };
       const json = JSON.stringify(values) + (x.p.tempo ? bpm : '');
       if (json !== e.params) {
         e.params = json;
@@ -461,7 +462,7 @@ export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
   for (const d of G.duckers) if (d.source === channel.id && !channel.mute) d.fx.duck(t);
   if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel, dur, fromKey);
   if (channel.instrument.startsWith('plugin:')) return playPlugin(G, channel, ch, t, key, vel, dur);
-  const inst = INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
+  const inst = channel.instrument === 'osc3' ? osc3Instrument(channel) : INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
   const p = channel.params;
   const f = 440 * Math.pow(2, (key + (p.pitch || 0) - 69) / 12);
   const vg = ctx.createGain();
@@ -590,6 +591,10 @@ export function scheduleAutomation(G, project, from, to, timeOf) {
     const a = Math.max(from, clip.start);
     const b = Math.min(to, clip.start + clipLength(project, clip));
     if (a >= b || G.silent.has(clip.target)) continue;
+    if (clip.target.startsWith('fx:')) {
+      scheduleFxAutomation(G, project, clip, a, b, timeOf);
+      continue;
+    }
     const tp = targetParam(G, clip.target);
     if (!tp) continue;
     G.autoHold.add(clip.target);
@@ -606,6 +611,36 @@ export function scheduleAutomation(G, project, from, to, timeOf) {
       } else tp.param.linearRampToValueAtTime(v, time);
     }
   }
+}
+
+// Effect parameters change through messages, not AudioParams: values are applied
+// at each step time (a timer while playing, suspend points in offline export).
+function scheduleFxAutomation(G, project, clip, a, b, timeOf) {
+  const fx = fxTarget(project, clip.target);
+  if (!fx) return;
+  for (let x = Math.ceil(a / STEP) * STEP; x < b; x += STEP) {
+    const v = autoValue(clip.points, x - clip.start);
+    const value = fx.def.min + v * (fx.def.max - fx.def.min);
+    const apply = () => applyFx(G, project, fx, value);
+    const time = timeOf(x);
+    if (G.offline) {
+      const q = Math.round((time * G.ctx.sampleRate) / 128) * 128 / G.ctx.sampleRate;
+      if (!G.suspends) G.suspends = new Map();
+      if (!G.suspends.has(q)) G.suspends.set(q, []);
+      G.suspends.get(q).push(apply);
+    } else setTimeout(apply, Math.max(0, (time - G.ctx.currentTime) * 1000));
+  }
+}
+
+function applyFx(G, project, fx, value) {
+  const hold = { ...(G.fxHold.get(fx.slot) || {}), [fx.def.id]: value };
+  G.fxHold.set(fx.slot, hold);
+  const ins = G.inserts[fx.index];
+  const e = ins && ins.fxNodes.find((n) => n.slot === fx.slot);
+  if (!e) return;
+  const values = { ...paramValues(fx.plugin, fx.slot.params), ...hold };
+  if (e.fx) e.fx.set(values, project.bpm);
+  else e.node.port.postMessage({ type: 'params', values });
 }
 
 // Swing delays the notes that start on an odd 1/16 step, like FL Studio's
@@ -630,6 +665,7 @@ export function audioClipsAt(project, pos) {
 }
 
 export function loopLength(project, mode) {
+  if (mode === 'live') return BAR * 4096;
   return mode === 'song' ? songLength(project) : patternLength(currentPattern(project));
 }
 
@@ -646,6 +682,8 @@ export class Engine {
     this.timer = null;
     this.load = 0; // share of the scheduler budget used, 0 to 1
     this.metroVol = 0.5;
+    // Performance mode: pattern pads, each { from, until } in ticks, aligned on bars.
+    this.live = new Map();
   }
 
   init() {
@@ -805,6 +843,8 @@ export class Engine {
       }
       this.G.autoHold.clear();
       this.G.autoStarted.clear();
+      this.G.fxHold.clear();
+      for (const ins of this.G.inserts) for (const e of ins.fxNodes || []) e.params = '';
       syncGraph(this.G, this.store.project, true);
     }
     this.transportUpdate();
@@ -874,7 +914,7 @@ export class Engine {
         }
       }
       this.fresh = false;
-      collectEvents(proj, mode, from, to, (c, n, tt, pat) => {
+      (mode === 'live' ? (a, b, cb) => this.liveEvents(proj, a, b, cb) : (a, b, cb, ca) => collectEvents(proj, mode, a, b, cb, ca))(from, to, (c, n, tt, pat) => {
         const time = Math.max(this.tickToTime(base + tt + swingTicks(pat, n.t)), ctx.currentTime);
         const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt, slideFrom(pat.notes[c.id], n));
         if (v) this.track(v);
@@ -907,6 +947,39 @@ export class Engine {
       if (seg <= 0) break;
     }
     this.load = this.load * 0.9 + 0.1 * Math.min(1, (performance.now() - t0) / 25);
+  }
+
+  // Notes of the active pads in [from, to). Each pattern loops from bar 1.
+  liveEvents(proj, from, to, cb) {
+    const chans = new Map(proj.channels.map((c) => [c.id, c]));
+    for (const [pid, pad] of this.live) {
+      const pat = getPattern(proj, pid);
+      if (!pat) continue;
+      const L = patternLength(pat);
+      const a = Math.max(from, pad.from);
+      const b = Math.min(to, pad.until);
+      if (a >= b) continue;
+      for (let k = Math.floor(a / L); k * L < b; k++) {
+        for (const [cid, notes] of Object.entries(pat.notes)) {
+          const c = chans.get(cid);
+          if (!c) continue;
+          for (const n of notes) {
+            const tt = k * L + n.t;
+            if (n.t < L && tt >= a && tt < b) cb(c, n, tt, pat);
+          }
+        }
+      }
+    }
+  }
+
+  // Start or stop a pad on the next bar. Returns the tick where it changes.
+  togglePad(pid) {
+    const pos = this.playing ? this.position() : 0;
+    const at = this.playing ? Math.ceil((pos + 1) / BAR) * BAR : 0;
+    const pad = this.live.get(pid);
+    if (pad && pad.until === Infinity) pad.until = Math.max(pad.from, at);
+    else this.live.set(pid, { from: at, until: Infinity });
+    return at;
   }
 
   track(v) {
@@ -962,6 +1035,14 @@ export class Engine {
 
   noteOff(voice) {
     if (this.ctx && voice) releaseVoice(this.ctx, voice);
+  }
+
+  // Frequency data (dB per bin) of an insert, for the spectrum analyzer.
+  spectrum(insert, out) {
+    const ins = this.G && this.G.inserts[insert];
+    if (!ins) return false;
+    ins.an.getFloatFrequencyData(out);
+    return true;
   }
 
   level(insert) {
@@ -1071,6 +1152,15 @@ async function renderBuffer(project, mode) {
     playAudioClip(G, clip, timeOf(tt), 0, dur, dur / len, dur, trackInsert(project, clip));
   });
   if (mode === 'song') scheduleAutomation(G, project, 0, L, timeOf);
+  if (G.suspends) {
+    for (const [time, fns] of G.suspends) {
+      if (time <= 0 || time >= ctx.length / sr) continue;
+      ctx.suspend(time).then(() => {
+        for (const fn of fns) fn();
+        ctx.resume();
+      });
+    }
+  }
   for (const [cid, p] of plugins) {
     const events = G.pluginEvents.get(cid);
     if (!events || !(await loadPluginModule(ctx, p))) continue;

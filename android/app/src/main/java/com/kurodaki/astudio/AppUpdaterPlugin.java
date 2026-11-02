@@ -2,6 +2,7 @@ package com.kurodaki.astudio;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -26,6 +27,15 @@ import java.net.URL;
 public class AppUpdaterPlugin extends Plugin {
 
     private static final String ALLOWED_PREFIX = "https://github.com/kurodaki-dev/A-studio/releases/download/";
+
+    // Screen orientation: "landscape" (default) or "auto" (portrait allowed).
+    @PluginMethod
+    public void setOrientation(PluginCall call) {
+        String mode = call.getString("mode", "landscape");
+        int o = "auto".equals(mode) ? ActivityInfo.SCREEN_ORIENTATION_FULL_USER : ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+        getActivity().runOnUiThread(() -> getActivity().setRequestedOrientation(o));
+        call.resolve();
+    }
 
     @PluginMethod
     public void canInstall(PluginCall call) {

@@ -4,7 +4,9 @@ import { store, clipLength } from '../store.js';
 import { BAR, BEAT, STEP, clamp } from '../constants.js';
 import { autoLabel, autoValue, formatTarget } from '../automation.js';
 import { currentTheme } from '../themes.js';
-import { getBuffer, loadBuffer } from '../samples.js';
+import { getBuffer, loadBuffer, addSample } from '../samples.js';
+import { EDITS, timeStretch, detectBpm } from '../audiotools.js';
+import { encodeWav } from '../wav.js';
 import { t } from '../i18n.js';
 
 // Curve shapes that replace the points of an automation clip.
@@ -84,7 +86,7 @@ export function openAutomationEditor(clip) {
   }
 
   function show(v, tk) {
-    info.textContent = t('Bar ') + (Math.floor(tk / BAR) + 1) + ', ' + formatTarget(clip.target, v);
+    info.textContent = t('Bar ') + (Math.floor(tk / BAR) + 1) + ', ' + formatTarget(clip.target, v, store.project);
   }
 
   attachPointer(cv, {
@@ -212,4 +214,130 @@ export function openClipProperties(clip) {
       h('p', { class: 'set-note' }, t('Pitch resamples the clip: it also changes its speed, like the resample mode in FL Studio.')),
     ),
   });
+}
+
+// Waveform editor of an audio clip. Edits work on a copy; Save stores the result
+// as a new sample (the original stays in the browser) and points the clip to it.
+export function openWaveEditor(clip, engine) {
+  (async () => {
+    const buf = getBuffer(clip.sampleId) || (await loadBuffer(clip.sampleId));
+    if (!buf) return hint(t('Sample missing on this device'));
+    const sr = buf.sampleRate;
+    let chs = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c).slice());
+    const history = [];
+    let sel = null; // [a, b] in samples
+    const cv = h('canvas', { class: 'cv' });
+    const wrap = h('div', { class: 'wave-wrap' }, cv);
+    const info = h('span', { class: 'rack-info' });
+    let W = 0;
+    let H = 0;
+    let dpr = 1;
+    let g = null;
+    const len = () => chs[0].length;
+    const sAt = (x) => clamp(Math.round((x / W) * len()), 0, len());
+    function draw() {
+      if (!g) return;
+      const th = currentTheme();
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.fillStyle = th.colors.input;
+      g.fillRect(0, 0, W, H);
+      if (sel) {
+        g.fillStyle = 'rgba(240,153,58,0.25)';
+        g.fillRect((sel[0] / len()) * W, 0, ((sel[1] - sel[0]) / len()) * W, H);
+      }
+      g.fillStyle = th.editor.note;
+      const d = chs[0];
+      const step = Math.max(1, Math.floor(d.length / W));
+      for (let x = 0; x < W; x++) {
+        let m = 0;
+        const s0 = Math.floor((x / W) * d.length);
+        for (let i = s0; i < s0 + step && i < d.length; i += 2) m = Math.max(m, Math.abs(d[i]));
+        g.fillRect(x, H / 2 - m * H * 0.48, 1, Math.max(1, m * H * 0.96));
+      }
+      const secs = (n) => (n / sr).toFixed(2) + ' s';
+      info.textContent = secs(len()) + (sel ? ', ' + t('selection ') + secs(sel[0]) + ' to ' + secs(sel[1]) : ', ' + t('drag to select'));
+    }
+    attachPointer(cv, {
+      down(p, st) { st.a = sAt(p.x); },
+      tap() { sel = null; draw(); },
+      dragMove(p, st) { const b = sAt(p.x); sel = [Math.min(st.a, b), Math.max(st.a, b)]; draw(); },
+    });
+    fitCanvas(cv, (w, hh, r) => { W = w; H = hh; dpr = r; g = cv.getContext('2d'); draw(); });
+    const op = (name, ...args) => () => {
+      const [a, b] = sel || [0, len()];
+      if (b - a < 2) return;
+      history.push(chs);
+      chs = EDITS[name](chs, a, b, ...args);
+      if (name === 'cut' || name === 'trim') sel = null;
+      draw();
+    };
+    const b = (label, fn) => h('button', { class: 'b tb', type: 'button', onClick: fn }, label);
+    const play = async () => {
+      engine.init();
+      const ab = engine.ctx.createBuffer(chs.length, len(), sr);
+      chs.forEach((c, i) => ab.copyToChannel(c, i));
+      const [a, z] = sel || [0, len()];
+      const s = engine.ctx.createBufferSource();
+      s.buffer = ab;
+      s.connect(engine.ctx.destination);
+      s.start(0, a / sr, (z - a) / sr);
+    };
+    const save = async () => {
+      const bytes = encodeWav(chs, sr, 16);
+      const name = (clip.name || 'Sample').replace(/ \(edit\)$/, '') + ' (edit)';
+      const id = await addSample(name, 'Edits', bytes);
+      const rate = Math.pow(2, (clip.pitch || 0) / 12);
+      const spt = 60 / (store.project.bpm * 96);
+      store.change(() => {
+        clip.sampleId = id;
+        clip.name = name;
+        clip.len = Math.max(1, Math.round(len() / sr / rate / spt));
+        delete clip.offset;
+      });
+      hint(t('Saved as a new sample: ') + name);
+      m.close();
+    };
+    const m = openModal({
+      title: t('Edit audio: ') + (clip.name || ''),
+      wide: true,
+      body: h('div', { class: 'auto-ed' },
+        h('div', { class: 'set-inline' }, info),
+        wrap,
+        h('div', { class: 'set-actions' },
+          b(t('Play'), play), b(t('Cut'), op('cut')), b(t('Trim to selection'), op('trim')), b(t('Silence'), op('silence')),
+          b('+3 dB', op('gain', 3)), b('-3 dB', op('gain', -3)), b(t('Fade in'), op('fadeIn')), b(t('Fade out'), op('fadeOut')),
+          b(t('Reverse'), op('reverse')), b(t('Normalize'), op('normalize')),
+          b(t('Undo'), () => { if (history.length) { chs = history.pop(); draw(); } }),
+        ),
+        h('p', { class: 'set-note' }, t('Without a selection, an edit applies to the whole sample. Save keeps the original sample in the browser.')),
+      ),
+      actions: [{ label: t('Cancel') }, { label: t('Save'), primary: true, onClick: () => { save(); return false; } }],
+    });
+  })();
+}
+
+// Time stretch of an audio clip to a new tempo, keeping the pitch. Stored as a new sample.
+export async function stretchClip(clip, factor, label) {
+  const buf = getBuffer(clip.sampleId) || (await loadBuffer(clip.sampleId));
+  if (!buf) return hint(t('Sample missing on this device'));
+  const m = openModal({ title: t('Time stretch'), body: h('p', null, t('Processing...')), actions: [] });
+  await new Promise((r) => setTimeout(r, 30));
+  const chs = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
+  const out = timeStretch(chs, buf.sampleRate, factor);
+  const name = (clip.name || 'Sample') + ' (' + label + ')';
+  const id = await addSample(name, 'Edits', encodeWav(out, buf.sampleRate, 16));
+  store.change(() => {
+    clip.sampleId = id;
+    clip.name = name;
+    clip.len = Math.max(1, Math.round((clip.len || 1) * factor));
+    if (clip.offset) clip.offset = Math.round(clip.offset * factor);
+  });
+  m.close();
+  hint(t('Stretched: ') + name);
+}
+
+export async function clipBpm(clip) {
+  const buf = getBuffer(clip.sampleId) || (await loadBuffer(clip.sampleId));
+  if (!buf) return 0;
+  return detectBpm(buf.getChannelData(0), buf.sampleRate);
 }

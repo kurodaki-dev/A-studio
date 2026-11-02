@@ -1,4 +1,6 @@
 import { openFxDialog } from './fxDialog.js';
+import { openMeterDialog } from './meterDialog.js';
+import { btn } from './dom.js';
 import { h, promptText, openMenu } from './dom.js';
 import { knob, fader, led } from './controls.js';
 import { store } from '../store.js';
@@ -15,7 +17,7 @@ const dbText = (v) => {
 export function createMixer(engine, onShowPlugins) {
   const strips = h('div', { class: 'mixer-strips' });
   const el = h('div', { class: 'panel mixer' },
-    h('div', { class: 'ptools' }, h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Mixer'), h('span', { class: 'rack-info' }, t('Drag vertically to adjust, double tap to reset')))),
+    h('div', { class: 'ptools' }, h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Mixer'), h('span', { class: 'rack-info' }, t('Drag vertically to adjust, double tap to reset'))), h('div', { class: 'grp' }, btn('Activity', t('Master: spectrum and loudness'), () => openMeterDialog(engine, 0)))),
     h('div', { class: 'mixer-scroll' }, strips),
   );
   let items = [];
