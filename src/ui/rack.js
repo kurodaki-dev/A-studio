@@ -132,16 +132,16 @@ export function createRack(engine, actions) {
       });
       const ins = h('button', { class: 'rack-ins', type: 'button', title: t('Mixer insert'), onClick: (e) => insertMenu(e.currentTarget, c) }, c.insert === 0 ? 'M' : String(c.insert));
       const missing = c.instrument === 'sampler' && !getSampleMeta(c.sample);
-      // Tap: channel menu. Double tap: channel settings window, like FL Studio. The menu
+      // Tap: channel menu. Double tap: piano roll of the channel. The menu
       // waits a moment so the second tap of a double tap does not land on it.
       let tapTimer = null;
-      const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: (missing ? t('Sample missing on this device') : instrumentName(c.instrument)) + '. ' + t('Double tap: channel settings'), onClick: (e) => {
+      const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: (missing ? t('Sample missing on this device') : instrumentName(c.instrument)) + '. ' + t('Double tap: piano roll'), onClick: (e) => {
         const anchor = e.currentTarget;
         if (tapTimer) {
           clearTimeout(tapTimer);
           tapTimer = null;
           closeMenu();
-          actions.channelSettings(c.id);
+          actions.openPianoRoll(c.id);
           return;
         }
         tapTimer = setTimeout(() => {

@@ -916,7 +916,7 @@ export default {
   "Repair clipping (saturated audio)": "Réparer la saturation (clipping)",
   "Clipping repaired": "Saturation réparée",
   "Spectrum view": "Vue spectre",
-  "Double tap: channel settings": "Double tap : réglages du canal",
+  "Double tap: piano roll": "Double tap : piano roll",
   "The channel now plays the sample of its sound. Cut it in the waveform.": "Le canal joue maintenant le sample de son son. Coupe-le dans la forme d'onde.",
   "Sample waveform": "Forme d'onde du sample",
   "Loading the sample...": "Chargement du sample...",
