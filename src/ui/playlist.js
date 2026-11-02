@@ -27,7 +27,18 @@ const SNAPS = [
   { id: 'step', label: t('Step'), ticks: STEP },
 ];
 
-export function createPlaylist(engine) {
+export function createPlaylist(engine, actions) {
+  // Last tap on a pattern clip or a track name, to open the piano roll on a double tap.
+  let lastClipTap = { clip: null, at: 0 };
+
+  // Piano roll of a pattern, on its first channel with notes.
+  function openPatternPiano(patternId) {
+    const proj = store.project;
+    if (patternId) proj.currentPattern = patternId;
+    const pat = getPattern(proj, proj.currentPattern);
+    const ch = proj.channels.find((c) => pat && pat.notes[c.id] && pat.notes[c.id].length) || proj.channels.find((c) => c.id === ui.prChannel) || proj.channels[0];
+    if (actions && ch) actions.openPianoRoll(ch.id);
+  }
   const cv = h('canvas', { class: 'cv', 'aria-label': 'Playlist' });
   // Playhead layer, redrawn alone while the song plays.
   const headCv = h('canvas', { class: 'cv cv-head', 'aria-hidden': 'true' });
@@ -765,6 +776,17 @@ export function createPlaylist(engine) {
       if (st.region === 'head') {
         const tr = trackAt(p.y);
         const t = store.project.playlist.tracks[tr];
+        // Double tap on a track name: piano roll of the first pattern on that track
+        // (the mute toggled by the first tap is put back).
+        const now = performance.now();
+        if (lastClipTap.clip === 'track' + tr && now - lastClipTap.at < 450) {
+          lastClipTap = { clip: null, at: 0 };
+          if (t) store.change(() => { t.mute = !t.mute; });
+          const first = store.project.playlist.clips.filter((c) => c.track === tr && c.patternId && !c.type).sort((a, b) => a.start - b.start)[0];
+          openPatternPiano(first && first.patternId);
+          return;
+        }
+        lastClipTap = { clip: 'track' + tr, at: now };
         if (t) store.change(() => { t.mute = !t.mute; });
         return;
       }
@@ -791,6 +813,14 @@ export function createPlaylist(engine) {
       } else if (hit && hit.c.type === 'audio') {
         engine.previewSample(hit.c.sampleId);
       } else if (hit) {
+        // Double tap on a pattern clip: its piano roll, on the first channel with notes.
+        const now = performance.now();
+        if (lastClipTap.clip === hit.c && now - lastClipTap.at < 450) {
+          lastClipTap = { clip: null, at: 0 };
+          openPatternPiano(hit.c.patternId);
+          return;
+        }
+        lastClipTap = { clip: hit.c, at: now };
         store.project.currentPattern = hit.c.patternId;
         hint(t('Selected pattern: ') + getPattern(store.project, hit.c.patternId).name);
         store.emit();
