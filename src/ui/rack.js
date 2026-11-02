@@ -400,7 +400,7 @@ export function createRack(engine, actions) {
     },
     frame() {
       let cur = -1;
-      if (engine.playing && !ui.songMode) cur = Math.floor(engine.position() / STEP);
+      if (engine.playing && !ui.songMode) cur = Math.floor(engine.heardPosition() / STEP);
       if (cur === lastStep) return;
       lastStep = cur;
       for (const r of rows) {

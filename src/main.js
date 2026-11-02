@@ -786,7 +786,7 @@ function refreshToolbar() {
   recBtn.classList.toggle('on', ui.recording || !!audioRec);
   setText(tempoVal, p.bpm.toFixed(3));
   setText(patName, currentPattern(p).name);
-  setText(timeVal, fmtTime(engine.position()));
+  setText(timeVal, fmtTime(engine.heardPosition()));
   if (undoBtn.disabled !== !store.undoStack.length) undoBtn.disabled = !store.undoStack.length;
   if (redoBtn.disabled !== !store.redoStack.length) redoBtn.disabled = !store.redoStack.length;
 }
