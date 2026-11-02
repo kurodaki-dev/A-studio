@@ -1,6 +1,6 @@
 import './style.css';
 import { h, btn, icon, hint, bindHint, openMenu, openModal, promptText, confirmBox, alertBox, closeMenu } from './ui/dom.js';
-import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject } from './store.js';
+import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject, notesFor } from './store.js';
 import { ui } from './ui-state.js';
 import { Engine, renderWav } from './audio/engine.js';
 import { createRack } from './ui/rack.js';
@@ -13,7 +13,8 @@ import { initSamples, onSamplesChange, getSampleMeta, getBuffer, loadBuffer } fr
 import { openChannelSettings } from './ui/channelSettings.js';
 import { loadCurrent, saveCurrent, saveProject, loadProject, listProjects } from './persist.js';
 import { saveFile, pickFile } from './platform.js';
-import { BAR, STEP, clamp } from './constants.js';
+import { BAR, STEP, NKEYS, clamp } from './constants.js';
+import { createExtensionHost } from './extensions.js';
 import { APP_VERSION } from './version.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled } from './update.js';
 import { t, locale, lang } from './i18n.js';
@@ -123,7 +124,8 @@ const railBtns = railDefs.map(([id, ic, label]) => {
   return b;
 });
 const browserBtn = h('button', { class: 'rail-btn', type: 'button', title: t('Browser (F8)'), 'aria-label': t('Browser'), onClick: () => setSidebar(!ui.sidebar) }, icon('FolderOpen', 20), h('span', null, t('Browser')));
-const rail = h('nav', { class: 'rail' }, browserBtn, h('div', { class: 'rail-sep' }), railBtns);
+const extRail = h('div', { class: 'ext-rail' });
+const rail = h('nav', { class: 'rail' }, browserBtn, h('div', { class: 'rail-sep' }), railBtns, extRail);
 const stage = h('main', { class: 'stage' }, Object.values(panels).map((p) => p.el));
 const body = h('div', { class: 'body' }, rail, sidebar.el, stage);
 document.getElementById('app').append(topbar, body);
@@ -136,10 +138,132 @@ function setSidebar(on) {
 setSidebar(window.innerWidth >= 900);
 
 function showPanel(id) {
+  if (!panels[id]) id = 'rack';
   ui.panel = id;
   for (const [k, p] of Object.entries(panels)) p.el.classList.toggle('active', k === id);
-  railBtns.forEach((b) => b.classList.toggle('on', b.dataset.panel === id));
+  [...railBtns, ...extRail.children].forEach((b) => b.classList.toggle('on', b.dataset.panel === id));
   panels[id].update();
+}
+
+// Interface extensions: buttons in the top bar, panels in the rail, menu items.
+const extBar = h('div', { class: 'tgrp ext-bar' });
+topbar.insertBefore(extBar, hintEl);
+const extRuntime = h('div', { class: 'ext-host', 'aria-hidden': 'true' });
+document.body.append(extRuntime);
+const extMounted = new Map(); // panel key -> rail button
+
+function extState() {
+  const pos = engine.position();
+  return { playing: engine.playing, bpm: store.project.bpm, mode: ui.songMode ? 'song' : 'pattern', position: Math.round(pos), bar: Math.floor(pos / BAR) + 1, step: Math.floor((pos % BAR) / STEP) + 1 };
+}
+
+const findChannel = (ref) => store.project.channels.find((c) => c.id === ref || c.name === ref);
+
+const extHost = createExtensionHost({
+  runtimeHost: extRuntime,
+  actions: {
+    play() {
+      if (!engine.playing) togglePlay();
+      return true;
+    },
+    stop() {
+      stop();
+      return true;
+    },
+    toggle() {
+      togglePlay();
+      return engine.playing;
+    },
+    setTempo(v) {
+      if (!Number.isFinite(v)) throw new Error('Tempo must be a number');
+      setBpm(v);
+      return store.project.bpm;
+    },
+    setMode(song) {
+      setSongMode(song);
+      return song ? 'song' : 'pattern';
+    },
+    state: () => extState(),
+    projectSummary() {
+      const p = store.project;
+      return {
+        name: p.name,
+        bpm: p.bpm,
+        stepsPerBar: BAR / STEP,
+        currentPattern: p.currentPattern,
+        patterns: p.patterns.map((x) => ({ id: x.id, name: x.name })),
+        channels: p.channels.map((c) => ({ id: c.id, name: c.name, instrument: c.instrument })),
+      };
+    },
+    // Notes: { channel (id or name), step, length in steps, key (60 = C5), velocity 0 to 1 }
+    addNotes(list) {
+      let added = 0;
+      store.change((p) => {
+        const pat = currentPattern(p);
+        for (const n of list) {
+          if (!n || typeof n !== 'object') continue;
+          const c = p.channels.find((x) => x.id === n.channel || x.name === n.channel);
+          const step = Number(n.step);
+          if (!c || !Number.isFinite(step) || step < 0 || step > 4096) continue;
+          const len = Number.isFinite(Number(n.length)) ? Number(n.length) : 1;
+          const key = Number.isFinite(Number(n.key)) ? Math.round(Number(n.key)) : 60;
+          const vel = Number.isFinite(Number(n.velocity)) ? Number(n.velocity) : 0.78;
+          notesFor(pat, c.id).push({ t: Math.round(step * STEP), len: Math.max(1, Math.round(clamp(len, 0.05, 1024) * STEP)), key: clamp(key, 0, NKEYS - 1), vel: clamp(vel, 0, 1) });
+          added += 1;
+        }
+      });
+      return added;
+    },
+    clearNotes(ref) {
+      store.change((p) => {
+        const pat = currentPattern(p);
+        if (ref == null) pat.notes = {};
+        else {
+          const c = findChannel(ref);
+          if (c) pat.notes[c.id] = [];
+        }
+      });
+      return true;
+    },
+    selectPattern(ref) {
+      const pat = store.project.patterns.find((x) => x.id === ref || x.name === ref);
+      if (!pat) throw new Error('Unknown pattern');
+      store.project.currentPattern = pat.id;
+      store.emit();
+      return pat.id;
+    },
+    hint(text) {
+      hint(text);
+      return true;
+    },
+    extensionsUiChanged: () => syncExtensionUi(),
+    openPanel: (key) => showPanel(key),
+    extensionError: (p, msg) => alertBox(t('Extension error'), p.name + ': ' + msg),
+  },
+});
+
+function syncExtensionUi() {
+  extBar.replaceChildren(...extHost.buttons().map((b) => h('button', { class: 'b tb ext-btn', type: 'button', title: b.label, onClick: b.onClick }, b.icon ? icon(b.icon) : null, h('span', null, b.label))));
+  const panelsNow = new Map(extHost.panels().map((p) => ['ext:' + p.key, p]));
+  for (const [key, btnEl] of extMounted) {
+    if (!panelsNow.has(key) || panels[key].iframe !== panelsNow.get(key).frame) {
+      panels[key].el.remove();
+      btnEl.remove();
+      delete panels[key];
+      extMounted.delete(key);
+    }
+  }
+  for (const [key, p] of panelsNow) {
+    if (extMounted.has(key)) continue;
+    const el = h('div', { class: 'panel ext-panel' }, h('div', { class: 'ptools' }, h('div', { class: 'grp' }, icon('Puzzle', 16), h('span', { class: 'ptitle' }, p.title))), h('div', { class: 'ext-wrap' }, p.frame));
+    stage.append(el);
+    panels[key] = { el, iframe: p.frame, update() {} };
+    const b = h('button', { class: 'rail-btn', type: 'button', title: p.title, 'aria-label': p.title, onClick: () => showPanel(key) }, icon(p.icon || 'Puzzle', 20), h('span', null, p.title));
+    b.dataset.panel = key;
+    extRail.append(b);
+    extMounted.set(key, b);
+  }
+  if (!panels[ui.panel]) showPanel('rack');
 }
 
 // Tempo drag
@@ -412,6 +536,8 @@ function mainMenu(anchor) {
     { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine }) },
     ...(updatesSupported() ? [{ label: t('Check for updates'), icon: 'Download', onClick: () => checkForUpdate({ silent: false }) }] : []),
     { sep: true },
+    ...(extHost.menuItems().length ? [{ sep: true }, ...extHost.menuItems().map((m) => ({ label: m.label, icon: m.icon || 'Puzzle', onClick: m.onClick }))] : []),
+    { sep: true },
     { label: t('Documentation'), icon: 'BookOpen', onClick: () => openExternal(DOCS_URL) },
     { label: t('Report a bug'), icon: 'Bug', onClick: () => openExternal(bugReportUrl()) },
     { label: t('Request a feature'), icon: 'Lightbulb', onClick: () => openExternal(featureRequestUrl()) },
@@ -426,6 +552,7 @@ function mainMenu(anchor) {
 // A theme or plugin was installed, removed or selected.
 function extensionsChanged() {
   sidebar.refresh();
+  extHost.reload();
   engine.preloadPlugins();
   dirty = true;
   for (const p of Object.values(panels)) if (p.redrawMinis) p.redrawMinis();
@@ -462,7 +589,19 @@ window.addEventListener('visibilitychange', () => {
 });
 
 let lastTime = '';
+let lastState = '';
+let lastStateAt = 0;
 function frame() {
+  const now = performance.now();
+  if (now - lastStateAt > 150) {
+    lastStateAt = now;
+    const st = extState();
+    const json = JSON.stringify(st);
+    if (json !== lastState) {
+      lastState = json;
+      extHost.broadcast(st);
+    }
+  }
   if (dirty) {
     dirty = false;
     refreshToolbar();
@@ -505,6 +644,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 showPanel('rack');
+extHost.reload();
 requestAnimationFrame(frame);
 
 if (updatesSupported() && autoCheckEnabled()) setTimeout(() => checkForUpdate({ silent: true }), 3000);

@@ -228,3 +228,40 @@ test('the effect example from the documentation works as published', () => {
   const { blocks } = runEffect(p, paramValues(p, {}), input);
   assert.ok(Math.abs(blocks[0][0][0] - Math.tanh(3.6)) < 1e-6);
 });
+
+test('extension header: type, permissions, no audio requirement', async () => {
+  const { EXTENSION_TEMPLATE } = await import('../src/ui/pluginEditor.js');
+  const p = parsePlugin(EXTENSION_TEMPLATE);
+  assert.equal(p.type, 'extension');
+  assert.deepEqual(p.permissions, ['ui', 'transport']);
+  const tools = parsePlugin(ex('beat-tools.astudio-plugin.js'));
+  assert.deepEqual(tools.permissions, ['ui', 'transport', 'project-read', 'project-write']);
+  const odd = parsePlugin('/* @astudio-plugin\n * @id odd\n * @name Odd\n * @type extension\n * @permissions ui, root, project-write\n */ astudio.ui.hint("x")');
+  assert.deepEqual(odd.permissions, ['ui', 'project-write']);
+});
+
+test('every API method of the extension bootstrap has a permission', async () => {
+  const { BOOTSTRAP, METHOD_PERMISSION } = await import('../src/extensions.js');
+  const used = [...BOOTSTRAP.matchAll(/call\('([a-zA-Z.]+)'/g)].map((m) => m[1]);
+  const viaClick = [...BOOTSTRAP.matchAll(/withClick\('([a-zA-Z.]+)'\)/g)].map((m) => m[1]);
+  const all = new Set([...used, ...viaClick]);
+  assert.ok(all.size >= 14);
+  for (const m of all) assert.ok(METHOD_PERMISSION[m], m);
+});
+
+test('extension frame documents cannot be closed early by the plugin code', async () => {
+  const { frameDoc } = await import('../src/extensions.js');
+  const doc = frameDoc('const s = "</script><script>alert(1)</script>";', '<p>hi</p>');
+  assert.equal((doc.match(/<\/script>/g) || []).length, 2, 'only the bootstrap and plugin scripts close');
+  assert.ok(doc.includes('<\\/script><script>alert(1)<\\/script>'));
+});
+
+test('the extension example from the documentation parses as published', () => {
+  const html = readFileSync(new URL('../public/doc/index.html', import.meta.url), 'utf8');
+  const block = /<h3 id="extensions">Extensions<\/h3>[\s\S]*?<pre><code>([\s\S]*?)<\/code><\/pre>/.exec(html)[1];
+  const code = block.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const p = parsePlugin(code);
+  assert.equal(p.type, 'extension');
+  assert.deepEqual(p.permissions, ['ui', 'transport']);
+  new Function('astudio', code); // valid JavaScript
+});

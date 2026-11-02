@@ -444,7 +444,7 @@ export class Engine {
   // Load every installed plugin into the audio thread so the first note plays.
   preloadPlugins() {
     if (!this.ctx) return;
-    for (const p of allPlugins()) loadPluginModule(this.ctx, p);
+    for (const p of allPlugins()) if (p.type !== 'extension') loadPluginModule(this.ctx, p);
   }
 
   // Channel outside the project used to preview an instrument, routed to the master.

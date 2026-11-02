@@ -66,9 +66,10 @@ Import audio files (WAV, MP3, OGG, FLAC, M4A, AIFF) or whole ZIP sample packs fr
 Install both from **Menu, Plugins and themes**.
 
 - **Plugins** are JavaScript files. **Instruments** compute their own samples for every note; **effects** process a mixer insert (4 FX slots per insert). Controls are declared in the header: knobs, switches, choice lists and buttons. Write, test and export plugins on the phone with the built in editor. The code runs isolated in the audio thread (AudioWorklet), without access to the interface, storage, files or network; a crashing voice or effect is contained without taking the app down.
+- **Extensions** change the interface itself: add buttons to the top bar (a Play button, for example), menu items and whole panels with your own HTML interface, drive playback and write notes. They run in an isolated frame and can only use the permissions declared in their header.
 - **Themes** are JSON files that change the interface and editor colors, with hex values only.
 
-The plugin API, the theme format and ready to install examples (Poly Synth, Stereo Delay, Bitcrusher, Supersaw, FM Bell, Noise Snare) are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
+The plugin API, the theme format and ready to install examples (Beat Tools, Poly Synth, Stereo Delay, Bitcrusher, Supersaw, FM Bell, Noise Snare) are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
 
 ## Updates
 
@@ -111,6 +112,7 @@ src/
   ui/           channel rack, piano roll, playlist, mixer, browser, settings, controls
   locales/      translations (English is the source language)
   plugins.js    code plugins: header parsing and the AudioWorklet host
+  extensions.js interface extensions: sandboxed frames and the astudio API
   themes.js     themes
   samples.js    sample storage (IndexedDB) and ZIP import
 public/
