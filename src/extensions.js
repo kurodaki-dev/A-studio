@@ -8,6 +8,17 @@ import { pluginExtensions } from './plugins.js';
 
 const MAX_HTML = 200 * 1024;
 const MAX_STORAGE = 100 * 1024;
+const MAX_MESSAGE = 1024 * 1024;
+let socketIds = 0;
+
+function settingsGet(ext) {
+  try {
+    const o = JSON.parse(localStorage.getItem('astudio:extset:' + ext.plugin.id) || '{}');
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
 const STORAGE_PREFIX = 'astudio:ext:';
 
 function storageGet(ext) {
@@ -26,6 +37,8 @@ export const BOOTSTRAP = `(() => {
   const clicks = new Map();
   const stateListeners = [];
   const projectListeners = [];
+  const settingsListeners = [];
+  const netListeners = new Map();
   const call = (method, ...args) => new Promise((resolve, reject) => {
     const id = ++next;
     pending.set(id, { resolve, reject });
@@ -48,6 +61,11 @@ export const BOOTSTRAP = `(() => {
       for (const f of stateListeners) { try { f(m.data); } catch (err) { console.error(err); } }
     } else if (m.event === 'project') {
       for (const f of projectListeners) { try { f(m.data); } catch (err) { console.error(err); } }
+    } else if (m.event === 'settings') {
+      for (const f of settingsListeners) { try { f(m.data); } catch (err) { console.error(err); } }
+    } else if (m.event === 'net') {
+      const f = netListeners.get(m.data.id);
+      if (f) { try { f(m.data); } catch (err) { console.error(err); } }
     }
   });
   addEventListener('error', (e) => parent.postMessage({ __astudio: 1, method: 'error', args: [String(e.message)] }, '*'));
@@ -68,6 +86,8 @@ export const BOOTSTRAP = `(() => {
     project: Object.freeze({
       get: () => call('project.get'),
       getNotes: (channel) => call('project.getNotes', channel),
+      addChannel: (instrument, name) => call('project.addChannel', instrument, name),
+      instruments: () => call('project.instruments'),
       setNotes: (channel, notes) => call('project.setNotes', channel, notes),
       addNotes: (notes) => call('project.addNotes', notes),
       clearNotes: (channel) => call('project.clearNotes', channel),
@@ -84,6 +104,24 @@ export const BOOTSTRAP = `(() => {
     audio: Object.freeze({
       playNote: (options) => call('audio.playNote', options),
     }),
+    settings: Object.freeze({
+      addSection: (options) => call('settings.addSection', options),
+      get: () => call('settings.get'),
+      set: (id, value) => call('settings.set', id, value),
+    }),
+    net: Object.freeze({
+      // Opens a WebSocket to a ws:// or wss:// address. onEvent receives
+      // { type: 'open' | 'message' | 'close' | 'error', data }.
+      connect: async (url, onEvent) => {
+        const id = await call('net.connect', url);
+        if (typeof onEvent === 'function') netListeners.set(id, onEvent);
+        return Object.freeze({
+          id,
+          send: (text) => call('net.send', id, String(text)),
+          close: () => { netListeners.delete(id); return call('net.close', id); },
+        });
+      },
+    }),
     storage: Object.freeze({
       get: (key) => call('storage.get', key),
       set: (key, value) => call('storage.set', key, value),
@@ -94,6 +132,7 @@ export const BOOTSTRAP = `(() => {
       if (typeof fn !== 'function') return;
       if (event === 'state') stateListeners.push(fn);
       else if (event === 'project') projectListeners.push(fn);
+      else if (event === 'settings') settingsListeners.push(fn);
     },
   });
 })();`;
@@ -119,6 +158,14 @@ export const METHOD_PERMISSION = {
   'transport.getState': 'transport',
   'project.get': 'project-read',
   'project.getNotes': 'project-read',
+  'project.instruments': 'project-read',
+  'project.addChannel': 'project-write',
+  'settings.addSection': 'ui',
+  'settings.get': 'ui',
+  'settings.set': 'ui',
+  'net.connect': 'network',
+  'net.send': 'network',
+  'net.close': 'network',
   'project.setNotes': 'project-write',
   'ui.addShortcut': 'ui',
   'audio.playNote': 'audio',
@@ -173,6 +220,60 @@ export function createExtensionHost(app) {
       case 'transport.getState': return app.actions.state();
       case 'project.get': return app.actions.projectSummary();
       case 'project.getNotes': return app.actions.getNotes(a[0]);
+      case 'project.instruments': return app.actions.instruments();
+      case 'project.addChannel': return app.actions.addChannel(str(a[0], 60), str(a[1], 40));
+      case 'settings.addSection': {
+        const o = a[0] || {};
+        const fields = (Array.isArray(o.fields) ? o.fields : []).slice(0, 12).map((f) => ({
+          id: str(f && f.id, 40),
+          type: ['text', 'password', 'toggle', 'button', 'info'].includes(f && f.type) ? f.type : 'text',
+          label: str(f && f.label, 60),
+          placeholder: str(f && f.placeholder, 80),
+          value: f && f.value !== undefined ? f.value : f && f.type === 'toggle' ? false : '',
+        })).filter((f) => ITEM_ID.test(f.id));
+        ext.settings = { title: str(o.title, 40) || ext.plugin.name, description: str(o.description, 300), fields };
+        const saved = settingsGet(ext);
+        for (const f of fields) if (f.type !== 'button' && f.type !== 'info' && !(f.id in saved)) saved[f.id] = f.value;
+        ext.settingValues = saved;
+        app.actions.extensionSettingsChanged();
+        return true;
+      }
+      case 'settings.get': return { ...(ext.settingValues || settingsGet(ext)) };
+      case 'settings.set': {
+        if (!ext.settings) throw new Error('Call settings.addSection first');
+        const f = ext.settings.fields.find((x) => x.id === str(a[0], 40));
+        if (!f) throw new Error('Unknown setting');
+        setSetting(ext, f, a[1], false);
+        return true;
+      }
+      case 'net.connect': {
+        const url = str(a[0], 300);
+        if (!/^wss?:\/\/[^\s/]+(\/[^\s]*)?$/i.test(url)) throw new Error('Only ws:// and wss:// addresses are allowed');
+        if (ext.sockets.size >= 2) throw new Error('Two connections at most per extension');
+        const id = ++socketIds;
+        const ws = new WebSocket(url);
+        ext.sockets.set(id, ws);
+        const send = (type, data) => post(ext.frame, { event: 'net', data: { id, type, data } });
+        ws.onopen = () => send('open');
+        ws.onmessage = (e) => send('message', typeof e.data === 'string' ? e.data.slice(0, MAX_MESSAGE) : '');
+        ws.onerror = () => send('error', 'Connection error');
+        ws.onclose = (e) => {
+          ext.sockets.delete(id);
+          send('close', e.code);
+        };
+        return id;
+      }
+      case 'net.send': {
+        const ws = ext.sockets.get(Number(a[0]));
+        if (!ws || ws.readyState !== 1) throw new Error('Not connected');
+        ws.send(String(a[1]).slice(0, MAX_MESSAGE));
+        return true;
+      }
+      case 'net.close': {
+        const ws = ext.sockets.get(Number(a[0]));
+        if (ws) ws.close();
+        return true;
+      }
       case 'project.setNotes': return app.actions.setNotes(a[0], Array.isArray(a[1]) ? a[1].slice(0, 4096) : []);
       case 'audio.playNote': return app.actions.playNote(a[0] || {});
       case 'storage.get': return storageGet(ext)[str(a[0], 100)] ?? null;
@@ -259,12 +360,33 @@ export function createExtensionHost(app) {
 
   function start(plugin) {
     const frame = makeFrame(frameDoc(plugin.code), true);
-    const ext = { plugin, frame, frames: new Set([frame]), buttons: new Map(), menu: new Map(), panels: new Map(), shortcuts: new Map() };
+    const ext = { plugin, frame, frames: new Set([frame]), buttons: new Map(), menu: new Map(), panels: new Map(), shortcuts: new Map(), sockets: new Map(), settings: null, settingValues: null };
     running.set(plugin.id, ext);
     app.runtimeHost.append(frame);
   }
 
+  // A setting changed, from the Settings window (fromUser) or from the extension.
+  function setSetting(ext, f, value, fromUser) {
+    if (f.type === 'button') {
+      if (fromUser) post(ext.frame, { event: 'settings', data: { id: f.id, value: null, values: { ...ext.settingValues }, button: true } });
+      return;
+    }
+    const v = f.type === 'toggle' ? !!value : str(String(value ?? ''), 500);
+    if (f.type === 'info') f.value = v;
+    else {
+      ext.settingValues[f.id] = v;
+      try {
+        localStorage.setItem('astudio:extset:' + ext.plugin.id, JSON.stringify(ext.settingValues));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (fromUser) post(ext.frame, { event: 'settings', data: { id: f.id, value: v, values: { ...ext.settingValues } } });
+    else app.actions.extensionSettingsChanged();
+  }
+
   function stopAll() {
+    for (const ext of running.values()) for (const ws of ext.sockets.values()) ws.close();
     for (const ext of running.values()) for (const f of ext.frames) f.remove();
     running.clear();
   }
@@ -280,6 +402,22 @@ export function createExtensionHost(app) {
     menuItems: () => [...running.values()].flatMap((x) => [...x.menu.values()]),
     panels: () => [...running.values()].flatMap((x) => [...x.panels.values()]),
     shortcuts: () => [...running.values()].flatMap((x) => [...x.shortcuts.values()]),
+    // Settings sections declared by extensions, for the Settings window.
+    settingsSections: () =>
+      [...running.values()]
+        .filter((x) => x.settings)
+        .map((x) => ({
+          id: x.plugin.id,
+          plugin: x.plugin.name,
+          title: x.settings.title,
+          description: x.settings.description,
+          fields: x.settings.fields.map((f) => ({ ...f, value: f.type === 'info' || f.type === 'button' ? f.value : x.settingValues[f.id] })),
+        })),
+    changeSetting(extId, fieldId, value) {
+      const ext = running.get(extId);
+      const f = ext && ext.settings && ext.settings.fields.find((x) => x.id === fieldId);
+      if (f) setSetting(ext, f, value, true);
+    },
     broadcastProject(data) {
       for (const ext of running.values()) {
         if (!ext.plugin.permissions.includes('project-read')) continue;

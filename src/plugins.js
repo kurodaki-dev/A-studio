@@ -28,7 +28,7 @@ const CONTROL_RES = [
 ];
 export const MAX_CONTROLS = 12;
 // What an extension may do, declared with @permissions in its header.
-export const PERMISSIONS = ['ui', 'transport', 'project-read', 'project-write', 'audio', 'storage'];
+export const PERMISSIONS = ['ui', 'transport', 'project-read', 'project-write', 'audio', 'storage', 'network'];
 
 function parseControls(head) {
   const out = [];
@@ -189,6 +189,7 @@ export function removePlugin(id) {
   cache = cache.filter((x) => x.id !== id);
   try {
     localStorage.removeItem('astudio:ext:' + id);
+    localStorage.removeItem('astudio:extset:' + id);
   } catch {
     /* ignore */
   }

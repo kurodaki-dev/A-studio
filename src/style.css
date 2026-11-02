@@ -615,3 +615,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .preset-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0 2px; }
 .cat-tabs { margin-top: 0; }
 .cat-item .cat-desc { color: var(--text); opacity: 0.8; white-space: normal; }
+.ext-set h3 { flex-wrap: wrap; }
+.ext-set-from { margin-left: auto; color: var(--dim); font-weight: 400; font-size: 11px; }
+.ext-set-input { flex: 1; min-width: 200px; max-width: 360px; }
+.ext-set-info { color: var(--text); font-size: 13px; }

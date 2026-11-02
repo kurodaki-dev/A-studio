@@ -2,6 +2,14 @@
   "version": 1,
   "plugins": [
     {
+      "id": "ai-connect",
+      "name": "AI Connect (MCP)",
+      "type": "extension",
+      "author": "A Studio",
+      "description": "Connects A Studio to an AI assistant (Claude, Cursor...) through the astudio-mcp server: the AI can read the project, write notes, add channels and play. Adds an AI connection section in Settings.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/ai-connect.astudio-plugin.js"
+    },
+    {
       "id": "beat-tools",
       "name": "Beat Tools",
       "type": "extension",

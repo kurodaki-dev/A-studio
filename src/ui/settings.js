@@ -12,7 +12,40 @@ import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
 import { APP_VERSION } from '../version.js';
 
 // Settings window. section: 'general' | 'extensions' scrolls to that part.
-export function openSettings({ section = 'general', onExtensionsChange, engine } = {}) {
+// Re-render the open Settings window (an extension changed one of its settings).
+let openRender = null;
+export function refreshOpenSettings() {
+  if (openRender) openRender();
+}
+
+// One block per extension that declared settings with astudio.settings.addSection.
+function extensionSections(extHost) {
+  if (!extHost) return [];
+  return extHost.settingsSections().map((sec) =>
+    h('section', { class: 'set-sec ext-set', id: 'set-ext-' + sec.id },
+      h('h3', null, icon('Puzzle', 16), sec.title, h('small', { class: 'ext-set-from' }, sec.plugin)),
+      sec.description ? h('p', { class: 'set-note' }, sec.description) : null,
+      sec.fields.map((f) => {
+        const change = (v) => extHost.changeSetting(sec.id, f.id, v);
+        if (f.type === 'toggle') {
+          return h('div', { class: 'set-row' }, h('div', { class: 'set-label' }, h('span', null, f.label)),
+            h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: !!f.value, onChange: (e) => change(e.target.checked) }), h('span', null, f.value ? t('On') : t('Off'))));
+        }
+        if (f.type === 'button') {
+          return h('div', { class: 'set-row' }, h('div', { class: 'set-label' }, h('span', null, f.label)),
+            h('button', { class: 'b tb', type: 'button', onClick: () => change(null) }, f.label));
+        }
+        if (f.type === 'info') {
+          return h('div', { class: 'set-row' }, h('div', { class: 'set-label' }, h('span', null, f.label)), h('span', { class: 'ext-set-info' }, String(f.value || '')));
+        }
+        const input = h('input', { class: 'input', type: f.type === 'password' ? 'password' : 'text', value: String(f.value || ''), placeholder: f.placeholder, autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', 'aria-label': f.label, onChange: (e) => change(e.target.value) });
+        return h('div', { class: 'set-row' }, h('div', { class: 'set-label' }, h('span', null, f.label)), h('div', { class: 'set-control ext-set-input' }, input));
+      }),
+    ),
+  );
+}
+
+export function openSettings({ section = 'general', onExtensionsChange, engine, extHost } = {}) {
   const body = h('div', { class: 'settings' });
   const m = openModal({ title: t('Settings'), body, wide: true });
 
@@ -86,6 +119,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine }
             ), t('Installed version: ') + APP_VERSION)
           : row(t('Version'), h('span', null, APP_VERSION)),
       ),
+      ...extensionSections(extHost),
       h('section', { class: 'set-sec', id: 'set-themes' },
         h('h3', null, icon('Palette', 16), t('Themes')),
         h('div', { class: 'set-list' }, themes.map((th) =>
@@ -145,6 +179,15 @@ export function openSettings({ section = 'general', onExtensionsChange, engine }
     );
   }
   render();
+  openRender = () => {
+    if (!body.isConnected) {
+      openRender = null;
+      return;
+    }
+    const y = body.parentElement ? body.parentElement.scrollTop : 0;
+    render();
+    if (body.parentElement) body.parentElement.scrollTop = y;
+  };
   if (section === 'extensions') setTimeout(() => body.querySelector('#set-themes')?.scrollIntoView({ block: 'start' }), 0);
   return m;
 }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The AI Connect extension talks to the astudio-mcp bridge on the local
+     network with ws:// (a computer on the same Wi-Fi has no TLS certificate).
+     The interface itself only reaches GitHub over https: its Content Security
+     Policy blocks everything else except WebSocket connections that an
+     extension with the network permission opens to an address the user typed. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

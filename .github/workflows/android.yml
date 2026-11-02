@@ -42,6 +42,12 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Tests of the MCP bridge
+        working-directory: mcp-server
+        run: |
+          npm ci
+          npm test
+
       - name: Construire l'interface
         run: npm run build
 
