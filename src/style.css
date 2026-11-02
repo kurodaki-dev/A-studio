@@ -750,3 +750,10 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .pitch-knob .knob.changed .knob-arc { stroke: var(--accent, #f39c34); }
 /* Track sound window */
 .set-form { display: flex; flex-direction: column; gap: 10px; }
+/* Polyphony box (channel settings, Misc tab) */
+.poly-box { border: 1px solid var(--line, #3a464b); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; max-width: 360px; }
+.poly-title { font-weight: 600; }
+.poly-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.poly-label { color: var(--dim); }
+.poly-stepper { display: flex; align-items: center; gap: 4px; }
+.poly-max { min-width: 34px; text-align: center; padding: 4px 6px; border-radius: 4px; background: var(--input, #1f2629); font-variant-numeric: tabular-nums; }
