@@ -743,3 +743,5 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .menubar.hidden { display: none; }
 .menubar-item { flex: none; height: 100%; padding: 0 12px; background: transparent; border: 0; color: var(--dim); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; cursor: pointer; }
 .menubar-item:hover, .menubar-item:focus-visible { background: var(--panel2); color: var(--text); }
+/* Playhead layer above the piano roll and playlist canvases. */
+.cv-head { pointer-events: none; }

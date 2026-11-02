@@ -21,6 +21,7 @@ export function createMixer(engine, onShowPlugins) {
     h('div', { class: 'mixer-scroll' }, strips),
   );
   let items = [];
+  let lastSound = performance.now();
   let sig = '';
 
   function build() {
@@ -87,13 +88,15 @@ export function createMixer(engine, onShowPlugins) {
       if (it.del) it.del.update(m.delay);
       it.eq.forEach((kn, k) => kn.update((m.eq || [0, 0, 0])[k]));
       if (it.route) {
-        it.route.textContent = '→ ' + (m.route ? String(m.route) : 'M');
+        const rt = '→ ' + (m.route ? String(m.route) : 'M');
+        if (it.route.textContent !== rt) it.route.textContent = rt;
         it.route.classList.toggle('on', !!m.route);
       }
       it.mute.update(!m.mute);
       if (it.solo) it.solo.classList.toggle('on', m.solo);
       const n = (m.fx || []).filter((f) => f.on !== false).length;
-      it.fxBtn.textContent = n ? 'FX ' + n : 'FX';
+      const ft = n ? 'FX ' + n : 'FX';
+      if (it.fxBtn.textContent !== ft) it.fxBtn.textContent = ft;
       it.fxBtn.classList.toggle('on', n > 0);
     }
   }
@@ -102,6 +105,9 @@ export function createMixer(engine, onShowPlugins) {
     for (const it of items) {
       const lv = engine.level(it.i);
       it.peak = Math.max(lv, it.peak * 0.9);
+      // Silent meter already drawn empty: nothing to paint.
+      if (it.peak < 1e-4 && it.drawnEmpty) continue;
+      it.drawnEmpty = it.peak < 1e-4;
       const g = it.meter.getContext('2d');
       const H = it.meter.height;
       g.fillStyle = '#14191b';
@@ -124,7 +130,11 @@ export function createMixer(engine, onShowPlugins) {
       } else patch();
     },
     frame() {
-      if (engine.ctx) drawMeters();
+      // Meters run while sound may be playing (and 3 s after) only.
+      if (!engine.ctx) return;
+      const now = performance.now();
+      if (engine.playing || engine.activeVoices() > 0) lastSound = now;
+      if (now - lastSound < 3000 || items.some((x) => !x.drawnEmpty)) drawMeters();
     },
   };
 }

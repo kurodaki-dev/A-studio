@@ -43,7 +43,11 @@ const C = {
 
 export function createPianoRoll(engine) {
   const cv = h('canvas', { class: 'cv', 'aria-label': 'Piano roll' });
-  const wrap = h('div', { class: 'cvwrap' }, cv);
+  // The playhead has its own transparent layer: while playing only it is redrawn.
+  const headCv = h('canvas', { class: 'cv cv-head', 'aria-hidden': 'true' });
+  const wrap = h('div', { class: 'cvwrap' }, cv, headCv);
+  let hg = null;
+  let hdpr = 1;
   const view = { px: 1, rowH: 18, sx: 0, sy: (NKEYS - 1 - 79) * 18 };
   let W = 0; // right edge of the grid (the vertical scrollbar sits after it)
   let CW = 0;
@@ -208,8 +212,30 @@ export function createPianoRoll(engine) {
     if (c) engine.preview(c, key, vel ?? ui.lastVel, 0.3);
   }
 
+  function drawHead() {
+    if (!hg) return;
+    hg.setTransform(hdpr, 0, 0, hdpr, 0, 0);
+    hg.clearRect(0, 0, CW, H);
+    if (ui.songMode || !(engine.playing || engine.pos > 0)) return;
+    const x = Math.round(xAt(engine.position()));
+    if (x < KEYS_W || x > W) return;
+    hg.fillStyle = C.play;
+    hg.fillRect(x, RULER_H, 1, gridY1() - RULER_H);
+    hg.beginPath();
+    hg.moveTo(x - 5, RULER_H - 8);
+    hg.lineTo(x + 5, RULER_H - 8);
+    hg.lineTo(x, RULER_H - 1);
+    hg.closePath();
+    hg.fill();
+  }
+
   // Drawing
   function draw() {
+    drawMain();
+    drawHead();
+  }
+
+  function drawMain() {
     if (!g) return;
     const th = currentTheme();
     const E = th.editor;
@@ -339,12 +365,6 @@ export function createPianoRoll(engine) {
       g.lineTo(overlay.x, overlay.y1);
       g.stroke();
     }
-    const showHead = !ui.songMode && (engine.playing || engine.pos > 0);
-    if (showHead) {
-      const x = Math.round(xAt(engine.position()));
-      g.fillStyle = C.play;
-      g.fillRect(x, gy, 1, gb - gy);
-    }
     g.restore();
 
     // Ruler
@@ -376,16 +396,6 @@ export function createPianoRoll(engine) {
     if (ax < W) {
       g.fillStyle = 'rgba(0,0,0,0.3)';
       g.fillRect(Math.max(gx, ax), 0, W, RULER_H);
-    }
-    if (showHead) {
-      const x = Math.round(xAt(engine.position()));
-      g.fillStyle = C.play;
-      g.beginPath();
-      g.moveTo(x - 5, RULER_H - 8);
-      g.lineTo(x + 5, RULER_H - 8);
-      g.lineTo(x, RULER_H - 1);
-      g.closePath();
-      g.fill();
     }
     g.restore();
     g.fillStyle = '#151a1d';
@@ -1042,6 +1052,12 @@ export function createPianoRoll(engine) {
     return tk + ' ticks';
   }
 
+  let headShown = false;
+  fitCanvas(headCv, (w, hh, r) => {
+    hdpr = r;
+    hg = headCv.getContext('2d');
+    drawHead();
+  });
   fitCanvas(cv, (w, hh, r) => {
     CW = w;
     W = w - SB;
@@ -1087,7 +1103,9 @@ export function createPianoRoll(engine) {
       draw();
     },
     frame() {
-      if (engine.playing && !ui.songMode) draw();
+      if (engine.playing && !ui.songMode) drawHead();
+      else if (headShown) drawHead();
+      headShown = engine.playing && !ui.songMode;
     },
     keydown,
     focusKey(k) {

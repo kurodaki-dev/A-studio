@@ -118,7 +118,8 @@ export function attachPointer(el, hd) {
 export function fitCanvas(canvas, onResize) {
   const ro = new ResizeObserver(() => {
     const r = canvas.parentElement.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    // At most 2x: sharper is invisible on a tablet and costs a lot of paint time.
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = Math.max(1, Math.floor(r.width));
     const hgt = Math.max(1, Math.floor(r.height));
     canvas.style.width = w + 'px';

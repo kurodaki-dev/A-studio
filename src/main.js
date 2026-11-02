@@ -766,19 +766,29 @@ function fmtTime(t) {
   return bar + ':' + String(step).padStart(2, '0') + ':' + String(tick).padStart(2, '0');
 }
 
+// DOM writes only when a value changes: on tablets every text or icon change costs
+// a layout and a paint.
+const setText = (el, v) => {
+  if (el.textContent !== v) el.textContent = v;
+};
+let playIcon = null;
 function refreshToolbar() {
   const p = store.project;
   patBtn.classList.toggle('on', !ui.songMode && !ui.live);
   songBtn.classList.toggle('on', ui.songMode && !ui.live);
-  playBtn.replaceChildren(icon(engine.playing ? 'Pause' : 'Play'));
+  const wanted = engine.playing ? 'Pause' : 'Play';
+  if (playIcon !== wanted) {
+    playIcon = wanted;
+    playBtn.replaceChildren(icon(wanted));
+  }
   playBtn.classList.toggle('on', engine.playing);
   metroBtn.classList.toggle('on', ui.metronome);
   recBtn.classList.toggle('on', ui.recording || !!audioRec);
-  tempoVal.textContent = p.bpm.toFixed(3);
-  patName.textContent = currentPattern(p).name;
-  timeVal.textContent = fmtTime(engine.position());
-  undoBtn.disabled = !store.undoStack.length;
-  redoBtn.disabled = !store.redoStack.length;
+  setText(tempoVal, p.bpm.toFixed(3));
+  setText(patName, currentPattern(p).name);
+  setText(timeVal, fmtTime(engine.position()));
+  if (undoBtn.disabled !== !store.undoStack.length) undoBtn.disabled = !store.undoStack.length;
+  if (redoBtn.disabled !== !store.redoStack.length) redoBtn.disabled = !store.redoStack.length;
 }
 
 // Project menu
