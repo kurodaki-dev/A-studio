@@ -291,6 +291,13 @@ function normalizeInner(raw) {
         t.name = str(rt.name, t.name);
         t.mute = !!rt.mute;
         if (rt.solo) t.solo = true;
+        // Track sound: volume, pan and transposition, kept only when changed.
+        const vol = num(rt.vol, 1, 0, 1.5);
+        const pan = num(rt.pan, 0, -1, 1);
+        const pitch = Math.round(num(rt.pitch, 0, -24, 24));
+        if (vol !== 1) t.vol = vol;
+        if (pan) t.pan = pan;
+        if (pitch) t.pitch = pitch;
         if (Number.isFinite(rt.color)) t.color = Math.round(clamp(rt.color, 0, PATTERN_COLORS.length - 1));
         const ins = Math.round(num(rt.insert, 0, 0, MIXER_SIZE - 1));
         if (ins) t.insert = ins;

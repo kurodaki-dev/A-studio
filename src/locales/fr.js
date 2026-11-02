@@ -995,4 +995,12 @@ export default {
   "PITCH": "PITCH",
   "Fine tune": "Accordage fin",
   "This RAR archive is protected by a password.": "Cette archive RAR est protégée par un mot de passe.",
+  "Sound of this track": "Son de cette track",
+  "Same as the channels (no track insert)": "Comme les channels (pas d'insert pour la track)",
+  "Effects of this insert": "Effets de cet insert",
+  "Every mixer insert is used: choose one in the list.": "Tous les inserts du mixer sont pris : choisis-en un dans la liste.",
+  "Add effects to this track": "Ajouter des effets à cette track",
+  "track sound": "son de la track",
+  "Volume and pan apply to everything on the track. Transposition moves the notes of its patterns (not the audio clips). Double tap a slider to reset it.": "Le volume et le pan s'appliquent à tout ce qui est sur la track. La transposition décale les notes de ses patterns (pas les clips audio). Double tap sur un curseur pour le remettre à zéro.",
+  "With a mixer insert, all the clips of the track (patterns and audio) go through it: its effects, EQ and fader change only this track.": "Avec un insert du mixer, tous les clips de la track (patterns et audio) passent dedans : ses effets, son EQ et son volume ne changent que cette track.",
 };

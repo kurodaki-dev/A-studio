@@ -268,6 +268,17 @@ export function syncGraph(G, project, smooth) {
       G.channels.delete(id);
     }
   }
+  if (G.branches) {
+    for (const [key, b] of G.branches) {
+      const c = project.channels.find((x) => x.id === b.cid);
+      if (!c) {
+        b.tpan.disconnect();
+        G.branches.delete(key);
+        continue;
+      }
+      syncBranch(G, b, c, trackSound(project, { track: b.track }), smooth);
+    }
+  }
   // Plugin nodes: drop the ones whose channel is gone or changed instrument, push parameter changes.
   for (const [id, entry] of G.pluginNodes) {
     const c = project.channels.find((x) => x.id === id) || (id.startsWith('__preview_') ? { instrument: entry.instrument } : null);
@@ -494,7 +505,7 @@ function playSampler(G, channel, ch, t, key, vel, dur, fromKey) {
 // Audio clip of the playlist. offset: seconds already played in the clip,
 // dur: seconds left to play, spt: seconds per tick, clipDur: full clip length in seconds.
 // The clip has its own gain, pitch (resampling), fades and start offset.
-export function playAudioClip(G, clip, t, offset, dur, spt = 0, clipDur = 0, insert = 0) {
+export function playAudioClip(G, clip, t, offset, dur, spt = 0, clipDur = 0, insert = 0, route = null) {
   const buf = getBuffer(clip.sampleId);
   if (!buf) {
     loadBuffer(clip.sampleId);
@@ -504,9 +515,16 @@ export function playAudioClip(G, clip, t, offset, dur, spt = 0, clipDur = 0, ins
   const bufPos = (offset + (clip.offset || 0) * spt) * rate;
   if (bufPos >= buf.duration) return null;
   const ctx = G.ctx;
-  const gain = clip.gain == null ? 0.8 : 0.8 * clip.gain;
+  const gain = (clip.gain == null ? 0.8 : 0.8 * clip.gain) * (route ? route.vol : 1);
   const vg = ctx.createGain();
-  vg.connect((G.inserts[insert] || G.inserts[0]).in);
+  const out = (G.inserts[insert] || G.inserts[0]).in;
+  let panner = null;
+  if (route && route.pan) {
+    panner = ctx.createStereoPanner();
+    panner.pan.value = route.pan;
+    vg.connect(panner);
+    panner.connect(out);
+  } else vg.connect(out);
   const s = ctx.createBufferSource();
   s.buffer = clip.reverse ? reverseBuffer(ctx, buf) : buf;
   s.playbackRate.value = rate;
@@ -529,6 +547,7 @@ export function playAudioClip(G, clip, t, offset, dur, spt = 0, clipDur = 0, ins
     voice.ended = true;
     try {
       vg.disconnect();
+      if (panner) panner.disconnect();
     } catch {
       /* already disconnected */
     }
@@ -575,10 +594,70 @@ function playPlugin(G, channel, ch, t, key, vel, dur) {
   return { plugin: true, node, id: ev.id, end: Number.isFinite(dur) ? t + dur + 2 : Infinity };
 }
 
-export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
+// Sound settings of a playlist track: volume, pan, transposition and a mixer insert
+// for everything on the track. Returns null when the track leaves the sound alone.
+export function trackSound(project, clip) {
+  if (!clip) return null;
+  const i = clip.track;
+  const tr = project.playlist.tracks[i];
+  if (!tr) return null;
+  const vol = tr.vol == null ? 1 : tr.vol;
+  const pan = tr.pan || 0;
+  const pitch = tr.pitch || 0;
+  const insert = tr.insert || 0;
+  if (vol === 1 && !pan && !pitch && !insert) return null;
+  return { i, vol, pan, pitch, insert };
+}
+
+// Channel nodes for the notes of one track: a copy of the channel chain (volume,
+// filter, pan) followed by the track volume and pan, to the track insert (or the
+// channel insert when the track has none). Built on first use, updated by syncGraph.
+function trackBranch(G, channel, route) {
+  if (!G.branches) G.branches = new Map();
+  const key = channel.id + '@' + route.i;
+  let b = G.branches.get(key);
+  if (!b) {
+    const ctx = G.ctx;
+    b = { cid: channel.id, track: route.i, in: ctx.createGain(), filt: ctx.createBiquadFilter(), pan: ctx.createStereoPanner(), tvol: ctx.createGain(), tpan: ctx.createStereoPanner(), dest: null };
+    b.filt.type = 'lowpass';
+    b.in.connect(b.filt);
+    b.filt.connect(b.pan);
+    b.pan.connect(b.tvol);
+    b.tvol.connect(b.tpan);
+    G.branches.set(key, b);
+    syncBranch(G, b, channel, route, false);
+  }
+  return b;
+}
+
+function syncBranch(G, b, c, route, smooth) {
+  const base = G.channels.get(c.id);
+  if (base) {
+    setParam(G, b.in.gain, base.in.gain.value, smooth);
+    setParam(G, b.pan.pan, base.pan.pan.value, smooth);
+    setParam(G, b.filt.frequency, base.filt.frequency.value, smooth);
+    setParam(G, b.filt.Q, base.filt.Q.value, smooth);
+  }
+  setParam(G, b.tvol.gain, route ? route.vol : 1, smooth);
+  setParam(G, b.tpan.pan, route ? route.pan : 0, smooth);
+  const dest = (G.inserts[(route && route.insert) || c.insert] || G.inserts[0]).in;
+  if (b.dest !== dest) {
+    if (b.dest) b.tpan.disconnect();
+    b.tpan.connect(dest);
+    b.dest = dest;
+  }
+}
+
+export function playNote(G, channel, t, key, vel, dur, fromKey = null, route = null) {
   const ctx = G.ctx;
-  const ch = G.channels.get(channel.id);
-  if (!ch) return null;
+  if (route && route.pitch) {
+    key += route.pitch;
+    if (fromKey != null) fromKey += route.pitch;
+  }
+  const base = G.channels.get(channel.id);
+  if (!base) return null;
+  // Code plugins have one audio node per channel: they keep the channel route.
+  const ch = route && !channel.instrument.startsWith('plugin:') && (route.vol !== 1 || route.pan || route.insert) ? trackBranch(G, channel, route) : base;
   // Sidechain: notes of a source channel duck the inserts that listen to it.
   for (const d of G.duckers) if (d.source === channel.id && !channel.mute) d.fx.duck(t);
   // Auto tune in MIDI mode: the notes of its source channel become the target notes.
@@ -590,7 +669,7 @@ export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
     }
   }
   if (channel.instrument === 'sampler') return playSampler(G, channel, ch, t, key, vel, dur, fromKey);
-  if (channel.instrument.startsWith('plugin:')) return playPlugin(G, channel, ch, t, key, vel, dur);
+  if (channel.instrument.startsWith('plugin:')) return playPlugin(G, channel, base, t, key, vel, dur);
   const inst = channel.instrument === 'osc3' ? osc3Instrument(channel) : INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
   const p = channel.params;
   const f = 440 * Math.pow(2, (key + pitchOf(G, channel) - 69) / 12);
@@ -713,7 +792,7 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
         for (const n of channelNotes(c, notes)) {
           if (n.t >= L) continue;
           const tt = base + n.t;
-          if (tt >= from && tt < to && tt >= s && tt < s + len) cb(c, n, tt, pat);
+          if (tt >= from && tt < to && tt >= s && tt < s + len) cb(c, n, tt, pat, clip);
         }
       }
     }
@@ -1208,20 +1287,21 @@ export class Engine {
           const cl = clipLength(proj, clip) * spt;
           const ins = trackInsert(proj, clip);
           const [t, off] = clipStart(Math.max(this.tickToTime(this.nextAbs), ctx.currentTime), (from - clip.start) * spt, ins);
-          const v = playAudioClip(this.G, clip, t, off, (clip.start + clipLength(proj, clip) - from) * spt - (off - (from - clip.start) * spt), spt, cl, ins);
+          const v = playAudioClip(this.G, clip, t, off, (clip.start + clipLength(proj, clip) - from) * spt - (off - (from - clip.start) * spt), spt, cl, ins, trackSound(proj, clip));
           if (v) this.track(v);
         }
       }
       this.fresh = false;
-      (mode === 'live' ? (a, b, cb) => this.liveEvents(proj, a, b, cb) : (a, b, cb, ca) => collectEvents(proj, mode, a, b, cb, ca))(from, to, (c, n, tt, pat) => {
-        const time = Math.max(this.tickToTime(base + tt + swingTicks(pat, n.t)) - lat(c.insert), ctx.currentTime);
-        const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt, slideFrom(pat.notes[c.id], n));
+      (mode === 'live' ? (a, b, cb) => this.liveEvents(proj, a, b, cb) : (a, b, cb, ca) => collectEvents(proj, mode, a, b, cb, ca))(from, to, (c, n, tt, pat, clip) => {
+        const route = trackSound(proj, clip);
+        const time = Math.max(this.tickToTime(base + tt + swingTicks(pat, n.t)) - lat((route && route.insert) || c.insert), ctx.currentTime);
+        const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt, slideFrom(pat.notes[c.id], n), route);
         if (v) this.track(v);
       }, (clip, tt) => {
         const cl = clipLength(proj, clip) * spt;
         const ins = trackInsert(proj, clip);
         const [t, off] = clipStart(Math.max(this.tickToTime(base + tt), ctx.currentTime), 0, ins);
-        const v = playAudioClip(this.G, clip, t, off, cl - off, spt, cl, ins);
+        const v = playAudioClip(this.G, clip, t, off, cl - off, spt, cl, ins, trackSound(proj, clip));
         if (v) this.track(v);
       });
       if (mode === 'song') scheduleAutomation(this.G, proj, from, to, (x) => Math.max(this.tickToTime(base + x), ctx.currentTime));
@@ -1509,16 +1589,17 @@ async function renderBuffer(project, mode) {
   await Promise.all([...effects].map((p) => loadPluginModule(ctx, p)));
   syncGraph(G, project, false);
   const lat = latencyCache(project, sr);
-  collectEvents(project, mode, 0, L, (c, n, tt, pat) => {
+  collectEvents(project, mode, 0, L, (c, n, tt, pat, clip) => {
     const start = tt + swingTicks(pat, n.t);
-    playNote(G, c, Math.max(0, timeOf(start) - lat(c.insert)), n.key, n.vel, timeOf(start + n.len) - timeOf(start), slideFrom(pat.notes[c.id], n));
+    const route = trackSound(project, clip);
+    playNote(G, c, Math.max(0, timeOf(start) - lat((route && route.insert) || c.insert)), n.key, n.vel, timeOf(start + n.len) - timeOf(start), slideFrom(pat.notes[c.id], n), route);
   }, (clip, tt) => {
     const len = clipLength(project, clip);
     const dur = timeOf(tt + len) - timeOf(tt);
     const ins = trackInsert(project, clip);
     const t0 = timeOf(tt) - lat(ins);
     const off = Math.max(0, -t0);
-    playAudioClip(G, clip, Math.max(0, t0), off, dur - off, dur / len, dur, ins);
+    playAudioClip(G, clip, Math.max(0, t0), off, dur - off, dur / len, dur, ins, trackSound(project, clip));
   });
   if (mode === 'song') scheduleAutomation(G, project, 0, L, timeOf);
   if (G.suspends) {
