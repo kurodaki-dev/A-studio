@@ -66,6 +66,10 @@ export function openChannelSettings(id, engine) {
     h('label', { class: 'field' }, h('span', null, 'Instrument'), inst),
     h('label', { class: 'field' }, h('span', null, t('Mixer insert')), insert),
     h('label', { class: 'field' }, h('span', null, 'Transposition'), h('div', { class: 'rangebox' }, pitch, pitchOut)),
+    c.instrument === 'sampler'
+      ? h('div', { class: 'field' }, h('span', null, t('Sample')),
+          h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: !!c.params.reverse, onChange: (e) => set(() => { c.params.reverse = e.target.checked; engine.preview(c, 60, 0.8, 0.6); }) }), h('span', null, t('Play reversed'))))
+      : null,
     h('div', { class: 'knobs' },
       k(t('Attack'), 'attack', 2, 0, sec),
       k(t('Release'), 'release', 3, 0, sec),

@@ -2,7 +2,8 @@ import './style.css';
 import { h, btn, icon, hint, bindHint, openMenu, openModal, promptText, confirmBox, alertBox, closeMenu } from './ui/dom.js';
 import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject, notesFor } from './store.js';
 import { ui } from './ui-state.js';
-import { Engine, renderWav } from './audio/engine.js';
+import { Engine, renderWav, renderStems } from './audio/engine.js';
+import { zipSync } from 'fflate';
 import { createRack } from './ui/rack.js';
 import { createPianoRoll } from './ui/pianoroll.js';
 import { createPlaylist } from './ui/playlist.js';
@@ -110,6 +111,7 @@ const topbar = h('header', { class: 'topbar' },
     btn('Minus', t('Tempo down'), () => setBpm(Math.round(store.project.bpm) - 1), 'small'),
     tempoVal,
     btn('Plus', t('Tempo up'), () => setBpm(Math.round(store.project.bpm) + 1), 'small'),
+    btn('Pointer', t('Tap tempo: tap in rhythm'), () => tapTempo(), 'small'),
   ),
   timeVal,
   h('div', { class: 'tgrp' },
@@ -361,6 +363,21 @@ function syncExtensionUi() {
   tempoVal.addEventListener('pointercancel', end);
 })();
 
+// Tap tempo: the average of the last taps, reset after a 2 second pause.
+const taps = [];
+function tapTempo() {
+  const now = performance.now();
+  if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
+  taps.push(now);
+  if (taps.length > 6) taps.shift();
+  if (taps.length < 2) {
+    hint(t('Tap again in rhythm'));
+    return;
+  }
+  const avg = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+  setBpm(Math.round(60000 / avg));
+}
+
 function setBpm(v) {
   const n = clamp(Math.round(v * 1000) / 1000, 10, 522);
   if (n === store.project.bpm) return;
@@ -574,6 +591,109 @@ async function exportWav() {
   }
 }
 
+async function exportStems() {
+  const mode = ui.songMode ? 'song' : 'pattern';
+  if (mode === 'song' && !store.project.playlist.clips.length) {
+    alertBox(t('Export stems'), t('The playlist is empty. Place patterns in the playlist, or switch to PAT mode to export the current pattern.'));
+    return;
+  }
+  const status = h('p', null, t('Rendering...'));
+  const m = openModal({ title: t('Export stems'), body: status, actions: [] });
+  try {
+    const stems = await renderStems(store.project, mode, (i, n, name) => { status.textContent = t('Rendering') + ' ' + (i + 1) + '/' + n + ': ' + name; });
+    if (!stems.length) {
+      m.close();
+      alertBox(t('Export stems'), t('No channel has notes to export.'));
+      return;
+    }
+    const files = {};
+    stems.forEach((st, i) => {
+      const nm = String(i + 1).padStart(2, '0') + ' ' + st.name.replace(/[\\/:*?"<>|]/g, '_') + '.wav';
+      files[nm] = new Uint8Array(st.wav);
+    });
+    const zip = zipSync(files, { level: 0 });
+    m.close();
+    const base = (store.project.name || 'export').replace(/[\\/:*?"<>|]/g, '_');
+    await saveFile(base + ' stems.zip', zip.buffer, 'application/zip');
+  } catch (e) {
+    m.close();
+    alertBox(t('Export failed'), String(e.message || e));
+  }
+}
+
+function projectInfo() {
+  const p = store.project;
+  const name = h('input', { class: 'input', type: 'text', value: p.name, maxlength: 80 });
+  const author = h('input', { class: 'input', type: 'text', value: p.author || '', maxlength: 80, placeholder: t('Optional') });
+  const notes = h('textarea', { class: 'input info-notes', maxlength: 2000, rows: 6, placeholder: t('Lyrics, ideas, things to fix...') });
+  notes.value = p.notes || '';
+  let channelsWithNotes = 0;
+  for (const c of p.channels) if (p.patterns.some((pt) => (pt.notes[c.id] || []).length)) channelsWithNotes += 1;
+  const noteCount = p.patterns.reduce((a, pt) => a + Object.values(pt.notes).reduce((b, arr) => b + arr.length, 0), 0);
+  openModal({
+    title: t('Project info'),
+    body: h('div', { class: 'form' },
+      h('label', { class: 'field' }, h('span', null, t('Name')), name),
+      h('label', { class: 'field' }, h('span', null, t('Author')), author),
+      h('label', { class: 'field' }, h('span', null, t('Notes')), notes),
+      h('p', { class: 'set-note' }, [
+        p.channels.length + ' ' + t('channels') + ' (' + channelsWithNotes + ' ' + t('with notes') + ')',
+        p.patterns.length + ' ' + t('patterns'),
+        noteCount + ' ' + t('notes'),
+        p.playlist.clips.length + ' ' + t('playlist clips'),
+      ].join(', ')),
+    ),
+    actions: [
+      { label: t('Cancel') },
+      { label: t('Save'), primary: true, onClick: () => {
+        store.change((pp) => {
+          pp.name = name.value.trim().slice(0, 80) || pp.name;
+          pp.author = author.value.trim().slice(0, 80);
+          pp.notes = notes.value.slice(0, 2000);
+        });
+      } },
+    ],
+  });
+}
+
+const SHORTCUTS = [
+  ['Space', 'Play / pause'],
+  ['L', 'Switch between PAT and SONG'],
+  ['Ctrl+Z', 'Undo'],
+  ['Ctrl+Y', 'Redo'],
+  ['Ctrl+S', 'Save'],
+  ['F5', 'Playlist'],
+  ['F6', 'Channel rack'],
+  ['F7', 'Piano roll'],
+  ['F8', 'Browser'],
+  ['F9', 'Mixer'],
+  ['T', 'Tap tempo'],
+  ['M', 'Metronome'],
+  ['?', 'Keyboard shortcuts'],
+];
+const PR_SHORTCUTS = [
+  ['P / B / D / E / C', 'Draw, paint, delete, select, slice tools'],
+  ['Ctrl+A', 'Select all'],
+  ['Ctrl+C / Ctrl+V', 'Copy / paste'],
+  ['Ctrl+B', 'Duplicate'],
+  ['Ctrl+Q', 'Quantize'],
+  ['Up / Down', 'Transpose a semitone (Shift: an octave)'],
+  ['Delete', 'Delete the selection'],
+];
+function shortcutsDialog() {
+  const table = (rows) => h('table', { class: 'keys-table' }, rows.map(([k, d]) => h('tr', null, h('td', null, h('kbd', null, k)), h('td', null, t(d)))));
+  const ext = extHost.shortcuts().map((x) => [x.key.toUpperCase(), x.label]);
+  openModal({
+    title: t('Keyboard shortcuts'),
+    wide: true,
+    body: h('div', { class: 'keys' },
+      h('h3', null, t('General')), table(SHORTCUTS),
+      h('h3', null, 'Piano roll'), table(PR_SHORTCUTS),
+      ext.length ? [h('h3', null, t('Extensions')), h('table', { class: 'keys-table' }, ext.map(([k, d]) => h('tr', null, h('td', null, h('kbd', null, k)), h('td', null, d))))] : null,
+    ),
+  });
+}
+
 const LEGAL = {
   privacy: { en: 'privacy', fr: 'fr/confidentialite' },
   terms: { en: 'terms', fr: 'fr/conditions' },
@@ -608,6 +728,8 @@ function mainMenu(anchor) {
     { label: t('Export project file'), icon: 'Share2', onClick: exportProject },
     { label: ui.songMode ? t('Export song as WAV') : t('Export pattern as WAV'), icon: 'Download', onClick: exportWav },
     { label: ui.songMode ? t('Export song as MIDI') : t('Export pattern as MIDI'), icon: 'FileMusic', onClick: exportMidi },
+    { label: ui.songMode ? t('Export song stems (ZIP)') : t('Export pattern stems (ZIP)'), icon: 'FileArchive', onClick: exportStems },
+    { label: t('Project info'), icon: 'NotebookPen', onClick: projectInfo },
     { sep: true },
     { label: t('Settings'), icon: 'Settings', onClick: () => openSettings({ onExtensionsChange: extensionsChanged, engine, extHost }) },
     { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine, extHost }) },
@@ -616,6 +738,7 @@ function mainMenu(anchor) {
     ...(extHost.menuItems().length ? [{ sep: true }, ...extHost.menuItems().map((m) => ({ label: m.label, icon: m.icon || 'Puzzle', onClick: m.onClick }))] : []),
     { sep: true },
     { label: t('Documentation'), icon: 'BookOpen', onClick: () => openExternal(DOCS_URL) },
+    { label: t('Keyboard shortcuts'), icon: 'Keyboard', onClick: shortcutsDialog },
     { label: t('Report a bug'), icon: 'Bug', onClick: () => openExternal(bugReportUrl()) },
     { label: t('Request a feature'), icon: 'Lightbulb', onClick: () => openExternal(featureRequestUrl()) },
     { sep: true },
@@ -718,6 +841,9 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'F8') setSidebar(!ui.sidebar);
   else if (e.key === 'F9') showPanel('mixer');
   else if (k === 'l' && !mod) setSongMode(!ui.songMode);
+  else if (k === 't' && !mod && ui.panel !== 'piano') tapTempo();
+  else if (k === 'm' && !mod && ui.panel !== 'piano') metroBtn.click();
+  else if (e.key === '?') shortcutsDialog();
   else if (ui.panel === 'piano' && panels.piano.keydown(e)) return;
   else {
     // Shortcuts added by extensions, only when the app does not use the key.

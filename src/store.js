@@ -29,6 +29,7 @@ export function makeMixer() {
     solo: false,
     reverb: 0,
     delay: 0,
+    eq: [0, 0, 0],
     fx: [],
   }));
 }
@@ -49,6 +50,9 @@ export function newProject() {
     version: 1,
     name: t('Untitled'),
     bpm: 130,
+    author: '',
+    notes: '',
+    scale: { root: 0, type: 'none' },
     channels,
     patterns: [pat],
     currentPattern: pat.id,
@@ -134,6 +138,14 @@ export function normalizeProject(raw) {
   const p = newProject();
   p.name = str(raw.name, t('Untitled'));
   p.bpm = num(raw.bpm, 130, 10, 522);
+  p.author = typeof raw.author === 'string' ? raw.author.slice(0, 80) : '';
+  p.notes = typeof raw.notes === 'string' ? raw.notes.slice(0, 2000) : '';
+  if (raw.scale && typeof raw.scale === 'object') {
+    p.scale = {
+      root: Math.round(num(raw.scale.root, 0, 0, 11)),
+      type: typeof raw.scale.type === 'string' && /^[a-zA-Z]{1,20}$/.test(raw.scale.type) ? raw.scale.type : 'none',
+    };
+  }
   p.channels = raw.channels.slice(0, 64).map((c, i) => ({
     id: str(c.id, newId('c')),
     name: str(c.name, t('Channel ') + (i + 1)),
@@ -150,6 +162,7 @@ export function normalizeProject(raw) {
       release: num(c.params?.release, 0, 0, 3),
       cutoff: num(c.params?.cutoff, 1, 0, 1),
       reso: num(c.params?.reso, 0, 0, 1),
+      reverse: !!c.params?.reverse,
     },
   }));
   const ids = new Set(p.channels.map((c) => c.id));
@@ -216,6 +229,7 @@ export function normalizeProject(raw) {
       m.solo = !!r.solo;
       m.reverb = num(r.reverb, 0, 0, 1);
       m.delay = num(r.delay, 0, 0, 1);
+      m.eq = [0, 1, 2].map((k) => num(Array.isArray(r.eq) ? r.eq[k] : 0, 0, -18, 18));
       m.fx = Array.isArray(r.fx)
         ? r.fx
             .filter((f) => f && typeof f.plugin === 'string' && /^[a-z0-9-]{1,40}$/.test(f.plugin))

@@ -7,6 +7,7 @@ import { CATALOG, CATEGORIES, instrumentName } from '../audio/catalog.js';
 import { getSampleMeta } from '../samples.js';
 import { registerDrop } from './dnd.js';
 import { t } from '../i18n.js';
+import { fillEach, shiftSteps, randomSteps } from '../notetools.js';
 
 export function addChannelMenu(anchor, engine, onAdded) {
   const items = [];
@@ -249,6 +250,20 @@ export function createRack(engine, actions) {
     openMenu(anchor, items);
   }
 
+  function fill(c, every) {
+    store.change((pp) => {
+      const pat = currentPattern(pp);
+      pat.notes[c.id] = fillEach(every, patternLength(pat));
+    });
+  }
+
+  function shift(c, d) {
+    store.change((pp) => {
+      const pat = currentPattern(pp);
+      shiftSteps(notesFor(pat, c.id), d, patternLength(pat));
+    });
+  }
+
   function channelMenu(anchor, c, index) {
     ui.prChannel = c.id;
     store.emit();
@@ -273,6 +288,21 @@ export function createRack(engine, actions) {
       { label: t('Move down'), icon: 'ChevronDown', disabled: index === p.channels.length - 1, onClick: () => store.change((pp) => {
         pp.channels.splice(index + 1, 0, pp.channels.splice(index, 1)[0]);
       }) },
+      { sep: true },
+      { label: t('Solo'), icon: 'Headphones', checked: !c.mute && p.channels.length > 1 && p.channels.every((x) => x === c || x.mute), onClick: () => store.change((pp) => {
+        // FL Studio style solo: mute every other channel, or unmute all when already solo.
+        const was = !c.mute && pp.channels.every((x) => x === c || x.mute);
+        for (const x of pp.channels) x.mute = was ? false : x !== c;
+      }) },
+      { label: t('Fill each 2 steps'), icon: 'Grid3x3', onClick: () => fill(c, 2) },
+      { label: t('Fill each 4 steps'), icon: 'Grid3x3', onClick: () => fill(c, 4) },
+      { label: t('Fill each 8 steps'), icon: 'Grid3x3', onClick: () => fill(c, 8) },
+      { label: t('Random steps'), icon: 'Shuffle', onClick: () => store.change((pp) => {
+        const pat = currentPattern(pp);
+        pat.notes[c.id] = randomSteps(patternLength(pat));
+      }) },
+      { label: t('Shift one step left'), icon: 'ChevronLeft', onClick: () => shift(c, -1) },
+      { label: t('Shift one step right'), icon: 'ChevronRight', onClick: () => shift(c, 1) },
       { sep: true },
       { label: t('Clear notes in this pattern'), icon: 'Eraser', onClick: () => store.change((pp) => {
         currentPattern(pp).notes[c.id] = [];

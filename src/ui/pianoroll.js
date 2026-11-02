@@ -6,8 +6,9 @@ import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
 import { createChannel, samplerChannel } from './rack.js';
 import { store, currentPattern, notesOf, notesFor, patternLength, getChannel } from '../store.js';
 import { ui } from '../ui-state.js';
-import { BAR, BEAT, STEP, NKEYS, SNAPS, snapTicks, noteName, isBlack, clamp } from '../constants.js';
+import { BAR, BEAT, STEP, NKEYS, SNAPS, snapTicks, noteName, isBlack, clamp, NOTE_NAMES } from '../constants.js';
 import { t } from '../i18n.js';
+import { SCALES, CHORDS, inScale, snapToScale, chordify, arpeggiate, strum, humanize, legato, reverseNotes, flipNotes, stretchNotes } from '../notetools.js';
 
 const KEYS_W = 58;
 const RULER_H = 22;
@@ -76,6 +77,7 @@ export function createPianoRoll(engine) {
   const snapBtn = h('button', { class: 'b tb snap', type: 'button', title: t('Snap'), onClick: (e) => {
     openMenu(e.currentTarget, SNAPS.map((s) => ({ label: s.label, checked: ui.prSnap === s.id, onClick: () => { ui.prSnap = s.id; refreshTools(); } })));
   } }, icon('Magnet', 16), h('span', { class: 'snap-label' }));
+  const scaleBtn = h('button', { class: 'b tb snap', type: 'button', title: t('Scale highlighting'), onClick: (e) => scaleMenu(e.currentTarget) }, icon('Music', 16), h('span', { class: 'scale-label' }));
   const velBtn = btn('AudioLines', t('Show velocities'), () => { showVel = !showVel; refreshTools(); draw(); });
 
   const bar = h('div', { class: 'ptools' },
@@ -89,8 +91,10 @@ export function createPianoRoll(engine) {
       btn('Trash', t('Delete selection'), () => deleteSel()),
       btn('ArrowUp', t('Up one semitone'), () => transpose(1)),
       btn('ArrowDown', t('Down one semitone'), () => transpose(-1)),
+      btn('WandSparkles', t('Tools'), (e) => toolsMenu(e.currentTarget)),
       btn('Menu', t('More actions'), (e) => moreMenu(e.currentTarget)),
     ),
+    h('div', { class: 'grp' }, scaleBtn),
     h('div', { class: 'grp' },
       btn('ZoomOut', t('Zoom out'), () => zoomX(1 / 1.4, gridX0() + (W - KEYS_W) / 2)),
       btn('ZoomIn', t('Zoom in'), () => zoomX(1.4, gridX0() + (W - KEYS_W) / 2)),
@@ -103,7 +107,15 @@ export function createPianoRoll(engine) {
     toolBtns.forEach((b) => b.classList.toggle('on', b.dataset.tool === ui.prTool));
     snapBtn.querySelector('.snap-label').textContent = (SNAPS.find((s) => s.id === ui.prSnap) || SNAPS[5]).label;
     velBtn.classList.toggle('on', showVel);
+    const sc = scaleOf();
+    scaleBtn.querySelector('.scale-label').textContent = sc.type === 'none' ? t('No scale') : NOTE_NAMES[sc.root] + ' ' + t(SCALES.find((x) => x.id === sc.type).name);
+    scaleBtn.classList.toggle('on', sc.type !== 'none');
   }
+
+  const scaleOf = () => {
+    const sc = store.project.scale;
+    return sc && SCALES.some((x) => x.id === sc.type) ? sc : { root: 0, type: 'none' };
+  };
 
   function refreshChannels() {
     const p = store.project;
@@ -220,6 +232,7 @@ export function createPianoRoll(engine) {
     const plen = patternLength(pat0);
     const kTop = clamp(keyAt(gy), 0, NKEYS - 1);
     const kBot = clamp(keyAt(gb - 1), 0, NKEYS - 1);
+    const sc = scaleOf();
 
     g.save();
     g.beginPath();
@@ -229,6 +242,15 @@ export function createPianoRoll(engine) {
       const y = yAt(k);
       g.fillStyle = isBlack(k) ? C.black : C.white;
       g.fillRect(gx, y, W - gx, view.rowH);
+      if (sc.type !== 'none') {
+        if (!inScale(k, sc.root, sc.type)) {
+          g.fillStyle = 'rgba(0,0,0,0.28)';
+          g.fillRect(gx, y, W - gx, view.rowH);
+        } else if ((((k - sc.root) % 12) + 12) % 12 === 0) {
+          g.fillStyle = 'rgba(255,255,255,0.06)';
+          g.fillRect(gx, y, W - gx, view.rowH);
+        }
+      }
       g.fillStyle = k % 12 === 0 ? C.octLine : C.rowLine;
       g.fillRect(gx, y + view.rowH - 1, W - gx, 1);
     }
@@ -888,6 +910,85 @@ export function createPianoRoll(engine) {
     store.emit();
   }
 
+  // Apply a note tool to the selection (or every note of the channel).
+  // fn(src) changes notes in place, or returns { add } or { replace } arrays.
+  function applyTool(label, fn) {
+    if (!channel()) return;
+    const sel = selected();
+    const src = sel.length ? sel : notes().slice();
+    if (!src.length) {
+      hint(t('No notes to change'));
+      return;
+    }
+    store.commit();
+    const res = fn(src) || {};
+    const arr = editNotes();
+    if (res.replace) {
+      const gone = new Set(src);
+      pat().notes[channel().id] = arr.filter((n) => !gone.has(n)).concat(res.replace.map((n) => ({ ...n, s: !!sel.length })));
+    } else if (res.add) {
+      for (const n of res.add) arr.push({ ...n, s: !!sel.length });
+    }
+    for (const n of pat().notes[channel().id]) {
+      n.t = Math.max(0, Math.round(n.t));
+      n.len = Math.max(1, Math.round(n.len));
+      n.key = clamp(n.key, 0, NKEYS - 1);
+    }
+    hint(label);
+    store.emit();
+  }
+
+  function toolsMenu(anchor) {
+    const sc = scaleOf();
+    openMenu(anchor, [
+      { header: t('Tools apply to the selection, or to every note') },
+      { label: t('Chord') + '...', icon: 'ListMusic', onClick: () => chordMenu(anchor) },
+      { label: t('Arpeggiate') + '...', icon: 'AudioLines', onClick: () => arpMenu(anchor) },
+      { label: t('Strum'), icon: 'Guitar', onClick: () => applyTool(t('Strum'), (src) => { strum(src, Math.max(4, Math.round(snap() / 4)), true); }) },
+      { label: t('Humanize'), icon: 'Shuffle', onClick: () => applyTool(t('Humanize'), (src) => { humanize(src, { vel: 0.12, time: 2 }); }) },
+      { label: t('Legato'), icon: 'ChevronRight', onClick: () => applyTool(t('Legato'), (src) => { legato(src); }) },
+      { sep: true },
+      { label: t('Reverse'), icon: 'RefreshCw', onClick: () => applyTool(t('Reverse'), (src) => { reverseNotes(src); }) },
+      { label: t('Flip'), icon: 'ArrowUp', onClick: () => applyTool(t('Flip'), (src) => { flipNotes(src); }) },
+      { label: t('Double length'), icon: 'ZoomIn', onClick: () => applyTool(t('Double length'), (src) => { stretchNotes(src, 2); }) },
+      { label: t('Half length'), icon: 'ZoomOut', onClick: () => applyTool(t('Half length'), (src) => { stretchNotes(src, 0.5); }) },
+      { sep: true },
+      { label: t('Snap notes to scale'), icon: 'Magnet', disabled: sc.type === 'none', onClick: () => applyTool(t('Snap notes to scale'), (src) => { snapToScale(src, sc.root, sc.type); }) },
+    ]);
+  }
+
+  function chordMenu(anchor) {
+    openMenu(anchor, [
+      { header: t('Each note becomes the root of a chord') },
+      ...CHORDS.map((c) => ({ label: t(c.name), onClick: () => applyTool(t('Chord') + ': ' + t(c.name), (src) => ({ add: chordify(src, c.id) })) })),
+    ]);
+  }
+
+  function arpMenu(anchor) {
+    const rate = Math.max(snap(), 6);
+    const go = (pattern, label) => applyTool(t('Arpeggiate') + ': ' + label, (src) => ({ replace: arpeggiate(src, rate, pattern) }));
+    openMenu(anchor, [
+      { header: t('Notes of each chord are played one by one, at the snap length') },
+      { label: t('Up'), icon: 'ArrowUp', onClick: () => go('up', t('Up')) },
+      { label: t('Down'), icon: 'ArrowDown', onClick: () => go('down', t('Down')) },
+      { label: t('Up and down'), icon: 'ChevronsUp', onClick: () => go('updown', t('Up and down')) },
+    ]);
+  }
+
+  function scaleMenu(anchor) {
+    const sc = scaleOf();
+    const setScale = (root, type) => {
+      store.change((p) => { p.scale = { root, type }; });
+      refreshTools();
+    };
+    openMenu(anchor, [
+      { label: t('No scale'), checked: sc.type === 'none', onClick: () => setScale(sc.root, 'none') },
+      { label: t('Root note') + ': ' + NOTE_NAMES[sc.root] + '...', icon: 'Piano', onClick: () => openMenu(anchor, NOTE_NAMES.map((nm, i) => ({ label: nm, checked: i === sc.root, onClick: () => setScale(i, sc.type === 'none' ? 'major' : sc.type) }))) },
+      { sep: true },
+      ...SCALES.map((x) => ({ label: t(x.name), checked: sc.type === x.id, onClick: () => setScale(sc.root, x.id) })),
+    ]);
+  }
+
   function moreMenu(anchor) {
     openMenu(anchor, [
       { label: t('Select all'), onClick: selectAll },
@@ -953,6 +1054,7 @@ export function createPianoRoll(engine) {
     el,
     update() {
       refreshChannels();
+      refreshTools();
       draw();
     },
     frame() {

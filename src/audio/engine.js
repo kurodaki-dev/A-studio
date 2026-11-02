@@ -20,6 +20,26 @@ function impulse(ctx, seconds = 2.2, decay = 3) {
   return b;
 }
 
+// Three band EQ of a mixer insert: low shelf, peak, high shelf. Returns [in, out, bands].
+const EQ_BANDS = [
+  ['lowshelf', 120],
+  ['peaking', 1000],
+  ['highshelf', 6000],
+];
+function makeEq(ctx) {
+  const bands = EQ_BANDS.map(([type, f]) => {
+    const b = ctx.createBiquadFilter();
+    b.type = type;
+    b.frequency.value = f;
+    if (type === 'peaking') b.Q.value = 0.8;
+    b.gain.value = 0;
+    return b;
+  });
+  bands[0].connect(bands[1]);
+  bands[1].connect(bands[2]);
+  return bands;
+}
+
 export function createGraph(ctx, dest) {
   const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 } };
   const masterIn = ctx.createGain();
@@ -33,12 +53,14 @@ export function createGraph(ctx, dest) {
   limiter.release.value = 0.1;
   const masterAn = ctx.createAnalyser();
   masterAn.fftSize = 1024;
-  masterIn.connect(masterPan);
+  const masterEq = makeEq(ctx);
+  masterIn.connect(masterEq[0]);
+  masterEq[2].connect(masterPan);
   masterPan.connect(masterVol);
   masterVol.connect(limiter);
   limiter.connect(dest);
   limiter.connect(masterAn);
-  G.inserts[0] = { in: masterIn, pan: masterPan, vol: masterVol, an: masterAn, fxSig: '', fxNodes: [] };
+  G.inserts[0] = { in: masterIn, eq: masterEq, pan: masterPan, vol: masterVol, an: masterAn, fxSig: '', fxNodes: [] };
 
   const rev = ctx.createConvolver();
   rev.buffer = impulse(ctx);
@@ -72,7 +94,9 @@ export function createGraph(ctx, dest) {
     const sd = ctx.createGain();
     sr.gain.value = 0;
     sd.gain.value = 0;
-    inp.connect(pan);
+    const eq = makeEq(ctx);
+    inp.connect(eq[0]);
+    eq[2].connect(pan);
     pan.connect(vol);
     vol.connect(masterIn);
     vol.connect(an);
@@ -80,7 +104,7 @@ export function createGraph(ctx, dest) {
     sr.connect(rev);
     vol.connect(sd);
     sd.connect(del);
-    G.inserts[i] = { in: inp, pan, vol, an, sr, sd, fxSig: '', fxNodes: [] };
+    G.inserts[i] = { in: inp, eq, pan, vol, an, sr, sd, fxSig: '', fxNodes: [] };
   }
   return G;
 }
@@ -90,7 +114,7 @@ function setParam(G, param, v, smooth) {
   else param.value = v;
 }
 
-// Effect plugins of an insert: in -> fx 1 -> fx 2 ... -> pan. Rebuilt when the slots change.
+// Effect plugins of an insert: in -> fx 1 -> fx 2 ... -> eq -> pan. Rebuilt when the slots change.
 function syncEffects(G, ins, m) {
   const slots = (m.fx || []).filter((f) => f && f.on !== false).map((f) => ({ f, p: getPlugin(f.plugin) })).filter((x) => x.p && x.p.type === 'effect');
   const ready = slots.filter((x) => {
@@ -115,7 +139,7 @@ function syncEffects(G, ins, m) {
       prev.connect(e.node);
       prev = e.node;
     }
-    prev.connect(ins.pan);
+    prev.connect(ins.eq[0]);
     ins.fxSig = sig;
   } else {
     // Same chain: only push parameter changes.
@@ -150,6 +174,8 @@ export function syncGraph(G, project, smooth) {
     const muted = m.mute || (i > 0 && anySolo && !m.solo);
     setParam(G, ins.vol.gain, muted ? 0 : faderGain(m.vol), smooth);
     setParam(G, ins.pan.pan, m.pan, smooth);
+    const eq = m.eq || [0, 0, 0];
+    ins.eq.forEach((b, k) => setParam(G, b.gain, eq[k] || 0, smooth));
     if (i > 0) {
       setParam(G, ins.sr.gain, m.reverb, smooth);
       setParam(G, ins.sd.gain, m.delay, smooth);
@@ -202,10 +228,26 @@ export function syncGraph(G, project, smooth) {
   }
 }
 
+// Reversed copies of sample buffers, made once per buffer.
+const reversed = new WeakMap();
+export function reverseBuffer(ctx, buf) {
+  let r = reversed.get(buf);
+  if (r) return r;
+  r = ctx.createBuffer(buf.numberOfChannels, buf.length, buf.sampleRate);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const src = buf.getChannelData(c);
+    const dst = r.getChannelData(c);
+    for (let i = 0, n = src.length; i < n; i++) dst[i] = src[n - 1 - i];
+  }
+  reversed.set(buf, r);
+  return r;
+}
+
 // Start one note. dur = Infinity holds it until releaseVoice().
 // Imported sample played as a one shot, pitched from C5.
 function playSampler(G, channel, ch, t, key, vel) {
-  const buf = channel.sample ? getBuffer(channel.sample) : null;
+  let buf = channel.sample ? getBuffer(channel.sample) : null;
+  if (buf && channel.params.reverse) buf = reverseBuffer(G.ctx, buf);
   if (!buf) {
     if (channel.sample) loadBuffer(channel.sample);
     return null;
@@ -382,7 +424,7 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
     if (track && track.mute) continue;
     const s = clip.start;
     if (clip.type === 'audio') {
-      if (s >= from && s < to && onAudio) onAudio(clip, s);
+      if (s >= from && s < to && onAudio && !clip.silent) onAudio(clip, s);
       continue;
     }
     const pat = getPattern(project, clip.patternId);
@@ -700,8 +742,37 @@ export class Engine {
   }
 }
 
-// Render the song or the current pattern to a WAV ArrayBuffer.
+// Copy of the project where only one channel sounds (only = channel id), or only
+// the audio clips (only = 'audio'). Used for stem export.
+export function soloProject(project, only) {
+  const p = JSON.parse(JSON.stringify(project));
+  for (const c of p.channels) if (c.id !== only) c.mute = true;
+  if (only !== 'audio') for (const c of p.playlist.clips) if (c.type === 'audio') c.silent = true;
+  return p;
+}
+
+// Render the song or the current pattern to Float32 channel data.
 export async function renderWav(project, mode) {
+  const buf = await renderBuffer(project, mode);
+  return encodeWav([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate);
+}
+
+// Render one stem per channel that has notes (and one for the audio clips in song mode).
+// Returns [{ name, wav }]. The loop length of the full project is kept for every stem.
+export async function renderStems(project, mode, onProgress) {
+  const used = new Set();
+  collectEvents(project, mode, 0, loopLength(project, mode), (c) => used.add(c.id));
+  const jobs = project.channels.filter((c) => used.has(c.id) && !c.mute).map((c) => ({ id: c.id, name: c.name }));
+  if (mode === 'song' && project.playlist.clips.some((c) => c.type === 'audio')) jobs.push({ id: 'audio', name: 'Audio clips' });
+  const out = [];
+  for (let i = 0; i < jobs.length; i++) {
+    if (onProgress) onProgress(i, jobs.length, jobs[i].name);
+    out.push({ name: jobs[i].name, wav: await renderWav(soloProject(project, jobs[i].id), mode) });
+  }
+  return out;
+}
+
+async function renderBuffer(project, mode) {
   const ids = new Set();
   for (const c of project.channels) if (c.instrument === 'sampler' && c.sample) ids.add(c.sample);
   if (mode === 'song') for (const c of project.playlist.clips) if (c.type === 'audio') ids.add(c.sampleId);
@@ -745,6 +816,5 @@ export async function renderWav(project, mode) {
     });
     node.connect(G.channels.get(cid).in);
   }
-  const buf = await ctx.startRendering();
-  return encodeWav([buf.getChannelData(0), buf.getChannelData(1)], sr);
+  return ctx.startRendering();
 }
