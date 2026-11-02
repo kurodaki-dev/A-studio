@@ -72,7 +72,29 @@ export function monoPorta(notes, mono, porta) {
   return out;
 }
 
-const active = (c) => (c.arp && c.arp.on) || (c.params && (c.params.mono || c.params.porta));
+// Max polyphony (like FL Studio): at most `max` notes sound together. A new note cuts
+// the oldest one still sounding; in a chord beyond the limit the highest notes stay.
+export function polyLimit(notes, max) {
+  if (!max || max < 1) return notes;
+  const s = notes.map((n) => ({ ...n })).sort((a, b) => a.t - b.t || b.key - a.key);
+  const out = [];
+  const sounding = [];
+  for (let i = 0; i < s.length; i++) {
+    const n = s[i];
+    for (let j = sounding.length - 1; j >= 0; j--) if (sounding[j].t + sounding[j].len <= n.t) sounding.splice(j, 1);
+    // Same start as max notes already kept: the chord is full.
+    if (sounding.filter((x) => x.t === n.t).length >= max) continue;
+    while (sounding.length >= max) {
+      const old = sounding.shift();
+      old.len = Math.max(1, n.t - old.t);
+    }
+    sounding.push(n);
+    out.push(n);
+  }
+  return out;
+}
+
+const active = (c) => (c.arp && c.arp.on) || (c.params && (c.params.mono || c.params.porta || c.params.maxPoly));
 
 // Notes of a channel as they will play. Cached until the notes or the settings change.
 const cache = new WeakMap();
@@ -94,7 +116,7 @@ function unmuted(notes) {
 export function channelNotes(c, notes) {
   notes = unmuted(notes);
   if (!active(c) || !notes.length) return notes;
-  let sig = JSON.stringify([c.arp, c.params.mono, c.params.porta]) + notes.length;
+  let sig = JSON.stringify([c.arp, c.params.mono, c.params.porta, c.params.maxPoly]) + notes.length;
   let h = 0;
   for (const n of notes) h = (h * 31 + n.t * 7 + n.len * 13 + n.key + n.vel * 100) % 1e9;
   sig += ':' + h;
@@ -102,6 +124,7 @@ export function channelNotes(c, notes) {
   if (hit && hit.sig === sig) return hit.out;
   let out = notes;
   if (c.arp && c.arp.on) out = arpExpand(out, c.arp);
+  if (c.params.maxPoly && !c.params.mono) out = polyLimit(out, c.params.maxPoly);
   if (c.params.mono || c.params.porta) out = monoPorta(out, !!c.params.mono, !!c.params.porta);
   cache.set(notes, { sig, out });
   return out;

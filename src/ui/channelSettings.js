@@ -259,12 +259,39 @@ export function openChannelSettings(id, engine) {
         h('p', { class: 'set-note' }, t('Chords and long notes of this channel are played as arpeggios. The notes in the piano roll do not change.')),
       );
     },
-    misc: () => h('div', { class: 'form' },
-      sw(t('Mono: a new note stops the previous one'), c.params, 'mono'),
-      sw(t('Portamento: every note glides from the previous one'), c.params, 'porta'),
-      h('div', { class: 'knobs' }, k(t('Slide time'), 'glide', 1, 0.1, sec)),
-      h('p', { class: 'set-note' }, t('Mono with portamento gives the classic 808 and lead glides without marking each note as a slide.')),
-    ),
+    misc: () => {
+      // Polyphony box like FL Studio: Max voices, Slide time, Porta and Mono.
+      const maxOut = h('output', { class: 'poly-max' });
+      const showMax = () => { maxOut.textContent = c.params.mono ? '1' : c.params.maxPoly ? String(c.params.maxPoly) : '∞'; };
+      const step = (d) => set(() => {
+        const cur = c.params.maxPoly || 0;
+        c.params.maxPoly = Math.max(0, Math.min(32, cur + d));
+        if (c.params.maxPoly) c.params.mono = false;
+        showMax();
+        monoBox.querySelector('input').checked = !!c.params.mono;
+      });
+      showMax();
+      const monoBox = sw(t('Mono'), c.params, 'mono', showMax);
+      return h('div', { class: 'form' },
+        h('div', { class: 'poly-box' },
+          h('div', { class: 'poly-title' }, t('Polyphony')),
+          h('div', { class: 'poly-row' },
+            h('span', { class: 'poly-label' }, 'Max'),
+            h('div', { class: 'poly-stepper' },
+              h('button', { class: 'b small', type: 'button', 'aria-label': t('Fewer voices'), onClick: () => step(-1) }, '−'),
+              maxOut,
+              h('button', { class: 'b small', type: 'button', 'aria-label': t('More voices'), onClick: () => step(1) }, '+'),
+            ),
+            k(t('Slide'), 'glide', 1, 0.1, sec),
+          ),
+          h('div', { class: 'poly-row' },
+            sw(t('Porta'), c.params, 'porta'),
+            monoBox,
+          ),
+        ),
+        h('p', { class: 'set-note' }, t('Max: how many notes of this channel sound at once (∞ = no limit). A new note cuts the oldest one. Porta: every note glides from the previous one, in the Slide time. Mono: one note at a time. Mono with Porta gives the classic 808 and lead glides; slide notes from the piano roll glide too.')),
+      );
+    },
   };
   const TAB_LIST = [['sound', t('Sound')], ['env', t('Envelope')], ['lfo', 'LFO'], ['arp', 'Arp'], ['misc', t('Misc')]];
   const page = h('div', { class: 'ch-page' });

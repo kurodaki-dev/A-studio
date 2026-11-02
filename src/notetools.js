@@ -290,3 +290,35 @@ export function makeRiff({ length, step, root = 0, scale = 'minor', center = 60,
   }
   return out;
 }
+
+// MIDI sketch: a line drawn by hand ({ t, k } points, k as a fractional key) becomes
+// notes. The line is read every `step` ticks (median pitch of the points in the step),
+// equal neighbours are joined, and with glide a note that follows another without a
+// gap slides from it. scale ({ root, type }) snaps the keys when given.
+export function sketchToNotes(points, step, { glide = true, vel = 0.8, scale = null } = {}) {
+  if (!points.length || step <= 0) return [];
+  const pts = [...points].sort((a, b) => a.t - b.t);
+  const buckets = new Map();
+  for (const p of pts) {
+    const b = Math.floor(p.t / step);
+    if (!buckets.has(b)) buckets.set(b, []);
+    buckets.get(b).push(p.k);
+  }
+  const notes = [];
+  for (const b of [...buckets.keys()].sort((x, y) => x - y)) {
+    const ks = buckets.get(b).sort((x, y) => x - y);
+    let key = Math.round(ks[Math.floor(ks.length / 2)]);
+    key = clamp(key, 0, NKEYS - 1);
+    if (scale && scale.type && scale.type !== 'none') key = nearestInScale(key, scale.root, scale.type);
+    const t = b * step;
+    const prev = notes[notes.length - 1];
+    if (prev && prev.t + prev.len === t && prev.key === key) {
+      prev.len += step;
+      continue;
+    }
+    const n = { t, key, len: step, vel };
+    if (glide && prev && prev.t + prev.len === t) n.slide = true;
+    notes.push(n);
+  }
+  return notes;
+}

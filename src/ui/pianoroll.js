@@ -8,7 +8,7 @@ import { store, currentPattern, notesOf, notesFor, patternLength, getChannel } f
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, NKEYS, SNAPS, snapTicks, noteName, isBlack, clamp, NOTE_NAMES } from '../constants.js';
 import { t } from '../i18n.js';
-import { detectKey, SCALES, CHORDS, inScale, snapToScale, chordify, arpeggiate, strum, humanize, legato, reverseNotes, flipNotes, stretchNotes, chopNotes, glueNotes, flamNotes, shapeVelocity, makeRiff } from '../notetools.js';
+import { detectKey, SCALES, CHORDS, inScale, snapToScale, chordify, arpeggiate, strum, humanize, legato, reverseNotes, flipNotes, stretchNotes, chopNotes, glueNotes, flamNotes, shapeVelocity, makeRiff, sketchToNotes } from '../notetools.js';
 
 const KEYS_W = 58;
 const RULER_H = 22;
@@ -67,6 +67,7 @@ export function createPianoRoll(engine) {
     ['delete', 'Eraser', t('Delete')],
     ['select', 'SquareDashed', t('Select')],
     ['slice', 'Scissors', t('Slice')],
+    ['sketch', 'Activity', t('Sketch: draw a line, it becomes notes with glides')],
     ['hand', 'Hand', t('Pan view')],
   ];
   const toolBtns = toolDefs.map(([id, ic, label]) => {
@@ -357,6 +358,15 @@ export function createPianoRoll(engine) {
       g.lineWidth = 2;
       g.strokeRect(xAt(overlay.t) + 1, yAt(overlay.key) + 1, Math.max(6, ui.lastLen * view.px) - 2, view.rowH - 2);
     }
+    if (overlay && overlay.type === 'sketch' && overlay.pts.length > 1) {
+      g.strokeStyle = '#f0993a';
+      g.lineWidth = 3;
+      g.lineJoin = 'round';
+      g.lineCap = 'round';
+      g.beginPath();
+      overlay.pts.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+      g.stroke();
+    }
     if (overlay && overlay.type === 'slice') {
       g.strokeStyle = '#f0993a';
       g.lineWidth = 2;
@@ -620,6 +630,15 @@ export function createPianoRoll(engine) {
         st.mode = 'slice';
         return;
       }
+      if (tool === 'sketch') {
+        st.mode = 'sketch';
+        st.pts = [];
+        overlay = { type: 'sketch', pts: [] };
+        sketchPoint(st, p0);
+        sketchPoint(st, p);
+        draw();
+        return;
+      }
       const hit = noteAt(p0);
       if (tool === 'select' && !hit) {
         st.mode = 'box';
@@ -681,6 +700,9 @@ export function createPianoRoll(engine) {
           else delete n.s;
         }
         draw();
+      } else if (st.mode === 'sketch') {
+        sketchPoint(st, p);
+        draw();
       } else if (st.mode === 'slice') {
         overlay = { type: 'slice', x: Math.round(xAt(snapRound(tickAt(st.p0.x)))), y0: Math.min(st.p0.y, p.y), y1: Math.max(st.p0.y, p.y) };
         draw();
@@ -688,6 +710,19 @@ export function createPianoRoll(engine) {
     },
     dragEnd(p, st) {
       if (st.region === 'keys') return keyUp();
+      if (st.mode === 'sketch') {
+        overlay = null;
+        const sc = scaleOf();
+        const made = sketchToNotes(st.pts, Math.max(STEP / 2, snap()), { glide: ui.sketchGlide !== false, vel: ui.lastVel || 0.8, scale: sc.type === 'none' ? null : sc });
+        if (!made.length) return draw();
+        store.commit();
+        clearSel();
+        const arr = editNotes();
+        for (const n of made) arr.push({ ...n, s: true });
+        hint(made.length + t(' notes from the sketch') + (ui.sketchGlide !== false ? ' (' + t('with glides') + ')' : ''));
+        store.emit();
+        return;
+      }
       if (st.mode === 'slice') {
         overlay = null;
         store.commit();
@@ -702,7 +737,7 @@ export function createPianoRoll(engine) {
     },
     longPress(p, st) {
       if (st.region !== 'grid' || !channel()) return;
-      if (ui.prTool === 'hand' || ui.prTool === 'delete' || ui.prTool === 'slice') return;
+      if (ui.prTool === 'hand' || ui.prTool === 'delete' || ui.prTool === 'slice' || ui.prTool === 'sketch') return;
       const hit = noteAt(p);
       if (hit) {
         store.commit();
@@ -932,6 +967,13 @@ export function createPianoRoll(engine) {
 
   // Apply a note tool to the selection (or every note of the channel).
   // fn(src) changes notes in place, or returns { add } or { replace } arrays.
+  // A point of the sketch line: kept as a tick and a fractional key, and for the preview.
+  function sketchPoint(st, p) {
+    const k = NKEYS - 0.5 - (p.y - RULER_H + view.sy) / view.rowH;
+    st.pts.push({ t: Math.max(0, tickAt(p.x)), k });
+    overlay.pts.push({ x: p.x, y: p.y });
+  }
+
   function applyTool(label, fn) {
     if (!channel()) return;
     const sel = selected();
@@ -987,6 +1029,7 @@ export function createPianoRoll(engine) {
         }
       }) },
       { label: t('Riff generator') + '...', icon: 'Sparkles', onClick: () => riffMenu(anchor) },
+      { label: t('Sketch tool: glide between notes'), icon: 'Activity', checked: ui.sketchGlide !== false, onClick: () => { ui.sketchGlide = ui.sketchGlide === false; hint(ui.sketchGlide ? t('Sketch: notes glide into each other') : t('Sketch: separate notes')); } },
       { label: t('Slide notes on or off'), icon: 'Activity', onClick: () => applyTool(t('Slide notes'), (src) => {
         const on = !src.every((n) => n.slide);
         for (const n of src) {

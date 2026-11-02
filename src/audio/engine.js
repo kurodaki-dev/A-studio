@@ -1435,7 +1435,19 @@ export class Engine {
   noteOn(channel, key, vel = 0.78) {
     this.init();
     this.sync();
-    const v = playNote(this.G, channel, this.ctx.currentTime + 0.005, key, vel, Infinity);
+    // Live playing follows the channel polyphony: mono or max voices steal the oldest
+    // note, and portamento glides from the last key played.
+    const p = channel.params || {};
+    const max = p.mono ? 1 : p.maxPoly || 0;
+    if (!this.liveHeld) this.liveHeld = new Map();
+    const held = (this.liveHeld.get(channel.id) || []).filter((x) => !x.v.ended && x.v.end > this.ctx.currentTime);
+    const last = this.lastLive && this.lastLive.cid === channel.id && this.ctx.currentTime - this.lastLive.at < 2 ? this.lastLive.key : null;
+    const from = p.porta && last != null && last !== key ? last : null;
+    if (max) while (held.length >= max) releaseVoice(this.ctx, held.shift().v, true);
+    const v = playNote(this.G, channel, this.ctx.currentTime + 0.005, key, vel, Infinity, from);
+    if (v) held.push({ v, key });
+    this.liveHeld.set(channel.id, held);
+    this.lastLive = { cid: channel.id, key, at: this.ctx.currentTime };
     const entry = channel && channel.id && !String(channel.id).startsWith('__preview') ? logNoteOn(channel.id, key, vel) : null;
     if (v && entry) this.logged.set(v, entry);
     return v;

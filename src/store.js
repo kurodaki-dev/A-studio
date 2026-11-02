@@ -232,6 +232,7 @@ function normalizeInner(raw) {
       penvAmt: num(c.params?.penvAmt, 0, -24, 24),
       penvDecay: num(c.params?.penvDecay, 0.1, 0.005, 2),
       mono: !!c.params?.mono,
+      maxPoly: Math.round(num(c.params?.maxPoly, 0, 0, 32)),
       porta: !!c.params?.porta,
     },
   }));
