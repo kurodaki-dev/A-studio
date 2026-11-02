@@ -38,7 +38,7 @@ function noteOn(key, velocity) {
   noteOff(key);
   const vel = Math.max(0.05, velocity / 127);
   const voice = engineRef.noteOn(c, key, vel);
-  held.set(key, { voice, start: engineRef.position(), channelId: c.id, vel });
+  held.set(key, { voice, start: engineRef.heardPosition(), channelId: c.id, vel });
   if (ui.onMidiNote) ui.onMidiNote(key);
 }
 
@@ -52,7 +52,7 @@ function noteOff(key) {
     const pat = currentPattern(store.project);
     const L = patternLength(pat);
     const snap = snapTicks(ui.prSnap);
-    let len = engineRef.position() - h.start;
+    let len = engineRef.heardPosition() - h.start;
     if (len < 0) len += L;
     const t = ((Math.round(h.start / snap) * snap) % L + L) % L;
     store.commit();

@@ -54,7 +54,7 @@ export function createLive(engine, actions) {
   }
 
   function stopAll() {
-    const pos = engine.playing ? engine.position() : 0;
+    const pos = engine.playing ? engine.heardPosition() : 0;
     for (const [pid, pad] of engine.live) {
       if (pad.until === Infinity) pad.until = Math.max(pad.from, Math.ceil(pos / BAR) * BAR);
       commitPad(pid, pad);
@@ -77,7 +77,7 @@ export function createLive(engine, actions) {
   }
 
   function refresh() {
-    const pos = engine.playing ? engine.position() : -1;
+    const pos = engine.playing ? engine.heardPosition() : -1;
     for (const x of pads) {
       const pad = engine.live.get(x.id);
       const on = !!pad && engine.playing && pos >= pad.from && pos < pad.until;

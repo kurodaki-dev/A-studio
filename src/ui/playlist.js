@@ -515,7 +515,7 @@ export function createPlaylist(engine) {
     hg.setTransform(hdpr, 0, 0, hdpr, 0, 0);
     hg.clearRect(0, 0, CW, CH);
     if (!ui.songMode || !(engine.playing || engine.pos > 0)) return;
-    const x = Math.round(xAt(engine.position()));
+    const x = Math.round(xAt(engine.heardPosition()));
     if (x < HEAD_W || x > W) return;
     hg.fillStyle = currentTheme().editor.playhead;
     hg.fillRect(x, RULER_H, 1, H - RULER_H);

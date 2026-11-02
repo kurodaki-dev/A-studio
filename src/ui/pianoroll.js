@@ -217,7 +217,7 @@ export function createPianoRoll(engine) {
     hg.setTransform(hdpr, 0, 0, hdpr, 0, 0);
     hg.clearRect(0, 0, CW, H);
     if (ui.songMode || !(engine.playing || engine.pos > 0)) return;
-    const x = Math.round(xAt(engine.position()));
+    const x = Math.round(xAt(engine.heardPosition()));
     if (x < KEYS_W || x > W) return;
     hg.fillStyle = C.play;
     hg.fillRect(x, RULER_H, 1, gridY1() - RULER_H);
@@ -801,7 +801,7 @@ export function createPianoRoll(engine) {
     pressedKey = k;
     const c = channel();
     if (c) held = engine.noteOn(c, k, ui.lastVel);
-    if (recording()) rec = { key: k, start: engine.position(), channelId: c.id };
+    if (recording()) rec = { key: k, start: engine.heardPosition(), channelId: c.id };
     hint(noteName(k));
     draw();
   }
@@ -814,7 +814,7 @@ export function createPianoRoll(engine) {
       rec = null;
       const pat0 = pat();
       const L = patternLength(pat0);
-      let len = engine.position() - r.start;
+      let len = engine.heardPosition() - r.start;
       if (len < 0) len += L;
       const t = ((snapRound(r.start) % L) + L) % L;
       store.commit();

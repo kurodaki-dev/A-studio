@@ -1008,8 +1008,7 @@ export class Engine {
     this.nextPos = this.pos;
     this.fresh = true;
     this.G.autoStarted.clear();
-    clearInterval(this.timer);
-    this.timer = setInterval(() => this.schedule(), 25);
+    this.startTicker();
     this.schedule();
     this.G.transport = { bpm: this.bpm, playing: true, position: this.pos, at: this.anchorTime };
     pushTransport(this.G, this.G.transport);
@@ -1035,9 +1034,29 @@ export class Engine {
     else this.play();
   }
 
-  halt() {
+  // Calls schedule() every 25 ms. A worker keeps the beat when the browser slows down
+  // timers on the page (busy tablet, screen dimmed); setInterval is the fallback.
+  startTicker() {
+    this.stopTicker();
+    this.lastTick = performance.now();
+    try {
+      if (!Engine.tickUrl) Engine.tickUrl = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 25);'], { type: 'text/javascript' }));
+      this.ticker = new globalThis.Worker(Engine.tickUrl);
+      this.ticker.onmessage = () => { if (this.playing) this.schedule(); };
+    } catch {
+      this.timer = setInterval(() => this.schedule(), 25);
+    }
+  }
+
+  stopTicker() {
+    if (this.ticker) this.ticker.terminate();
+    this.ticker = null;
     clearInterval(this.timer);
     this.timer = null;
+  }
+
+  halt() {
+    this.stopTicker();
     this.playing = false;
     if (this.ctx) for (const v of this.voices) releaseVoice(this.ctx, v, true);
     this.voices.clear();
@@ -1080,13 +1099,28 @@ export class Engine {
     } else this.pos = Math.max(0, tick);
   }
 
+  // Delay between the audio clock and the speaker (large on some Android tablets).
+  outLatency() {
+    const ctx = this.ctx;
+    if (!ctx) return 0;
+    const l = (ctx.outputLatency || 0) || (ctx.baseLatency || 0);
+    return Math.max(0, Math.min(0.5, l));
+  }
+
+  // Position of what is heard right now: the playhead and recorded notes follow the
+  // speaker, not the audio clock that runs ahead of it.
+  heardPosition() {
+    return this.position(this.outLatency());
+  }
+
   // Current position in loop ticks.
-  position() {
+  position(behind = 0) {
     if (!this.playing) return this.pos;
-    if (this.ctx.currentTime < this.startAt) return this.startPos;
+    const time = this.ctx.currentTime - behind;
+    if (time < this.startAt) return this.startPos;
     const [A, B] = this.range();
     const span = Math.max(1, B - A);
-    const now = this.timeToTick(this.ctx.currentTime);
+    const now = this.timeToTick(time);
     let p = this.nextPos - (this.nextAbs - now);
     while (p < A) p += span;
     if (p >= B) p = A + ((p - A) % span);
@@ -1107,7 +1141,14 @@ export class Engine {
       this.bpm = want;
       this.transportUpdate();
     }
-    const horizon = this.timeToTick(ctx.currentTime + 0.12);
+    // Look ahead further when the page was late to call us (slow tablet, long task):
+    // notes scheduled in time play on the beat, late ones would be pushed back.
+    const gap = (t0 - (this.lastTick || t0)) / 1000;
+    this.lastTick = t0;
+    if (!this.ahead) this.ahead = 0.15;
+    if (gap * 1.5 + 0.05 > this.ahead) this.ahead = Math.min(0.6, gap * 1.5 + 0.05);
+    else this.ahead = Math.max(0.15, this.ahead - 0.0005);
+    const horizon = this.timeToTick(ctx.currentTime + this.ahead);
     const [A, L] = this.range();
     if (this.nextPos >= L || this.nextPos < A) this.nextPos = A;
     while (this.nextAbs < horizon) {
