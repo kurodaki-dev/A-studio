@@ -7,6 +7,17 @@
 import { pluginExtensions } from './plugins.js';
 
 const MAX_HTML = 200 * 1024;
+const MAX_STORAGE = 100 * 1024;
+const STORAGE_PREFIX = 'astudio:ext:';
+
+function storageGet(ext) {
+  try {
+    const o = JSON.parse(localStorage.getItem(STORAGE_PREFIX + ext.plugin.id) || '{}');
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
 
 // Script injected in every extension frame: it defines the `astudio` API.
 export const BOOTSTRAP = `(() => {
@@ -14,6 +25,7 @@ export const BOOTSTRAP = `(() => {
   const pending = new Map();
   const clicks = new Map();
   const stateListeners = [];
+  const projectListeners = [];
   const call = (method, ...args) => new Promise((resolve, reject) => {
     const id = ++next;
     pending.set(id, { resolve, reject });
@@ -34,6 +46,8 @@ export const BOOTSTRAP = `(() => {
       if (f) f();
     } else if (m.event === 'state') {
       for (const f of stateListeners) { try { f(m.data); } catch (err) { console.error(err); } }
+    } else if (m.event === 'project') {
+      for (const f of projectListeners) { try { f(m.data); } catch (err) { console.error(err); } }
     }
   });
   addEventListener('error', (e) => parent.postMessage({ __astudio: 1, method: 'error', args: [String(e.message)] }, '*'));
@@ -53,6 +67,8 @@ export const BOOTSTRAP = `(() => {
     }),
     project: Object.freeze({
       get: () => call('project.get'),
+      getNotes: (channel) => call('project.getNotes', channel),
+      setNotes: (channel, notes) => call('project.setNotes', channel, notes),
       addNotes: (notes) => call('project.addNotes', notes),
       clearNotes: (channel) => call('project.clearNotes', channel),
       selectPattern: (id) => call('project.selectPattern', id),
@@ -63,8 +79,22 @@ export const BOOTSTRAP = `(() => {
       addPanel: (options) => call('ui.addPanel', options),
       openPanel: (id) => call('ui.openPanel', id),
       hint: (text) => call('ui.hint', text),
+      addShortcut: withClick('ui.addShortcut'),
     }),
-    on: (event, fn) => { if (event === 'state' && typeof fn === 'function') stateListeners.push(fn); },
+    audio: Object.freeze({
+      playNote: (options) => call('audio.playNote', options),
+    }),
+    storage: Object.freeze({
+      get: (key) => call('storage.get', key),
+      set: (key, value) => call('storage.set', key, value),
+      remove: (key) => call('storage.remove', key),
+      keys: () => call('storage.keys'),
+    }),
+    on: (event, fn) => {
+      if (typeof fn !== 'function') return;
+      if (event === 'state') stateListeners.push(fn);
+      else if (event === 'project') projectListeners.push(fn);
+    },
   });
 })();`;
 
@@ -88,6 +118,14 @@ export const METHOD_PERMISSION = {
   'transport.setMode': 'transport',
   'transport.getState': 'transport',
   'project.get': 'project-read',
+  'project.getNotes': 'project-read',
+  'project.setNotes': 'project-write',
+  'ui.addShortcut': 'ui',
+  'audio.playNote': 'audio',
+  'storage.get': 'storage',
+  'storage.set': 'storage',
+  'storage.remove': 'storage',
+  'storage.keys': 'storage',
   'project.addNotes': 'project-write',
   'project.clearNotes': 'project-write',
   'project.selectPattern': 'project-write',
@@ -134,6 +172,32 @@ export function createExtensionHost(app) {
       case 'transport.setMode': return app.actions.setMode(a[0] === 'song');
       case 'transport.getState': return app.actions.state();
       case 'project.get': return app.actions.projectSummary();
+      case 'project.getNotes': return app.actions.getNotes(a[0]);
+      case 'project.setNotes': return app.actions.setNotes(a[0], Array.isArray(a[1]) ? a[1].slice(0, 4096) : []);
+      case 'audio.playNote': return app.actions.playNote(a[0] || {});
+      case 'storage.get': return storageGet(ext)[str(a[0], 100)] ?? null;
+      case 'storage.keys': return Object.keys(storageGet(ext));
+      case 'storage.set':
+      case 'storage.remove': {
+        const data = storageGet(ext);
+        const key = str(a[0], 100);
+        if (!key) throw new Error('A key is required');
+        if (method === 'storage.remove') delete data[key];
+        else data[key] = a[1] === undefined ? null : a[1];
+        const json = JSON.stringify(data);
+        if (json.length > MAX_STORAGE) throw new Error('Extension storage is limited to 100 KB');
+        localStorage.setItem(STORAGE_PREFIX + ext.plugin.id, json);
+        return true;
+      }
+      case 'ui.addShortcut': {
+        const o = a[0] || {};
+        const id = str(o.id, 40);
+        const key = str(o.key, 20).toLowerCase();
+        if (!ITEM_ID.test(id)) throw new Error('id must use letters, digits, "-" or "_"');
+        if (!/^(?:(?:shift|alt)\+)*[a-z0-9]$/.test(key)) throw new Error('key must be a letter or digit, optionally with shift+ or alt+');
+        ext.shortcuts.set(id, { key, label: str(o.label, 30) || id, onClick: () => post(ext.frame, { event: 'click', target: id }) });
+        return true;
+      }
       case 'project.addNotes': return app.actions.addNotes(Array.isArray(a[0]) ? a[0].slice(0, 4096) : []);
       case 'project.clearNotes': return app.actions.clearNotes(a[0]);
       case 'project.selectPattern': return app.actions.selectPattern(str(a[0], 80));
@@ -195,7 +259,7 @@ export function createExtensionHost(app) {
 
   function start(plugin) {
     const frame = makeFrame(frameDoc(plugin.code), true);
-    const ext = { plugin, frame, frames: new Set([frame]), buttons: new Map(), menu: new Map(), panels: new Map() };
+    const ext = { plugin, frame, frames: new Set([frame]), buttons: new Map(), menu: new Map(), panels: new Map(), shortcuts: new Map() };
     running.set(plugin.id, ext);
     app.runtimeHost.append(frame);
   }
@@ -215,6 +279,13 @@ export function createExtensionHost(app) {
     buttons: () => [...running.values()].flatMap((x) => [...x.buttons.values()]),
     menuItems: () => [...running.values()].flatMap((x) => [...x.menu.values()]),
     panels: () => [...running.values()].flatMap((x) => [...x.panels.values()]),
+    shortcuts: () => [...running.values()].flatMap((x) => [...x.shortcuts.values()]),
+    broadcastProject(data) {
+      for (const ext of running.values()) {
+        if (!ext.plugin.permissions.includes('project-read')) continue;
+        for (const f of ext.frames) post(f, { event: 'project', data });
+      }
+    },
     // Sends playback state to every frame that listens.
     broadcast(data) {
       for (const ext of running.values()) {

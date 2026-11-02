@@ -748,12 +748,18 @@ export function createPianoRoll(engine) {
     if (!noDraw) draw();
   }
 
+  // Live recording: while Record is on and the pattern plays, notes played
+  // on the keyboard are written at the play position (snapped to the grid).
+  let rec = null;
+  const recording = () => ui.recording && engine.playing && !ui.songMode && channel();
+
   function keyDown(k) {
     if (k < 0 || k >= NKEYS) return;
     keyUp();
     pressedKey = k;
     const c = channel();
     if (c) held = engine.noteOn(c, k, ui.lastVel);
+    if (recording()) rec = { key: k, start: engine.position(), channelId: c.id };
     hint(noteName(k));
     draw();
   }
@@ -761,6 +767,18 @@ export function createPianoRoll(engine) {
   function keyUp() {
     if (held) engine.noteOff(held);
     held = null;
+    if (rec) {
+      const r = rec;
+      rec = null;
+      const pat0 = pat();
+      const L = patternLength(pat0);
+      let len = engine.position() - r.start;
+      if (len < 0) len += L;
+      const t = ((snapRound(r.start) % L) + L) % L;
+      store.commit();
+      notesFor(pat0, r.channelId).push({ t, len: Math.max(minLen(), snapRound(len) || snap()), key: r.key, vel: ui.lastVel });
+      store.emit();
+    }
     pressedKey = -1;
     draw();
   }

@@ -171,6 +171,7 @@ export function normalizeProject(raw) {
       name: str(pt.name, t('Pattern ') + (i + 1)),
       color: Math.round(num(pt.color, i % PATTERN_COLORS.length, 0, PATTERN_COLORS.length - 1)),
       minBars: Math.round(num(pt.minBars, 1, 1, 64)),
+      swing: num(pt.swing, 0, 0, 1),
       notes,
     };
   });

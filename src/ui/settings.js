@@ -4,6 +4,7 @@ import { allThemes, currentTheme, applyTheme, installTheme, removeTheme } from '
 import { allPlugins, installPlugin, removePlugin } from '../plugins.js';
 import { openPluginEditor } from './pluginEditor.js';
 import { openGithubInstall } from './githubInstall.js';
+import { openCatalog } from './catalog.js';
 import { fetchText } from '../github.js';
 import { pickFile } from '../platform.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck } from '../update.js';
@@ -128,6 +129,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine }
           : h('p', { class: 'empty' }, t('No plugin installed. A plugin is a JavaScript file that generates the sound of an instrument; see the documentation to write one.')),
         h('div', { class: 'set-actions' },
           h('button', { class: 'b tb', type: 'button', onClick: () => importFile('plugin') }, icon('Upload', 16), t('Install a plugin')),
+          h('button', { class: 'b tb primary', type: 'button', onClick: () => openCatalog({ onInstalled: () => { onExtensionsChange && onExtensionsChange(); render(); } }) }, icon('Search', 16), t('Browse the catalog')),
           h('button', { class: 'b tb', type: 'button', onClick: () => openGithubInstall({ onInstalled: () => { onExtensionsChange && onExtensionsChange(); render(); } }) }, icon('GitBranch', 16), t('Install from GitHub')),
           h('button', { class: 'b tb', type: 'button', onClick: () => editor() }, icon('Pencil', 16), t('Write a plugin')),
           h('button', { class: 'b tb', type: 'button', onClick: () => openExternal(DOCS_URL + '#plugins') }, icon('BookOpen', 16), t('How to create plugins and themes')),

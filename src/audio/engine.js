@@ -1,5 +1,5 @@
 import { INSTRUMENTS } from './instruments.js';
-import { PPQ, BEAT, BAR, MIXER_SIZE } from '../constants.js';
+import { PPQ, BEAT, BAR, STEP, MIXER_SIZE } from '../constants.js';
 import { patternLength, songLength, getPattern, currentPattern, clipLength } from '../store.js';
 import { getBuffer, loadBuffer } from '../samples.js';
 import { getPlugin, paramValues, loadPluginModule, pluginReady, processorName, allPlugins } from '../plugins.js';
@@ -21,7 +21,7 @@ function impulse(ctx, seconds = 2.2, decay = 3) {
 }
 
 export function createGraph(ctx, dest) {
-  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0 };
+  const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 } };
   const masterIn = ctx.createGain();
   const masterPan = ctx.createStereoPanner();
   const masterVol = ctx.createGain();
@@ -104,7 +104,7 @@ function syncEffects(G, ins, m) {
     for (const e of ins.fxNodes || []) e.node.disconnect();
     ins.fxNodes = ready.map((x) => {
       const params = paramValues(x.p, x.f.params);
-      const node = new AudioWorkletNode(G.ctx, processorName(x.p), { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params } });
+      const node = new AudioWorkletNode(G.ctx, processorName(x.p), { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params, transport: G.transport } });
       node.port.onmessage = (e) => {
         if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(x.p, e.data.message);
       };
@@ -130,6 +130,14 @@ function syncEffects(G, ins, m) {
       e.slot = x.f;
     });
   }
+}
+
+// Tell every plugin node the tempo and play state.
+export function pushTransport(G, t) {
+  G.transport = t;
+  const msg = { type: 'transport', ...t };
+  for (const e of G.pluginNodes.values()) e.node.port.postMessage(msg);
+  for (const ins of G.inserts) for (const e of ins.fxNodes || []) e.node.port.postMessage(msg);
 }
 
 export function syncGraph(G, project, smooth) {
@@ -269,7 +277,7 @@ function pluginNode(G, channel, ch) {
   }
   if (entry) entry.node.disconnect();
   const params = paramValues(plugin, channel.pluginParams);
-  const node = new AudioWorkletNode(G.ctx, name, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params } });
+  const node = new AudioWorkletNode(G.ctx, name, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params, transport: G.transport } });
   node.port.onmessage = (e) => {
     if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(plugin, e.data.message);
   };
@@ -365,7 +373,7 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
     for (const [cid, notes] of Object.entries(pat.notes)) {
       const c = chans.get(cid);
       if (!c) continue;
-      for (const n of notes) if (n.t >= from && n.t < to) cb(c, n, n.t);
+      for (const n of notes) if (n.t >= from && n.t < to) cb(c, n, n.t, pat);
     }
     return;
   }
@@ -393,11 +401,19 @@ export function collectEvents(project, mode, from, to, cb, onAudio) {
         for (const n of notes) {
           if (n.t >= L) continue;
           const tt = base + n.t;
-          if (tt >= from && tt < to && tt < s + len) cb(c, n, tt);
+          if (tt >= from && tt < to && tt < s + len) cb(c, n, tt, pat);
         }
       }
     }
   }
+}
+
+// Swing delays the notes that start on an odd 1/16 step, like FL Studio's
+// channel rack swing. Returned in ticks; at 100% an odd step moves by half a step.
+export function swingTicks(pat, t) {
+  const sw = pat && pat.swing;
+  if (!sw) return 0;
+  return t % (2 * STEP) === STEP ? sw * STEP * 0.5 : 0;
 }
 
 // Audio clips already sounding at a position (playback started inside them).
@@ -439,6 +455,12 @@ export class Engine {
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
+  }
+
+  transportUpdate() {
+    if (!this.G) return;
+    const playing = this.playing;
+    pushTransport(this.G, { bpm: this.store.project.bpm, playing, position: playing ? this.position() : this.pos, at: this.ctx.currentTime });
   }
 
   // Load every installed plugin into the audio thread so the first note plays.
@@ -489,7 +511,9 @@ export class Engine {
   }
 
   sync() {
-    if (this.G) syncGraph(this.G, this.store.project, true);
+    if (!this.G) return;
+    syncGraph(this.G, this.store.project, true);
+    if (!this.playing && this.G.transport.bpm !== this.store.project.bpm) this.transportUpdate();
   }
 
   spt() {
@@ -517,6 +541,8 @@ export class Engine {
     clearInterval(this.timer);
     this.timer = setInterval(() => this.schedule(), 25);
     this.schedule();
+    this.G.transport = { bpm: this.bpm, playing: true, position: this.pos, at: this.anchorTime };
+    pushTransport(this.G, this.G.transport);
   }
 
   pause() {
@@ -541,6 +567,7 @@ export class Engine {
     if (this.ctx) for (const v of this.voices) releaseVoice(this.ctx, v, true);
     this.voices.clear();
     if (this.G) for (const e of this.G.pluginNodes.values()) e.node.port.postMessage({ type: 'stop' });
+    this.transportUpdate();
   }
 
   setPosition(tick) {
@@ -552,6 +579,8 @@ export class Engine {
       this.nextAbs = 0;
       this.nextPos = Math.max(0, tick);
       this.fresh = true;
+      this.G.transport = { bpm: this.bpm, playing: true, position: this.nextPos, at: this.anchorTime };
+      pushTransport(this.G, this.G.transport);
     } else this.pos = Math.max(0, tick);
   }
 
@@ -573,6 +602,7 @@ export class Engine {
       this.anchorTick = this.timeToTick(now);
       this.anchorTime = now;
       this.bpm = proj.bpm;
+      this.transportUpdate();
     }
     const mode = this.getMode();
     const horizon = this.timeToTick(ctx.currentTime + 0.12);
@@ -592,8 +622,8 @@ export class Engine {
         }
       }
       this.fresh = false;
-      collectEvents(proj, mode, from, to, (c, n, tt) => {
-        const time = Math.max(this.tickToTime(base + tt), ctx.currentTime);
+      collectEvents(proj, mode, from, to, (c, n, tt, pat) => {
+        const time = Math.max(this.tickToTime(base + tt + swingTicks(pat, n.t)), ctx.currentTime);
         const v = playNote(this.G, c, time, n.key, n.vel, n.len * spt);
         if (v) this.track(v);
       }, (clip, tt) => {
@@ -694,11 +724,12 @@ export async function renderWav(project, mode) {
   const ctx = new OAC(2, Math.ceil((L * spt + tail) * sr), sr);
   const G = createGraph(ctx, ctx.destination);
   G.offline = true;
+  G.transport = { bpm: project.bpm, playing: true, position: 0, at: 0 };
   // Effects must be loaded in this context before the graph is built.
   await Promise.all([...effects].map((p) => loadPluginModule(ctx, p)));
   syncGraph(G, project, false);
-  collectEvents(project, mode, 0, L, (c, n, tt) => {
-    playNote(G, c, tt * spt, n.key, n.vel, n.len * spt);
+  collectEvents(project, mode, 0, L, (c, n, tt, pat) => {
+    playNote(G, c, (tt + swingTicks(pat, n.t)) * spt, n.key, n.vel, n.len * spt);
   }, (clip, tt) => {
     playAudioClip(G, clip, tt * spt, 0, clipLength(project, clip) * spt);
   });
@@ -710,7 +741,7 @@ export async function renderWav(project, mode) {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-      processorOptions: { params: paramValues(p, c.pluginParams), events },
+      processorOptions: { params: paramValues(p, c.pluginParams), events, transport: G.transport },
     });
     node.connect(G.channels.get(cid).in);
   }

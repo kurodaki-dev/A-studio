@@ -64,12 +64,18 @@ export function addSampler(sampleId) {
 export function createRack(engine, actions) {
   const list = h('div', { class: 'rack-list' });
   const stepsInfo = h('span', { class: 'rack-info' });
+  const swingKnob = knob({
+    value: 0, min: 0, max: 1, def: 0, size: 26, label: t('Swing'),
+    onStart: () => store.commit(),
+    onInput: (v) => { currentPattern(store.project).swing = v; store.emit(); },
+  });
   const head = h('div', { class: 'ptools' },
     h('div', { class: 'grp' }, h('span', { class: 'ptitle' }, 'Channel rack'), stepsInfo),
     h('div', { class: 'grp' },
       btn('Minus', t('Remove a bar'), () => changeBars(-1)),
       btn('Plus', t('Add a bar'), () => changeBars(1)),
     ),
+    h('label', { class: 'grp swing' }, swingKnob, h('span', null, t('Swing'))),
   );
   const addBtn = h('button', { class: 'b tb rack-add', type: 'button', onClick: (e) => addChannelMenu(e.currentTarget, engine) }, icon('Plus', 16), t('Add channel'));
   const scroller = h('div', { class: 'rack-scroll' }, list, addBtn);
@@ -225,6 +231,7 @@ export function createRack(engine, actions) {
     }
     const bars = patternLength(pat) / BAR;
     stepsInfo.textContent = pat.name + ', ' + bars + (bars > 1 ? t(' bars') : t(' bar'));
+    swingKnob.update(pat.swing || 0);
   }
 
   function signature() {

@@ -39,13 +39,13 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 
 ## Features
 
-- **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert.
-- **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize.
+- **Channel rack**: 16 steps per bar in FL Studio style groups, drag to fill or clear steps, per channel enable, pan, volume and mixer insert, swing per pattern.
+- **Piano roll**: draw, paint, delete, select, slice and pan tools, snap from 1/6 step to a bar, ghost notes, velocity lane, playable keyboard, copy, paste, duplicate, transpose and quantize, live recording from the keyboard.
 - **Playlist**: PAT and SONG modes, 16 tracks, pattern clips and audio clips, stretch any clip from its right edge.
 - **Mixer**: master and 16 inserts with fader, pan, reverb and delay sends, mute, solo, level meters and 4 effect plugin slots each.
 - **Browser**: FL Studio style side panel with your projects, imported samples, plugins and 23 built in instruments.
 - **Sounds**: drums (kick, snare, clap, hats, crash, tom, rimshot, cowbell), piano, electric piano, organ, synth and 808 bass, lead, pad, pluck, strings, guitar, flute, brass, marimba and bell, all synthesized in real time. Plus a Sampler for your own samples.
-- **Projects**: autosave, saved projects, `.astudio` import and export, WAV export of a pattern or the whole song, undo and redo.
+- **Projects**: autosave, saved projects, `.astudio` import and export, WAV and MIDI export of a pattern or the whole song, undo and redo.
 - **Settings**: English or French interface, themes, code plugins, update check.
 - Scrollbars and two finger gestures for navigation, landscape full screen layout, keyboard shortcuts on tablets.
 
@@ -63,13 +63,13 @@ Import audio files (WAV, MP3, OGG, FLAC, M4A, AIFF) or whole ZIP sample packs fr
 
 ## Plugins and themes
 
-Install them from **Menu, Plugins and themes**: pick a file, or paste a **GitHub link** (repository, folder or file) and the app finds the plugins and themes in it. Plugins installed from GitHub can be updated with one tap.
+Install them from **Menu, Plugins and themes**: browse the **catalog** and install in one tap, pick a file, or paste a **GitHub link** (repository, folder or file) and the app finds the plugins and themes in it. Plugins installed from GitHub can be updated with one tap.
 
-- **Plugins** are JavaScript files. **Instruments** compute their own samples for every note; **effects** process a mixer insert (4 FX slots per insert). Controls are declared in the header: knobs, switches, choice lists and buttons. Write, test and export plugins on the phone with the built in editor. The code runs isolated in the audio thread (AudioWorklet), without access to the interface, storage, files or network; a crashing voice or effect is contained without taking the app down.
-- **Extensions** change the interface itself: add buttons to the top bar (a Play button, for example), menu items and whole panels with your own HTML interface, drive playback and write notes. They run in an isolated frame and can only use the permissions declared in their header.
+- **Plugins** are JavaScript files. **Instruments** compute their own samples for every note; **effects** process a mixer insert (4 FX slots per insert). Controls are declared in the header (knobs, switches, choice lists, buttons) with factory presets, and you can save your own presets. Instruments and effects get the tempo for synced sounds. Write, test and export plugins on the phone with the built in editor. The code runs isolated in the audio thread (AudioWorklet), without access to the interface, storage, files or network; a crashing voice or effect is contained without taking the app down.
+- **Extensions** change the interface itself: add buttons to the top bar (a Play button, for example), menu items and whole panels with your own HTML interface, drive playback, read and write notes, play sounds, keep their own data and add keyboard shortcuts. They run in an isolated frame and can only use the permissions declared in their header.
 - **Themes** are JSON files that change the interface and editor colors, with hex values only.
 
-The plugin API, the theme format and ready to install examples (Beat Tools, Poly Synth, Stereo Delay, Bitcrusher, Supersaw, FM Bell, Noise Snare) are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
+The plugin API, the theme format and ready to install examples (Chord Helper, Beat Tools, Poly Synth, Stereo Delay, Bitcrusher, Supersaw, FM Bell, Noise Snare) are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
 
 ## Updates
 
