@@ -5,7 +5,7 @@ import { currentTheme } from '../themes.js';
 import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
 import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId, serialize } from '../store.js';
 import { autoTargets, autoLabel, targetValue, autoValue } from '../automation.js';
-import { openAutomationEditor, openClipProperties, openWaveEditor, stretchClip, clipBpm } from './clipEditors.js';
+import { openAutomationEditor, openClipProperties, openWaveEditor, stretchClip, clipBpm, cleanClip } from './clipEditors.js';
 import { renderChannels } from '../audio/engine.js';
 import { encodeWav } from '../wav.js';
 import { addSample } from '../samples.js';
@@ -330,6 +330,7 @@ export function createPlaylist(engine) {
         : { label: t('Open in the piano roll'), icon: 'Piano', onClick: () => { store.project.currentPattern = c.patternId; store.emit(); } },
       ...(c.type === 'audio' ? [
         { label: t('Edit audio') + '...', icon: 'AudioWaveform', onClick: () => openWaveEditor(c, engine) },
+        { label: t('Clean up voice (one tap)'), icon: 'WandSparkles', onClick: () => cleanClip(c) },
         { label: t('Detect BPM'), icon: 'Timer', onClick: async () => {
           const bpm = await clipBpm(c);
           hint(bpm ? clipName(c) + ': ' + bpm + ' BPM' : t('No clear tempo found'));

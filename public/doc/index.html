@@ -212,6 +212,17 @@
 <p>Long press an audio clip in the playlist:</p>
 <ul>
   <li><strong>Edit audio</strong> opens the waveform editor: drag to select, then cut, trim to the selection, silence, +3 or -3 dB, fade in, fade out, reverse, normalize, play, undo. Save stores the result as a new sample (the original stays in the browser) and the clip uses it.</li>
+  <li><strong>Clean up</strong> (in the waveform editor) works on the whole sample:
+    <ul>
+      <li><strong>Reduce noise</strong> (light, medium, strong) removes a steady background noise: hiss, fan, room tone. Select a part with only the noise first for the best result; without a selection the quietest part of the sample is used.</li>
+      <li><strong>Remove hum</strong>: mains hum at 50 or 60 Hz and its harmonics (found automatically).</li>
+      <li><strong>Remove rumble and plosives</strong> (steep cut under 80 Hz) and <strong>Remove DC offset</strong>.</li>
+      <li><strong>Reduce breaths</strong>: lowers the quiet parts between phrases by 12 dB with smooth fades.</li>
+      <li><strong>Normalize to -14 LUFS</strong>, <strong>Mono</strong>.</li>
+      <li><strong>Remove the vocals (karaoke)</strong> or <strong>Keep only the vocals</strong> on a stereo song: a spectral mask keeps or removes what is in the centre of the mix. It works best on mixes where the voice is centred and dry; expect some leftovers.</li>
+      <li><strong>Clean up voice (all in one)</strong>: DC, rumble, medium noise reduction, breaths and -14 LUFS. Also in the clip menu as Clean up voice (one tap).</li>
+    </ul>
+  </li>
   <li><strong>Detect BPM</strong> finds the tempo of a loop. <strong>Fit to the project tempo</strong> stretches it to the project tempo without changing its pitch, and <strong>Change speed</strong> slows it down or speeds it up the same way (time stretch, WSOLA).</li>
   <li>On a pattern clip, <strong>Render to an audio clip</strong> turns it (with its repeats, channels and mixer effects) into an audio clip, for resampling or to save processing power.</li>
 </ul>
