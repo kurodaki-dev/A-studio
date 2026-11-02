@@ -1,4 +1,5 @@
 import { unzipSync } from 'fflate';
+import { unrarFiles } from './rar.js';
 import { t } from './i18n.js';
 
 // Imported samples live in IndexedDB on the device. Nothing is uploaded.
@@ -163,21 +164,24 @@ export async function addSample(name, folder, bytes) {
 const baseName = (p) => p.split('/').pop();
 const stripExt = (n) => n.replace(/\.[^.]+$/, '');
 
-// Import files picked by the user: audio files and ZIP sample packs.
+// Import files picked by the user: audio files and ZIP or RAR sample packs.
 // Returns { added, skipped }.
 export async function importFiles(files, onProgress) {
   let added = 0;
   let skipped = 0;
   for (const f of files) {
     const bytes = await f.arrayBuffer();
-    if (/\.zip$/i.test(f.name)) {
+    if (/\.(zip|rar)$/i.test(f.name)) {
       const pack = stripExt(f.name);
+      const keep = (name) => AUDIO_EXT.test(name) && !name.includes('__MACOSX') && !baseName(name).startsWith('.');
       let entries;
       try {
-        entries = unzipSync(new Uint8Array(bytes), {
-          filter: (file) => AUDIO_EXT.test(file.name) && !file.name.includes('__MACOSX') && !baseName(file.name).startsWith('.'),
-        });
-      } catch {
+        entries = /\.rar$/i.test(f.name)
+          ? await unrarFiles(bytes, keep)
+          : unzipSync(new Uint8Array(bytes), { filter: (file) => keep(file.name) });
+      } catch (e) {
+        if (e && e.reason === 'ERAR_MISSING_PASSWORD') throw new Error(t('This RAR archive is protected by a password.'));
+        console.warn('Archive not readable:', f.name, e);
         skipped += 1;
         continue;
       }
@@ -186,7 +190,7 @@ export async function importFiles(files, onProgress) {
         const path = names[i];
         const parts = path.split('/').filter(Boolean);
         const file = parts.pop();
-        if (parts[0] === pack) parts.shift();
+        if (parts[0] && parts[0].toLowerCase() === pack.toLowerCase()) parts.shift();
         const folder = [pack, ...parts].join('/');
         const u8 = entries[path];
         try {
