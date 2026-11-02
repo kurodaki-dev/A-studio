@@ -25,7 +25,7 @@
 <ul>
   <li>L'application ne collecte aucune donnée personnelle.</li>
   <li>Elle ne demande pas de compte, ne contient pas de publicité et n'utilise aucun outil de mesure d'audience.</li>
-  <li>Les seules connexions de l'application vont vers GitHub : vérifier si une nouvelle version existe (désactivable), la télécharger si vous acceptez, et installer des plugins depuis un lien GitHub que vous saisissez. Elles n'envoient aucune information vous concernant.</li>
+  <li>Les connexions de l'application vont vers GitHub (vérifier si une nouvelle version existe, désactivable, la télécharger si vous acceptez, installer des plugins du catalogue ou d'un lien que vous saisissez) et, seulement si vous utilisez le plugin AI Connect, vers le pont sur votre propre ordinateur. Elles ne nous envoient aucune information vous concernant.</li>
   <li>Vos projets restent sur votre appareil.</li>
 </ul>
 
@@ -48,6 +48,9 @@
 
 <h2>Installation depuis GitHub</h2>
 <p>Quand vous ouvrez le catalogue de plugins, l'application télécharge sa liste depuis le dépôt A Studio (raw.githubusercontent.com). Quand vous collez un lien dans « Installer depuis GitHub », ou touchez « Mettre à jour depuis GitHub », l'application demande à GitHub la liste des fichiers de ce dépôt (api.github.com) et télécharge les fichiers que vous choisissez (raw.githubusercontent.com). Les requêtes contiennent le lien saisi et rien sur vous ; GitHub reçoit l'adresse IP du téléphone, comme pour toute connexion. Rien n'est envoyé sans action de votre part.</p>
+
+<h2>Connexion à un assistant IA (MCP)</h2>
+<p>Si vous installez le plugin AI Connect et activez Connect dans ses paramètres, l'application se connecte au pont astudio-mcp à l'adresse que vous avez saisie, normalement votre propre ordinateur sur le même réseau. La connexion n'est pas chiffrée (ws://) et reste sur votre réseau local. L'application d'IA que vous utilisez sur cet ordinateur peut alors lire votre projet ouvert (son nom, son tempo, ses motifs, le nom des canaux et les notes) et le modifier. Ce que l'IA lit est envoyé au service d'IA que vous utilisez (par exemple Anthropic pour Claude), selon sa propre politique de confidentialité. Rien n'est envoyé tant que Connect est désactivé, et vous pouvez supprimer le plugin à tout moment.</p>
 
 <h2>Fichiers que vous exportez</h2>
 <p>Quand vous exportez un fichier WAV ou un fichier projet, l'application ouvre le menu de partage d'Android. C'est vous qui choisissez où le fichier part (un dossier, une application de stockage, une messagerie). L'application n'envoie rien d'elle même. Le service que vous choisissez applique sa propre politique de confidentialité.</p>

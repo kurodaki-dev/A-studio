@@ -3,7 +3,7 @@
   "appName": "A Studio",
   "webDir": "dist",
   "android": {
-    "allowMixedContent": false,
+    "allowMixedContent": true,
     "webContentsDebuggingEnabled": false
   }
 }

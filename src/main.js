@@ -15,13 +15,15 @@ import { loadCurrent, saveCurrent, saveProject, loadProject, listProjects } from
 import { saveFile, pickFile } from './platform.js';
 import { BAR, STEP, NKEYS, clamp } from './constants.js';
 import { createExtensionHost } from './extensions.js';
-import { isInstrumentId } from './audio/catalog.js';
+import { isInstrumentId, CATALOG } from './audio/catalog.js';
+import { pluginInstruments, getPlugin } from './plugins.js';
+import { createChannel } from './ui/rack.js';
 import { encodeMidi } from './midi.js';
 import { APP_VERSION } from './version.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled } from './update.js';
 import { t, locale, lang } from './i18n.js';
 import { initTheme } from './themes.js';
-import { openSettings } from './ui/settings.js';
+import { openSettings, refreshOpenSettings } from './ui/settings.js';
 import { openExternal, DOCS_URL, bugReportUrl, featureRequestUrl } from './links.js';
 
 initTheme();
@@ -71,7 +73,7 @@ const panels = {
   rack: createRack(engine, actions),
   piano: createPianoRoll(engine),
   playlist: createPlaylist(engine, actions),
-  mixer: createMixer(engine, () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine })),
+  mixer: createMixer(engine, () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine, extHost })),
 };
 const sidebar = createSidebar(engine, actions);
 
@@ -219,6 +221,23 @@ const extActions = {
       });
       return added;
     },
+    instruments() {
+      return [
+        ...CATALOG.map((i) => ({ id: i.id, name: i.name, category: i.cat })),
+        ...pluginInstruments().map((p) => ({ id: 'plugin:' + p.id, name: p.name, category: p.category })),
+      ];
+    },
+    addChannel(instrument, name) {
+      if (!isInstrumentId(instrument) || instrument === 'sampler') throw new Error('Unknown instrument ' + instrument);
+      if (instrument.startsWith('plugin:') && !getPlugin(instrument.slice(7))) throw new Error('Plugin not installed: ' + instrument);
+      let c = null;
+      store.change((p) => {
+        c = createChannel(p, instrument);
+        if (c && name) c.name = name;
+      });
+      if (!c) throw new Error('The channel rack is full');
+      return { id: c.id, name: c.name, instrument: c.instrument };
+    },
     getNotes(ref) {
       const c = findChannel(ref);
       if (!c) throw new Error('Unknown channel');
@@ -279,6 +298,7 @@ const extActions = {
     extensionsUiChanged: () => syncExtensionUi(),
     openPanel: (key) => showPanel(key),
     extensionError: (p, msg) => alertBox(t('Extension error'), p.name + ': ' + msg),
+    extensionSettingsChanged: () => refreshOpenSettings(),
 };
 const extHost = createExtensionHost({ runtimeHost: extRuntime, actions: extActions });
 
@@ -589,8 +609,8 @@ function mainMenu(anchor) {
     { label: ui.songMode ? t('Export song as WAV') : t('Export pattern as WAV'), icon: 'Download', onClick: exportWav },
     { label: ui.songMode ? t('Export song as MIDI') : t('Export pattern as MIDI'), icon: 'FileMusic', onClick: exportMidi },
     { sep: true },
-    { label: t('Settings'), icon: 'Settings', onClick: () => openSettings({ onExtensionsChange: extensionsChanged, engine }) },
-    { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine }) },
+    { label: t('Settings'), icon: 'Settings', onClick: () => openSettings({ onExtensionsChange: extensionsChanged, engine, extHost }) },
+    { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine, extHost }) },
     ...(updatesSupported() ? [{ label: t('Check for updates'), icon: 'Download', onClick: () => checkForUpdate({ silent: false }) }] : []),
     { sep: true },
     ...(extHost.menuItems().length ? [{ sep: true }, ...extHost.menuItems().map((m) => ({ label: m.label, icon: m.icon || 'Puzzle', onClick: m.onClick }))] : []),

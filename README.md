@@ -18,7 +18,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 <img src="https://img.shields.io/badge/license-MIT-0a7bbb" alt="license MIT">
 <img src="https://img.shields.io/badge/status-beta-8e9ba1" alt="status beta">
 
-[Screenshots](#screenshots) · [Features](#features) · [Piano roll](#piano-roll) · [Browser and samples](#browser-and-samples) · [Plugins and themes](#plugins-and-themes) · [Updates](#updates) · [Privacy](#privacy) · [Building](#building)
+[Screenshots](#screenshots) · [Features](#features) · [Piano roll](#piano-roll) · [Browser and samples](#browser-and-samples) · [Plugins and themes](#plugins-and-themes) · [AI (MCP)](#ai-assistant-mcp) · [Updates](#updates) · [Privacy](#privacy) · [Building](#building)
 
 </div>
 
@@ -69,7 +69,11 @@ Install them from **Menu, Plugins and themes**: browse the **catalog** and insta
 - **Extensions** change the interface itself: add buttons to the top bar (a Play button, for example), menu items and whole panels with your own HTML interface, drive playback, read and write notes, play sounds, keep their own data and add keyboard shortcuts. They run in an isolated frame and can only use the permissions declared in their header.
 - **Themes** are JSON files that change the interface and editor colors, with hex values only.
 
-The plugin API, the theme format and ready to install examples (Chord Helper, Beat Tools, Poly Synth, Stereo Delay, Bitcrusher, Supersaw, FM Bell, Noise Snare) are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
+The plugin API, the theme format and ready to install examples (AI Connect, Chord Helper, Beat Tools, Poly Synth, Stereo Delay, Bitcrusher, Supersaw, FM Bell, Noise Snare) are in the [documentation](https://kurodaki-dev.github.io/A-studio/doc/#plugins).
+
+## AI assistant (MCP)
+
+An AI assistant such as Claude can work in A Studio: read the project, write notes, add channels, set the tempo and play. Run the [`astudio-mcp`](mcp-server/README.md) bridge on your computer and add it to your AI app (Claude Desktop, Claude Code, Cursor...), then install the **AI Connect (MCP)** plugin from the catalog: it adds an **AI connection (MCP)** section in Settings where you enter the bridge address and pairing code.
 
 ## Updates
 
@@ -119,6 +123,7 @@ public/
   doc/          documentation site and plugin and theme examples
   legal/        privacy, terms and cookie pages (English, French in legal/fr)
 android/        Capacitor project, including the in app updater
+mcp-server/     astudio-mcp, the MCP bridge for AI assistants
 ```
 
 ## Contributing

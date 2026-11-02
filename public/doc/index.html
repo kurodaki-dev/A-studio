@@ -32,6 +32,7 @@
   <a href="#updates">Updates</a>
   <a href="#plugins">Plugins</a>
   <a href="#themes">Themes</a>
+  <a href="#ai">Connect an AI (MCP)</a>
   <a href="#shortcuts">Keyboard shortcuts</a>
   <a href="#privacy">Privacy</a>
   <a href="#building">Building from source</a>
@@ -304,6 +305,7 @@ astudio.on('state', (s) =&gt; {
   <tr><td><code>project-write</code></td><td>Add, replace or clear notes, change the current pattern. Changes can be undone like any edit.</td></tr>
   <tr><td><code>audio</code></td><td>Play notes through a channel or a built in instrument (previews).</td></tr>
   <tr><td><code>storage</code></td><td>Keep the extension's own data on the device (up to 100 KB, deleted with the extension).</td></tr>
+  <tr><td><code>network</code></td><td>Open WebSocket connections (<code>ws://</code> or <code>wss://</code>), two at most, for example to an address the user types in the extension's settings.</td></tr>
 </table>
 <h3>API</h3>
 <p>Every call returns a Promise.</p>
@@ -328,12 +330,18 @@ astudio.on('state', (s) =&gt; {
   <tr><td><code>astudio.on('project', fn)</code></td><td>Calls <code>fn</code> with the project summary when the project changes (needs <code>project-read</code>).</td></tr>
   <tr><td><code>astudio.audio.playNote({ channel, instrument, key, velocity, length })</code></td><td>Plays a note through a channel (id or name) or a built in instrument id such as <code>'piano'</code>. <code>length</code> in seconds.</td></tr>
   <tr><td><code>astudio.storage.get(key)</code>, <code>set(key, value)</code>, <code>remove(key)</code>, <code>keys()</code></td><td>The extension's own saved data. Values are any JSON value.</td></tr>
+  <tr><td><code>astudio.settings.addSection({ title, description, fields })</code></td><td>Adds a section for the extension in the Settings window. <code>fields</code>: up to 12 of <code>{ id, type, label, placeholder, value }</code> where <code>type</code> is <code>text</code>, <code>password</code>, <code>toggle</code>, <code>button</code> or <code>info</code> (read only text). Values are saved on the device.</td></tr>
+  <tr><td><code>astudio.settings.get()</code>, <code>astudio.settings.set(id, value)</code></td><td>Read the values, or change one (for example a status line or a switch).</td></tr>
+  <tr><td><code>astudio.on('settings', fn)</code></td><td>Called with <code>{ id, value, values }</code> when the user changes a field or presses a button.</td></tr>
+  <tr><td><code>astudio.net.connect(url, onEvent)</code></td><td>Opens a WebSocket (needs <code>network</code>). <code>onEvent</code> receives <code>{ type: 'open' | 'message' | 'close' | 'error', data }</code>. Returns <code>{ send(text), close() }</code>.</td></tr>
+  <tr><td><code>astudio.project.addChannel(instrument, name)</code></td><td>Adds a channel (needs <code>project-write</code>). <code>astudio.project.instruments()</code> lists the instrument ids (needs <code>project-read</code>).</td></tr>
   <tr><td><code>astudio.ui.addShortcut({ id, key, label }, onPress)</code></td><td>Keyboard shortcut (tablet or web keyboard): a letter or digit with optional <code>shift+</code> or <code>alt+</code>, for example <code>'alt+c'</code>. App shortcuts keep priority.</td></tr>
 </table>
 <p>Errors thrown by an extension, and refused calls, are shown in an Extension error message. Removing the extension in Settings removes its buttons, panels and menu items.</p>
 
 <h3>Examples</h3>
 <ul>
+  <li><a href="examples/ai-connect.astudio-plugin.js" download>ai-connect.astudio-plugin.js</a>: connects A Studio to an AI through the astudio-mcp bridge. Adds the AI connection section in Settings and an AI indicator in the top bar. Uses settings, network, notes, channels and transport.</li>
   <li><a href="examples/chord-helper.astudio-plugin.js" download>chord-helper.astudio-plugin.js</a>: extension with a Chords panel: pick a key, tap chords to hear them and build a progression, write it as block chords or arpeggios, save progressions. Uses notes, audio, storage, project events and an Alt+C shortcut.</li>
   <li><a href="examples/beat-tools.astudio-plugin.js" download>beat-tools.astudio-plugin.js</a>: extension with a Play/Stop button in the top bar, a menu item and a Beat generator panel (styles, density, tap tempo) that writes a beat into the pattern.</li>
   <li><a href="examples/poly-synth.astudio-plugin.js" download>poly-synth.astudio-plugin.js</a>: resonant filter synth that uses every control type: choice, knobs, switch and button.</li>
@@ -389,6 +397,17 @@ astudio.on('state', (s) =&gt; {
   <tr><td><code>trackA</code>, <code>trackB</code></td><td>Alternating playlist tracks</td></tr>
   <tr><td><code>ruler</code></td><td>Time ruler</td></tr>
 </table>
+
+<h2 id="ai">Connect an AI (MCP)</h2>
+<p>An AI assistant such as Claude can work in A Studio: read the project, write notes and chords, add channels, set the tempo, play. It goes through the <a href="https://modelcontextprotocol.io">Model Context Protocol</a> (MCP):</p>
+<pre><code>AI app (Claude Desktop, Claude Code, Cursor...)  -- MCP -->  astudio-mcp on your computer  -- local network -->  A Studio</code></pre>
+<ol>
+  <li>On your computer, install the bridge from the <a href="https://github.com/kurodaki-dev/A-studio/tree/main/mcp-server"><code>mcp-server</code> folder</a> (Node.js 20+), then add it to your AI app with a pairing code. The <a href="https://github.com/kurodaki-dev/A-studio/blob/main/mcp-server/README.md">bridge README</a> has the exact configuration for Claude Desktop, Claude Code and others.</li>
+  <li>In A Studio, install the <strong>AI Connect (MCP)</strong> plugin from the catalog. A new <strong>AI connection (MCP)</strong> section appears in Settings, and an AI indicator in the top bar.</li>
+  <li>In that section, enter the bridge address (<code>ws://</code> + the computer's local IP + <code>:8765</code>, printed by the bridge) and the pairing code, then turn on Connect.</li>
+  <li>Ask your AI, for example: "Add a bass channel in A Studio and write a four bar line in A minor, then play it."</li>
+</ol>
+<p class="note">The phone and the computer must be on the same network. What the AI reads from your project goes to the AI service you use. Every change it makes can be undone with Undo.</p>
 
 <h2 id="shortcuts">Keyboard shortcuts</h2>
 <p>With a keyboard (tablet or web version):</p>

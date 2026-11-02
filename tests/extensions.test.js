@@ -318,3 +318,15 @@ test('the catalog lists valid entries that point to existing example files', asy
     }
   }
 });
+
+test('AI Connect handles every tool of the MCP bridge', () => {
+  const plugin = parsePlugin(ex('ai-connect.astudio-plugin.js'));
+  assert.equal(plugin.type, 'extension');
+  assert.deepEqual(plugin.permissions, ['ui', 'transport', 'project-read', 'project-write', 'audio', 'network']);
+  const server = readFileSync(new URL('../mcp-server/src/server.js', import.meta.url), 'utf8');
+  const bridgeTools = [...server.matchAll(/tool\('([a-z_]+)'/g)].map((m) => m[1]);
+  assert.ok(bridgeTools.length >= 12);
+  const toolsBlock = /const TOOLS = \{([\s\S]*?)\n\};/.exec(plugin.code)[1];
+  const handled = [...toolsBlock.matchAll(/^\s+(?:async\s+)?([a-z_]+)[:(]/gm)].map((m) => m[1]);
+  for (const name of bridgeTools) assert.ok(handled.includes(name), 'plugin misses ' + name);
+});

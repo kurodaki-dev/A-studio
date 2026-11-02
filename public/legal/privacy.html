@@ -26,7 +26,7 @@
 <ul>
   <li>The app collects no personal data.</li>
   <li>No account, no ads, no analytics.</li>
-  <li>Its only connections go to GitHub: checking for a new version of the app (can be turned off), downloading it when you accept, and installing plugins from a GitHub link you enter. They send nothing about you.</li>
+  <li>Its connections go to GitHub (checking for a new version, which can be turned off, downloading it when you accept, installing plugins from the catalog or a link you enter) and, only if you use the AI Connect plugin, to the bridge on your own computer. They send nothing about you to us.</li>
   <li>Your projects, samples, plugins and themes stay on your device.</li>
 </ul>
 
@@ -48,6 +48,9 @@
 
 <h2>Installing from GitHub</h2>
 <p>When you open the plugin catalog, the app downloads its list from the A Studio repository (raw.githubusercontent.com). When you paste a link in Install from GitHub, or tap Update from GitHub, the app asks GitHub for that repository's file list (api.github.com) and downloads the files you choose (raw.githubusercontent.com). The requests contain the link you entered and nothing about you; GitHub receives the phone's IP address, as for any connection. Nothing is sent without your action.</p>
+
+<h2>Connecting an AI assistant (MCP)</h2>
+<p>If you install the AI Connect plugin and turn on Connect in its settings, the app connects to the astudio-mcp bridge at the address you entered, normally your own computer on the same network. The connection is not encrypted (ws://) and stays on your local network. The AI app you use on that computer can then read your open project (its name, tempo, patterns, channel names and notes) and change it. What the AI reads is sent to the AI service you use (for example Anthropic for Claude), under that service's own privacy policy. Nothing is sent while Connect is off, and you can remove the plugin at any time.</p>
 
 <h2>Files you export or import</h2>
 <p>When you export a WAV or project file, the app opens the Android share menu and you choose where the file goes. The app sends nothing by itself; the service you pick applies its own privacy policy.</p>
