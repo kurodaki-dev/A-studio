@@ -22,6 +22,8 @@ export function openChannelSettings(id, engine) {
   const set = (fn) => {
     fn();
     store.emit();
+    // The sound preview follows the settings (envelopes, LFO, 3x Osc, plugin knobs).
+    if (typeof soundChanged === 'function') soundChanged();
   };
   const name = h('input', { class: 'input', type: 'text', value: c.name, maxlength: 80, onInput: (e) => set(() => { c.name = e.target.value || t('Channel'); }) });
   const inst = dropdown({
@@ -98,6 +100,10 @@ export function openChannelSettings(id, engine) {
     );
   }
 
+  let wave = null;
+  function soundChanged() {
+    if (wave && wave.soundChanged) wave.soundChanged();
+  }
   function waveSection() {
     if (c.instrument === 'sampler') {
       return c.sample ? sampleView({
@@ -118,7 +124,7 @@ export function openChannelSettings(id, engine) {
         }),
       }) : null;
     }
-    return c.instrument !== 'sampler' && !c.instrument.startsWith('plugin:') ? soundView({
+    wave = c.instrument !== 'sampler' ? soundView({
         project: store.project,
         c,
         onMakeSample: (sid) => {
@@ -134,6 +140,7 @@ export function openChannelSettings(id, engine) {
           openChannelSettings(id, engine);
         },
       }) : null;
+    return wave;
   }
 
   // Sampler: reverse, start and end points, loop, slices.

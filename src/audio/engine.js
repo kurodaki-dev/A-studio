@@ -1298,12 +1298,12 @@ export class Engine {
 // One note of a channel rendered offline (for the waveform view of the channel settings
 // and to turn any sound into a sample). Plugin instruments are not rendered here.
 export async function renderNote(project, channel, seconds = 2, key = 60) {
-  if (channel.instrument.startsWith('plugin:')) return null;
   const sr = 44100;
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const ctx = new OAC(2, Math.ceil(sr * (seconds + 0.6)), sr);
   const G = createGraph(ctx, ctx.destination);
   G.offline = true;
+  G.transport = { bpm: project.bpm, playing: true, position: 0, at: 0 };
   const c = JSON.parse(JSON.stringify(channel));
   c.insert = 0;
   c.mute = false;
@@ -1312,8 +1312,20 @@ export async function renderNote(project, channel, seconds = 2, key = 60) {
   const proj = { ...JSON.parse(JSON.stringify(project)), channels: [c] };
   proj.mixer = proj.mixer.map((m, i) => (i === 0 ? { ...m, fx: [], vol: 0.8, mute: false } : m));
   if (c.instrument === 'sampler') for (const id of [c.sample, ...(c.zones || []).map((z) => z.sample)]) if (id) await loadBuffer(id);
+  // Code plugins run in the offline context too: their note goes to the node at creation.
+  const plugin = c.instrument.startsWith('plugin:') ? getPlugin(c.instrument.slice(7)) : null;
+  if (c.instrument.startsWith('plugin:') && (!plugin || !(await loadPluginModule(ctx, plugin)))) return null;
   syncGraph(G, proj, false);
   playNote(G, c, 0.02, key, 0.85, seconds);
+  if (plugin) {
+    const node = new AudioWorkletNode(ctx, processorName(plugin), {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      processorOptions: { params: paramValues(plugin, c.pluginParams), events: G.pluginEvents.get(c.id) || [], transport: G.transport },
+    });
+    node.connect(G.channels.get(c.id).in);
+  }
   return ctx.startRendering();
 }
 
