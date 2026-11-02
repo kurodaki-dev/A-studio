@@ -1,4 +1,5 @@
 import './style.css';
+import { lastPhrase } from './scorelog.js';
 import { h, btn, icon, hint, bindHint, openMenu, openModal, promptText, confirmBox, alertBox, closeMenu, dropdown } from './ui/dom.js';
 import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject, notesFor, newId } from './store.js';
 import { ui } from './ui-state.js';
@@ -718,6 +719,27 @@ function stepPattern(d) {
   store.emit();
 }
 
+// Score log: the last phrase played live (without recording) becomes a new pattern.
+function dumpScoreLog() {
+  const ph = lastPhrase(store.project.bpm);
+  if (!ph) {
+    hint(t('Nothing played yet: play some notes on the piano roll keys or a MIDI keyboard first.'));
+    return;
+  }
+  store.change((p) => {
+    const pat = makePattern(nextPatternIndex(p));
+    pat.name = t('Score log');
+    pat.minBars = ph.bars;
+    for (const [cid, list] of Object.entries(ph.byChannel)) if (p.channels.some((c) => c.id === cid)) pat.notes[cid] = list;
+    p.patterns.push(pat);
+    p.currentPattern = pat.id;
+    const first = Object.keys(ph.byChannel)[0];
+    if (first) ui.prChannel = first;
+  });
+  showPanel('piano');
+  hint(ph.count + t(' notes from the score log in a new pattern'));
+}
+
 function newPattern() {
   store.change((p) => {
     const pat = makePattern(nextPatternIndex(p));
@@ -747,6 +769,7 @@ function patternMenu(anchor) {
       pp.patterns.splice(pp.patterns.indexOf(cur) + 1, 0, copy);
       pp.currentPattern = copy.id;
     }) },
+    { label: t('Dump score log to pattern (what you just played)'), icon: 'ScrollText', onClick: dumpScoreLog },
     { label: t('Split by channel'), icon: 'Layers', onClick: () => {
       let made = [];
       store.change((pp) => { made = splitByChannel(pp, cur.id); });
@@ -1219,6 +1242,7 @@ const MENUS = {
     { label: t('Tuner'), icon: 'Music', onClick: () => openTuner() },
     { label: t('Set up a vocal insert with effects') + '...', icon: 'Mic', onClick: () => openMenu(menuBar, VOCAL_CHAINS.map((c) => ({ label: t(c.name), onClick: () => setupVocalInsert(c) }))) },
     { label: t('Hear the microphone with the effects (headphones)'), icon: 'Headphones', checked: ui.monitor, onClick: () => toggleMonitor() },
+    { label: t('Dump score log to pattern (what you just played)'), icon: 'ScrollText', onClick: dumpScoreLog },
     { label: t('Split by channel'), icon: 'Layers', onClick: () => {
       let made = [];
       store.change((pp) => { made = splitByChannel(pp, pp.currentPattern); });

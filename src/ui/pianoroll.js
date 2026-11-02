@@ -8,7 +8,7 @@ import { store, currentPattern, notesOf, notesFor, patternLength, getChannel } f
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, NKEYS, SNAPS, snapTicks, noteName, isBlack, clamp, NOTE_NAMES } from '../constants.js';
 import { t } from '../i18n.js';
-import { detectKey, SCALES, CHORDS, inScale, snapToScale, chordify, arpeggiate, strum, humanize, legato, reverseNotes, flipNotes, stretchNotes } from '../notetools.js';
+import { detectKey, SCALES, CHORDS, inScale, snapToScale, chordify, arpeggiate, strum, humanize, legato, reverseNotes, flipNotes, stretchNotes, chopNotes, glueNotes, flamNotes, shapeVelocity, makeRiff } from '../notetools.js';
 
 const KEYS_W = 58;
 const RULER_H = 22;
@@ -324,7 +324,7 @@ export function createPianoRoll(engine) {
       g.fillStyle = n.s ? C.selEdge : C.noteEdge;
       g.fillRect(x, y, w, view.rowH - 1);
       g.fillStyle = n.s ? C.sel : C.note;
-      g.globalAlpha = 0.55 + n.vel * 0.45;
+      g.globalAlpha = n.mute ? 0.22 : 0.55 + n.vel * 0.45;
       g.fillRect(x + 1, y + 1, w - 2, view.rowH - 3);
       g.globalAlpha = 1;
       if (n.slide) {
@@ -967,6 +967,26 @@ export function createPianoRoll(engine) {
       { label: t('Strum'), icon: 'Guitar', onClick: () => applyTool(t('Strum'), (src) => { strum(src, Math.max(4, Math.round(snap() / 4)), true); }) },
       { label: t('Humanize'), icon: 'Shuffle', onClick: () => applyTool(t('Humanize'), (src) => { humanize(src, { vel: 0.12, time: 2 }); }) },
       { label: t('Legato'), icon: 'ChevronRight', onClick: () => applyTool(t('Legato'), (src) => { legato(src); }) },
+      { label: t('Chop (cut into snap pieces)'), icon: 'Scissors', onClick: () => applyTool(t('Chop'), (src) => ({ replace: chopNotes(src, Math.max(1, snap())) })) },
+      { label: t('Glue (join touching notes)'), icon: 'Link', onClick: () => applyTool(t('Glue'), (src) => ({ replace: glueNotes(src) })) },
+      { label: t('Flam (grace note before)'), icon: 'ChevronsRight', onClick: () => applyTool(t('Flam'), (src) => ({ add: flamNotes(src, Math.max(2, Math.round(STEP / 4))) })) },
+      { label: t('Velocity') + '...', icon: 'AudioLines', onClick: () => openMenu(anchor, [
+        { header: t('Velocity of the selection, or of every note') },
+        { label: t('Crescendo (louder and louder)'), icon: 'TrendingUp', onClick: () => applyTool(t('Crescendo'), (src) => { shapeVelocity([...src].sort((a, b) => a.t - b.t), 'up'); }) },
+        { label: t('Decrescendo (softer and softer)'), icon: 'TrendingDown', onClick: () => applyTool(t('Decrescendo'), (src) => { shapeVelocity(src, 'down'); }) },
+        { label: t('Random velocity'), icon: 'Shuffle', onClick: () => applyTool(t('Random velocity'), (src) => { shapeVelocity(src, 'random'); }) },
+        { label: t('All at 100%'), onClick: () => applyTool(t('All at 100%'), (src) => { shapeVelocity(src, 1); }) },
+        { label: t('All at 75%'), onClick: () => applyTool(t('All at 75%'), (src) => { shapeVelocity(src, 0.75); }) },
+        { label: t('All at 50%'), onClick: () => applyTool(t('All at 50%'), (src) => { shapeVelocity(src, 0.5); }) },
+      ]) },
+      { label: t('Mute or unmute notes'), icon: 'VolumeX', onClick: () => applyTool(t('Mute or unmute notes'), (src) => {
+        const on = !src.every((n) => n.mute);
+        for (const n of src) {
+          if (on) n.mute = true;
+          else delete n.mute;
+        }
+      }) },
+      { label: t('Riff generator') + '...', icon: 'Sparkles', onClick: () => riffMenu(anchor) },
       { label: t('Slide notes on or off'), icon: 'Activity', onClick: () => applyTool(t('Slide notes'), (src) => {
         const on = !src.every((n) => n.slide);
         for (const n of src) {
@@ -981,6 +1001,29 @@ export function createPianoRoll(engine) {
       { label: t('Half length'), icon: 'ZoomOut', onClick: () => applyTool(t('Half length'), (src) => { stretchNotes(src, 0.5); }) },
       { sep: true },
       { label: t('Snap notes to scale'), icon: 'Magnet', disabled: sc.type === 'none', onClick: () => applyTool(t('Snap notes to scale'), (src) => { snapToScale(src, sc.root, sc.type); }) },
+    ]);
+  }
+
+  // Random melody in the project scale (minor on C when no scale is set), over the
+  // pattern length. Replaces the notes of the channel; undo brings them back.
+  function riffMenu(anchor) {
+    const go = (step, density, label) => {
+      const c = channel();
+      if (!c) return;
+      const sc = scaleOf();
+      store.commit();
+      const L = patternLength(pat());
+      const old = notes();
+      const center = old.length ? Math.round(old.reduce((a, n) => a + n.key, 0) / old.length) : 60;
+      pat().notes[c.id] = makeRiff({ length: L, step, root: sc.root, scale: sc.type === 'none' ? 'minor' : sc.type, center, density });
+      hint(t('Riff generator') + ': ' + label + '. ' + t('Tap again for another one, undo to go back.'));
+      store.emit();
+    };
+    openMenu(anchor, [
+      { header: t('A random melody in the scale, on this channel') },
+      { label: t('Calm (quarter notes)'), onClick: () => go(BEAT, 0.95, t('Calm (quarter notes)')) },
+      { label: t('Groovy (eighth notes)'), onClick: () => go(BEAT / 2, 0.85, t('Groovy (eighth notes)')) },
+      { label: t('Fast (sixteenth notes)'), onClick: () => go(STEP, 0.75, t('Fast (sixteenth notes)')) },
     ]);
   }
 

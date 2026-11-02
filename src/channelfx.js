@@ -76,7 +76,23 @@ const active = (c) => (c.arp && c.arp.on) || (c.params && (c.params.mono || c.pa
 
 // Notes of a channel as they will play. Cached until the notes or the settings change.
 const cache = new WeakMap();
+// Notes without the muted ones (muted notes stay in the piano roll but do not play).
+const unmutedCache = new WeakMap();
+function unmuted(notes) {
+  let muted = 0;
+  for (const n of notes) if (n.mute) muted++;
+  if (!muted) return notes;
+  const hit = unmutedCache.get(notes);
+  let h = notes.length;
+  for (const n of notes) h = (h * 31 + n.t * 7 + n.len * 13 + n.key + (n.mute ? 5 : 0) + n.vel * 100) % 1e9;
+  if (hit && hit.h === h) return hit.out;
+  const out = notes.filter((n) => !n.mute);
+  unmutedCache.set(notes, { h, out });
+  return out;
+}
+
 export function channelNotes(c, notes) {
+  notes = unmuted(notes);
   if (!active(c) || !notes.length) return notes;
   let sig = JSON.stringify([c.arp, c.params.mono, c.params.porta]) + notes.length;
   let h = 0;
