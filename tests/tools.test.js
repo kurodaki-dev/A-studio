@@ -188,3 +188,26 @@ test('delay compensation moves notes through a delayed insert earlier', async ()
   p.mixer[0].fx = [{ plugin: 'astudio-pitch', on: true, params: { formant: 1 } }];
   assert.equal(insertLatency(p, 5, 48000), 0);
 });
+
+test('inserting or deleting bars keeps automation curves in place', async () => {
+  const { insertTime, deleteTime } = await import('../src/arrange.js');
+  const { autoValue } = await import('../src/automation.js');
+  const p = newProject();
+  // Ramp from 0 at bar 0 to 1 at bar 4.
+  p.playlist.clips = [{ id: 'a', type: 'auto', target: 'mixer:1:vol', track: 0, start: 0, len: BAR * 4, points: [[0, 0], [BAR * 4, 1]] }];
+  insertTime(p, BAR * 2, BAR);
+  const c = p.playlist.clips[0];
+  assert.equal(c.len, BAR * 5);
+  assert.ok(Math.abs(autoValue(c.points, BAR * 2.5) - 0.5) < 1e-9, 'held through the inserted bar');
+  assert.ok(Math.abs(autoValue(c.points, BAR * 5) - 1) < 1e-9, 'end moved right');
+  deleteTime(p, BAR * 2, BAR);
+  assert.equal(c.len, BAR * 4);
+  for (const x of [0, BAR, BAR * 3, BAR * 4]) assert.ok(Math.abs(autoValue(c.points, x) - x / (BAR * 4)) < 1e-9, 'back to the ramp at ' + x);
+  // An automation clip starting inside the deleted range keeps its later part.
+  const q = newProject();
+  q.playlist.clips = [{ id: 'b', type: 'auto', target: 'mixer:1:vol', track: 0, start: BAR, len: BAR * 2, points: [[0, 0], [BAR * 2, 1]] }];
+  deleteTime(q, BAR, BAR);
+  const d = q.playlist.clips[0];
+  assert.ok(Math.abs(autoValue(d.points, 0) - 0.5) < 1e-9);
+  assert.ok(Math.abs(autoValue(d.points, BAR) - 1) < 1e-9);
+});

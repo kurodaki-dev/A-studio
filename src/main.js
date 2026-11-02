@@ -1201,7 +1201,14 @@ const MENUS = {
     { label: t('Tuner'), icon: 'Music', onClick: () => openTuner() },
     { label: t('Set up a vocal insert with effects') + '...', icon: 'Mic', onClick: () => openMenu(menuBar, VOCAL_CHAINS.map((c) => ({ label: t(c.name), onClick: () => setupVocalInsert(c) }))) },
     { label: t('Hear the microphone with the effects (headphones)'), icon: 'Headphones', checked: ui.monitor, onClick: () => toggleMonitor() },
-    { label: t('Split by channel'), icon: 'Layers', onClick: () => store.change((pp) => { if (!splitByChannel(pp, pp.currentPattern).length) hint(t('The pattern needs notes on at least two channels')); }) },
+    { label: t('Split by channel'), icon: 'Layers', onClick: () => {
+      let made = [];
+      store.change((pp) => { made = splitByChannel(pp, pp.currentPattern); });
+      if (!made.length) {
+        store.undoStack.pop();
+        hint(t('The pattern needs notes on at least two channels'));
+      }
+    } },
     ...(extHost.menuItems().length ? [{ sep: true }, ...extHost.menuItems().map((m) => ({ label: m.label, icon: m.icon || 'Puzzle', onClick: m.onClick }))] : []),
   ],
   HELP: () => [
