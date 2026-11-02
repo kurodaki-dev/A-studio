@@ -22,16 +22,20 @@ export async function startMic() {
 
 export const micRecording = () => !!rec;
 
-// Stops and stores the take. Resolves to { id, duration } or null.
-export async function stopMic(name) {
+async function stopRaw() {
   if (!rec) return null;
   const r = rec;
   rec = null;
   r.mr.stop();
   for (const tr of r.stream.getTracks()) tr.stop();
   const blob = await r.done;
-  const bytes = await blob.arrayBuffer();
-  if (!bytes.byteLength) return null;
+  return blob.arrayBuffer();
+}
+
+// Stops and stores the take. Resolves to { id } or null.
+export async function stopMic(name) {
+  const bytes = await stopRaw();
+  if (!bytes || !bytes.byteLength) return null;
   const id = await addSample(name, 'Recordings', bytes);
   return { id };
 }
@@ -66,4 +70,50 @@ export async function openAnalyser(ctx) {
       for (const tr of stream.getTracks()) tr.stop();
     },
   };
+}
+
+// Recording latency: plays clicks through the speaker, records them with the
+// microphone and measures how late they arrive in the recording. Resolves to ms.
+export async function measureLatency(ctx) {
+  await startMic();
+  const t0 = ctx.currentTime;
+  const clicks = [0.7, 1.2, 1.7, 2.2];
+  for (const c of clicks) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = 1500;
+    g.gain.setValueAtTime(0.9, t0 + c);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + c + 0.03);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start(t0 + c);
+    o.stop(t0 + c + 0.04);
+  }
+  await new Promise((r) => setTimeout(r, 2900));
+  const bytes = await stopRaw();
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const buf = await new OAC(1, 1, 44100).decodeAudioData(bytes);
+  return latencyFromRecording(buf.getChannelData(0), buf.sampleRate, clicks);
+}
+
+// Median delay (ms) between the expected click times and the onsets found after them.
+export function latencyFromRecording(d, sr, clicks) {
+  let peak = 0;
+  for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+  if (peak < 0.02) throw new Error('No click heard. Turn the volume up and try again.');
+  const th = peak * 0.4;
+  const delays = [];
+  for (const c of clicks) {
+    const a = Math.floor(c * sr);
+    const b = Math.min(d.length, a + Math.floor(0.45 * sr));
+    for (let i = a; i < b; i++) {
+      if (Math.abs(d[i]) > th) {
+        delays.push(((i - a) / sr) * 1000);
+        break;
+      }
+    }
+  }
+  if (delays.length < 2) throw new Error('The clicks were not found in the recording.');
+  delays.sort((x, y) => x - y);
+  return Math.round(delays[Math.floor(delays.length / 2)]);
 }

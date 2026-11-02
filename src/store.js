@@ -1,5 +1,6 @@
 import { BAR, STEP, MIXER_SIZE, TRACKS, PATTERN_COLORS, NKEYS, clamp, setBeatsPerBar, TIME_SIGS } from './constants.js';
 import { isInstrumentId } from './audio/catalog.js';
+import { cleanSynth } from './audio/osc3.js';
 import { t } from './i18n.js';
 
 let counter = 0;
@@ -101,11 +102,15 @@ export function clipLength(proj, c) {
 }
 
 // Automation target: 'mixer:<insert>:<param>' or 'channel:<id>:<param>'.
-export const AUTO_TARGET = /^(mixer:(\d{1,2}):(vol|pan|reverb|delay|eq0|eq1|eq2)|channel:([\w-]{1,80}):(vol|pan|cutoff|reso))$/;
+export const AUTO_TARGET = /^(mixer:(\d{1,2}):(vol|pan|reverb|delay|eq0|eq1|eq2)|channel:([\w-]{1,80}):(vol|pan|cutoff|reso)|fx:(\d{1,2}):(\d):([a-zA-Z][\w]{0,30}))$/;
 export function autoTargetValid(proj, target) {
   const m = AUTO_TARGET.exec(target || '');
   if (!m) return false;
   if (m[2] != null) return Number(m[2]) < proj.mixer.length;
+  if (m[6] != null) {
+    const ins = proj.mixer[Number(m[6])];
+    return !!(ins && ins.fx && ins.fx[Number(m[7])]);
+  }
   return proj.channels.some((c) => c.id === m[4]);
 }
 
@@ -188,6 +193,7 @@ export function normalizeProject(raw) {
     slices: Array.isArray(c.slices) ? c.slices.filter((x) => Number.isFinite(x)).map((x) => clamp(x, 0, 1)).slice(0, 64) : undefined,
     zones: Array.isArray(c.zones) ? c.zones.filter((z) => z && typeof z.sample === 'string' && Number.isFinite(z.key)).slice(0, 128).map((z) => ({ key: Math.round(clamp(z.key, 0, NKEYS - 1)), sample: z.sample.slice(0, 80) })) : undefined,
     pluginParams: cleanParams(c.pluginParams),
+    synth: c.instrument === 'osc3' ? cleanSynth(c.synth) : undefined,
     params: {
       pitch: Math.round(num(c.params?.pitch, 0, -24, 24)),
       attack: num(c.params?.attack, 0, 0, 2),
@@ -229,6 +235,28 @@ export function normalizeProject(raw) {
   });
   if (!p.patterns.length) p.patterns = [makePattern(1)];
   p.currentPattern = getPattern(p, raw.currentPattern) ? raw.currentPattern : p.patterns[0].id;
+  if (Array.isArray(raw.mixer)) {
+    p.mixer.forEach((m, i) => {
+      const r = raw.mixer[i];
+      if (!r) return;
+      m.name = str(r.name, m.name);
+      m.vol = num(r.vol, 0.8, 0, 1);
+      m.pan = num(r.pan, 0, -1, 1);
+      m.mute = !!r.mute;
+      m.solo = !!r.solo;
+      m.reverb = num(r.reverb, 0, 0, 1);
+      m.delay = num(r.delay, 0, 0, 1);
+      m.route = Math.round(num(r.route, 0, 0, MIXER_SIZE - 1));
+      if (m.route !== 0 && m.route <= i) m.route = 0;
+      m.eq = [0, 1, 2].map((k) => num(Array.isArray(r.eq) ? r.eq[k] : 0, 0, -18, 18));
+      m.fx = Array.isArray(r.fx)
+        ? r.fx
+            .filter((f) => f && typeof f.plugin === 'string' && /^[a-z0-9-]{1,40}$/.test(f.plugin))
+            .slice(0, FX_SLOTS)
+            .map((f) => ({ plugin: f.plugin, on: f.on !== false, params: cleanParams(f.params) || {}, ...(typeof f.source === 'string' ? { source: f.source.slice(0, 80) } : {}) }))
+        : [];
+    });
+  }
   if (raw.playlist && Array.isArray(raw.playlist.tracks)) {
     p.playlist.tracks.forEach((t, i) => {
       const rt = raw.playlist.tracks[i];
@@ -279,28 +307,6 @@ export function normalizeProject(raw) {
         if (len >= 1) clip.len = len;
         return clip;
       });
-  }
-  if (Array.isArray(raw.mixer)) {
-    p.mixer.forEach((m, i) => {
-      const r = raw.mixer[i];
-      if (!r) return;
-      m.name = str(r.name, m.name);
-      m.vol = num(r.vol, 0.8, 0, 1);
-      m.pan = num(r.pan, 0, -1, 1);
-      m.mute = !!r.mute;
-      m.solo = !!r.solo;
-      m.reverb = num(r.reverb, 0, 0, 1);
-      m.delay = num(r.delay, 0, 0, 1);
-      m.route = Math.round(num(r.route, 0, 0, MIXER_SIZE - 1));
-      if (m.route !== 0 && m.route <= i) m.route = 0;
-      m.eq = [0, 1, 2].map((k) => num(Array.isArray(r.eq) ? r.eq[k] : 0, 0, -18, 18));
-      m.fx = Array.isArray(r.fx)
-        ? r.fx
-            .filter((f) => f && typeof f.plugin === 'string' && /^[a-z0-9-]{1,40}$/.test(f.plugin))
-            .slice(0, FX_SLOTS)
-            .map((f) => ({ plugin: f.plugin, on: f.on !== false, params: cleanParams(f.params) || {}, ...(typeof f.source === 'string' ? { source: f.source.slice(0, 80) } : {}) }))
-        : [];
-    });
   }
   return p;
 }

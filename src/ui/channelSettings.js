@@ -6,6 +6,7 @@ import { store, getChannel, currentPattern } from '../store.js';
 import { CATALOG, CATEGORIES } from '../audio/catalog.js';
 import { cutoffHz } from '../audio/engine.js';
 import { getSampleMeta, getBuffer, loadBuffer } from '../samples.js';
+import { WAVES, cleanSynth, SYNTH_PRESETS } from '../audio/osc3.js';
 import { equalSlices, detectSlices, sliceNotes } from '../slicer.js';
 import { t } from '../i18n.js';
 
@@ -56,6 +57,42 @@ export function openChannelSettings(id, engine) {
       }),
     );
   }
+  // 3x Osc: three oscillators and noise.
+  function synthSection() {
+    if (!c.synth) c.synth = cleanSynth(null);
+    const syn = c.synth;
+    const waveNames = [t('Sine'), t('Triangle'), t('Saw'), t('Square')];
+    const kn = (label, obj, key, min, max, def, fmt) => h('label', { class: 'kl' },
+      knob({ value: obj[key], min, max, def, size: 30, label, format: fmt, onInput: (v) => set(() => { obj[key] = key === 'coarse' || key === 'fine' ? Math.round(v) : v; }) }),
+      h('span', null, label));
+    const presets = dropdown({
+      label: t('Presets'),
+      value: null,
+      options: SYNTH_PRESETS.map((x, i) => ({ value: i, label: t(x.name) })),
+      onChange: (i) => {
+        const pr = SYNTH_PRESETS[i];
+        set(() => {
+          c.synth = cleanSynth(JSON.parse(JSON.stringify(pr.synth)));
+          Object.assign(c.params, pr.params);
+        });
+        engine.preview(c, 60, 0.8, 0.6);
+        modal.close();
+        openChannelSettings(id, engine);
+      },
+    });
+    return h('div', { class: 'form' },
+      h('div', { class: 'field' }, h('span', null, '3x Osc'), presets),
+      syn.osc.map((o, i) => h('div', { class: 'osc-row' },
+        h('span', { class: 'osc-num' }, String(i + 1)),
+        dropdown({ label: t('Wave'), value: o.wave, options: WAVES.map((_, w) => ({ value: w, label: waveNames[w] })), onChange: (v) => { set(() => { o.wave = v; }); engine.preview(c, 60, 0.8, 0.4); } }),
+        kn(t('Coarse'), o, 'coarse', -36, 36, 0, (v) => (v > 0 ? '+' : '') + Math.round(v) + ' st'),
+        kn(t('Fine'), o, 'fine', -100, 100, 0, (v) => (v > 0 ? '+' : '') + Math.round(v) + ' ct'),
+        kn(t('Level'), o, 'level', 0, 1, 0.5, (v) => Math.round(v * 100) + '%'),
+      )),
+      h('div', { class: 'osc-row' }, h('span', { class: 'osc-num' }, 'N'), kn(t('Noise'), syn, 'noise', 0, 1, 0, (v) => Math.round(v * 100) + '%')),
+    );
+  }
+
   // Sampler: reverse, start and end points, loop, slices.
   function samplerSection() {
     const sw = (label, key) => h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: !!c.params[key], onChange: (e) => set(() => { c.params[key] = e.target.checked; engine.preview(c, 60, 0.8, 0.6); }) }), h('span', null, label));
@@ -100,6 +137,7 @@ export function openChannelSettings(id, engine) {
     h('label', { class: 'field' }, h('span', null, t('Mixer insert')), insert),
     h('label', { class: 'field' }, h('span', null, 'Transposition'), h('div', { class: 'rangebox' }, pitch, pitchOut)),
     c.instrument === 'sampler' ? samplerSection() : null,
+    c.instrument === 'osc3' ? synthSection() : null,
     h('div', { class: 'knobs' },
       k(t('Attack'), 'attack', 2, 0, sec),
       k(t('Decay'), 'decay', 3, 0, sec),

@@ -56,6 +56,58 @@ class Shifter {
   }
 }
 
+// TD-PSOLA: grains of two periods taken at pitch synchronous points of the input
+// and laid out at the new period. The spectral envelope (formants) stays in
+// place, so the voice keeps its timbre. Output is delayed by D samples.
+class Psola {
+  constructor() {
+    this.N = 16384;
+    this.m = this.N - 1;
+    this.inp = new Float32Array(this.N);
+    this.out = new Float32Array(this.N);
+    this.n = 0;
+    this.maxP = Math.ceil(SR / 70);
+    this.D = 2 * this.maxP + 256;
+    this.next = this.D;
+    this.lastC = -1;
+    this.hop = 256;
+  }
+  grain(s, c, P, gain) {
+    const m = this.m;
+    for (let j = -P; j < P; j++) {
+      const w = 0.5 - 0.5 * Math.cos((Math.PI * (j + P)) / P);
+      this.out[(s + j) & m] += this.inp[(c + j) & m] * w * gain;
+    }
+  }
+  run(x, ratio, freq) {
+    const m = this.m;
+    this.inp[this.n & m] = x;
+    while (this.next <= this.n - this.maxP) {
+      const s0 = this.next;
+      if (freq > 0 && freq < 1000) {
+        const P = Math.max(16, Math.min(this.maxP, Math.round(SR / freq)));
+        // Pitch synchronous analysis point near the synthesis point.
+        let c = this.lastC < 0 ? s0 : this.lastC + Math.round((s0 - this.lastC) / P) * P;
+        if (c + P > this.n || c - P < this.n - this.N + 4) c = s0;
+        const Pout = Math.max(8, P / ratio);
+        this.grain(s0, c, P, Pout / P);
+        this.lastC = c;
+        this.next = s0 + Math.round(Pout);
+      } else {
+        const P = this.hop;
+        this.grain(s0, s0, P, 1);
+        this.lastC = -1;
+        this.next = s0 + P;
+      }
+    }
+    const k = (this.n - this.D) & m;
+    const y = this.n >= this.D ? this.out[k] : 0;
+    this.out[k] = 0;
+    this.n++;
+    return y;
+  }
+}
+
 // YIN pitch detector on a 2x decimated signal. Returns Hz, or 0 when unvoiced.
 class Detector {
   constructor() {
@@ -113,11 +165,18 @@ class Detector {
       sum += acc;
       d[t] = sum > 0 ? (acc * t) / sum : 1;
     }
-    for (let t = this.minTau; t < this.maxTau; t++) {
-      if (d[t] < 0.15) {
-        while (t + 1 < this.maxTau && d[t + 1] < d[t]) t++;
-        tau = t;
-        break;
+    // First dip under the threshold that is close to the deepest one: avoids the
+    // small dips made by strong formants and octave errors on later periods.
+    let gmin = 1;
+    for (let t = this.minTau; t < this.maxTau; t++) gmin = Math.min(gmin, d[t]);
+    if (gmin < 0.15) {
+      const ok = gmin * 1.5 + 0.02;
+      for (let t = this.minTau; t < this.maxTau; t++) {
+        if (d[t] <= ok) {
+          while (t + 1 < this.maxTau && d[t + 1] < d[t]) t++;
+          tau = t;
+          break;
+        }
       }
     }
     if (tau < 0) {
@@ -146,6 +205,7 @@ class Tune extends Base {
     super(opts);
     this.det = new Detector();
     this.sh = new Shifter();
+    this.ps = new Psola();
     this.ratio = 1;
     this.target = 1;
   }
@@ -185,7 +245,8 @@ class Tune extends Base {
         } else this.target = 1;
         this.ratio += (this.target - this.ratio) * (this.det.freq > 0 ? k : 0.2);
       }
-      const y = this.sh.run(x, this.ratio);
+      const keep = this.p.formant == null ? 1 : this.p.formant;
+      const y = keep ? this.ps.run(x, this.ratio, this.det.freq) : this.sh.run(x, this.ratio);
       for (let c = 0; c < out.length; c++) {
         const dry = inp && inp[c] ? inp[c][i] : x;
         out[c][i] = dry * (1 - mix) + y * mix;
@@ -200,6 +261,7 @@ class Shift extends Base {
     super(opts);
     this.sh = new Shifter();
     this.det = new Detector();
+    this.ps = new Psola();
     this.lp = 0;
   }
   process(inputs, outputs) {
@@ -214,7 +276,7 @@ class Shift extends Base {
     for (let i = 0; i < out[0].length; i++) {
       const x = L ? (L[i] + R[i]) * 0.5 : 0;
       if (this.det.push(x)) this.sh.setPeriod(this.det.freq);
-      let y = this.sh.run(x, ratio);
+      let y = this.p.formant ? this.ps.run(x, ratio, this.det.freq) : this.sh.run(x, ratio);
       // Tone: negative darkens (low pass), positive brightens (adds the high part).
       this.lp += (y - this.lp) * 0.18;
       y = tone < 0 ? y + (this.lp - y) * -tone : y + (y - this.lp) * tone;

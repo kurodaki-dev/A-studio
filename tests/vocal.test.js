@@ -138,3 +138,42 @@ test('key detection and track inserts', () => {
   assert.equal(trackInsert(q, { track: 2 }), 7);
   assert.equal(trackInsert(q, { track: 0 }), 0);
 });
+
+test('keep formants: PSOLA shifts the pitch and keeps the resonance in place', () => {
+  const { 'astudio-vox-shift': Shift } = processors();
+  // Voice like signal: pulses at 150 Hz through a resonance at 1500 Hz.
+  const f0 = 150;
+  const n = SR * 1.5;
+  const src = new Float32Array(n);
+  for (let i = 0; i < n; i += SR / f0) src[Math.round(i)] = 1;
+  const r = 0.995;
+  const w = (2 * Math.PI * 1500) / SR;
+  const voice = new Float32Array(n);
+  for (let i = 2; i < n; i++) voice[i] = src[i] + 2 * r * Math.cos(w) * voice[i - 1] - r * r * voice[i - 2];
+  let peak = 0;
+  for (const v of voice) peak = Math.max(peak, Math.abs(v));
+  for (let i = 0; i < n; i++) voice[i] *= 0.5 / peak;
+  const centroid = (sig) => {
+    const a = sig.subarray(sig.length - SR / 2);
+    let num = 0;
+    let den = 0;
+    for (let f = 200; f <= 4000; f += 25) {
+      let re = 0;
+      let im = 0;
+      const ww = (2 * Math.PI * f) / SR;
+      for (let i = 0; i < a.length; i += 3) {
+        re += a[i] * Math.cos(ww * i);
+        im += a[i] * Math.sin(ww * i);
+      }
+      const p = re * re + im * im;
+      num += f * p;
+      den += p;
+    }
+    return num / den;
+  };
+  const c0 = centroid(voice);
+  const kept = run(Shift, { semitones: 5, tone: 0, mix: 1, formant: 1 }, voice);
+  assert.ok(Math.abs(centroid(kept) / c0 - 1) < 0.12, 'kept ' + (centroid(kept) / c0).toFixed(2));
+  // And the pitch still moves: the fundamental is near 150 * 2^(5/12) = 200 Hz.
+  assert.ok(Math.abs(zcFreq(kept, 120, 260) - 200) < 6, 'f0 ' + zcFreq(kept, 120, 260));
+});

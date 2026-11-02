@@ -29,6 +29,7 @@ export const CATALOG = [
   { id: 'lead', name: 'Lead', cat: 'synth' },
   { id: 'pad', name: t('Pad'), cat: 'synth' },
   { id: 'pluck', name: 'Pluck', cat: 'synth' },
+  { id: 'osc3', name: '3x Osc', cat: 'synth' },
   { id: 'strings', name: t('String Ensemble'), cat: 'strings' },
   { id: 'guitar', name: t('Guitar'), cat: 'strings' },
   { id: 'flute', name: t('Flute'), cat: 'winds' },

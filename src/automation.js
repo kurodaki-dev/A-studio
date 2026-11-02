@@ -3,6 +3,7 @@
 import { faderGain, cutoffHz } from './audio/levels.js';
 import { t } from './i18n.js';
 import { AUTO_TARGET } from './store.js';
+import { getPlugin } from './plugins.js';
 
 // Value of the curve at a tick inside the clip (linear between points).
 export function autoValue(points, tick) {
@@ -28,6 +29,13 @@ export function autoTargets(project) {
   project.mixer.forEach((m, i) => {
     for (const [k, l] of MIXER_PARAMS) if (i > 0 || (k !== 'reverb' && k !== 'delay')) out.push({ id: 'mixer:' + i + ':' + k, label: (i === 0 ? 'Master' : m.name) + ': ' + t(l), group: t('Mixer') });
   });
+  project.mixer.forEach((m, i) => {
+    (m.fx || []).forEach((f, k) => {
+      const p = f && getPlugin(f.plugin);
+      if (!p) return;
+      for (const prm of p.params) if (prm.kind === 'knob') out.push({ id: 'fx:' + i + ':' + k + ':' + prm.id, label: (i === 0 ? 'Master' : m.name) + ': ' + (p.builtin ? t(p.name) : p.name) + ': ' + prm.name, group: t('Effects') });
+    });
+  });
   return out;
 }
 
@@ -39,13 +47,31 @@ export function autoLabel(project, target) {
 function parse(target) {
   const m = AUTO_TARGET.exec(target || '');
   if (!m) return null;
+  if (m[6] != null) return { kind: 'fx', index: Number(m[6]), slot: Number(m[7]), param: m[8] };
   return m[2] != null ? { kind: 'mixer', index: Number(m[2]), param: m[3] } : { kind: 'channel', id: m[4], param: m[5] };
+}
+
+// Effect parameter driven by a clip: { slot, plugin, def } or null.
+export function fxTarget(project, target) {
+  const p = parse(target);
+  if (!p || p.kind !== 'fx') return null;
+  const m = project.mixer[p.index];
+  const slot = m && m.fx && m.fx[p.slot];
+  const plugin = slot && getPlugin(slot.plugin);
+  const def = plugin && plugin.params.find((x) => x.id === p.param && x.kind === 'knob');
+  return def ? { index: p.index, slotIndex: p.slot, slot, plugin, def } : null;
 }
 
 // Current value of the target in the project, as 0..1.
 export function targetValue(project, target) {
   const p = parse(target);
   if (!p) return 0.5;
+  if (p.kind === 'fx') {
+    const fx = fxTarget(project, target);
+    if (!fx) return 0.5;
+    const v = fx.slot.params && Number.isFinite(fx.slot.params[fx.def.id]) ? fx.slot.params[fx.def.id] : fx.def.def;
+    return (v - fx.def.min) / (fx.def.max - fx.def.min || 1);
+  }
   if (p.kind === 'mixer') {
     const m = project.mixer[p.index];
     if (!m) return 0.5;
@@ -61,9 +87,15 @@ export function targetValue(project, target) {
 }
 
 // Readable value for the editor.
-export function formatTarget(target, v) {
+export function formatTarget(target, v, project) {
   const p = parse(target);
   if (!p) return v.toFixed(2);
+  if (p.kind === 'fx') {
+    const fx = project && fxTarget(project, target);
+    if (!fx) return Math.round(v * 100) + '%';
+    const x = fx.def.min + v * (fx.def.max - fx.def.min);
+    return (Math.abs(x) >= 100 ? Math.round(x) : x.toFixed(2)) + ' ' + fx.def.name;
+  }
   if (p.param === 'pan') return Math.abs(v - 0.5) < 0.01 ? t('Center') : Math.round(Math.abs(v * 2 - 1) * 100) + '% ' + (v < 0.5 ? t('left') : t('right'));
   if (p.param.startsWith('eq')) return (v * 36 - 18).toFixed(1) + ' dB';
   if (p.param === 'cutoff') return Math.round(cutoffHz(v)) + ' Hz';
@@ -77,7 +109,7 @@ export function formatTarget(target, v) {
 // The AudioParam a target drives in a graph, and how a 0..1 value maps to it.
 export function targetParam(G, target) {
   const p = parse(target);
-  if (!p) return null;
+  if (!p || p.kind === 'fx') return null;
   if (p.kind === 'mixer') {
     const ins = G.inserts[p.index];
     if (!ins) return null;

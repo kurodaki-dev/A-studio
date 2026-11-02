@@ -131,6 +131,28 @@ async function addOne(name, folder, bytes) {
   return rec.id;
 }
 
+// Raw stored sample (for the project ZIP export). Resolves to { id, name, folder, bytes } or null.
+export async function getSampleRecord(id) {
+  try {
+    const rec = await tx('readonly', (st) => reqP(st.get(id)));
+    return rec ? { id: rec.id, name: rec.name, folder: rec.folder, bytes: rec.bytes } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Store a sample under a given id (project ZIP import). Skips ids already on the device.
+export async function putSampleWithId(id, name, folder, bytes) {
+  if (meta.has(id)) return false;
+  const buf = await ctxForDecode().decodeAudioData(bytes.slice(0));
+  const rec = { id, name, folder, size: bytes.byteLength, duration: buf.duration, bytes, addedAt: Date.now() };
+  await tx('readwrite', (st) => reqP(st.put(rec)));
+  meta.set(id, { id, name, folder, size: rec.size, duration: buf.duration });
+  buffers.set(id, buf);
+  changed();
+  return true;
+}
+
 // Store recorded or generated audio as a sample. Returns its id.
 export async function addSample(name, folder, bytes) {
   const id = await addOne(name, folder, bytes);

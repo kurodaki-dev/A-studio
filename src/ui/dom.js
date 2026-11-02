@@ -76,6 +76,7 @@ import {
   Pointer,
   NotebookPen,
   Timer,
+  LayoutGrid,
   Repeat,
   Flag,
   Activity,
@@ -95,7 +96,7 @@ const ICONS = {
   X, Copy, ClipboardPaste, CopyPlus, Trash, Settings, Drum, AudioLines, AudioWaveform, Guitar, Wind, Bell,
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Metronome, FilePlus, Share2, Info,
   Shield, FileText, Cookie, ListMusic, Volume2, Music, ArrowUp, ArrowDown, Check, Palette, Puzzle, BookOpen, Bug, ExternalLink, Lightbulb, RefreshCw, Search, GitBranch, Circle, FileMusic, Bot,
-  Headphones, Shuffle, Keyboard, WandSparkles, FileArchive, Pointer, NotebookPen, Timer,
+  Headphones, Shuffle, Keyboard, WandSparkles, FileArchive, Pointer, NotebookPen, Timer, LayoutGrid,
   Repeat, Flag, Activity, Mic, Cpu, ArrowRight, Layers, Funnel, Tag, Slice,
 };
 

@@ -5,7 +5,11 @@ import { currentTheme } from '../themes.js';
 import { SB, thumb, scrollAt, drawScrollbar } from './scrollbar.js';
 import { store, getPattern, patternLength, songLength, clipLength, clipValid, newId, serialize } from '../store.js';
 import { autoTargets, autoLabel, targetValue, autoValue } from '../automation.js';
-import { openAutomationEditor, openClipProperties } from './clipEditors.js';
+import { openAutomationEditor, openClipProperties, openWaveEditor, stretchClip, clipBpm } from './clipEditors.js';
+import { renderChannels } from '../audio/engine.js';
+import { encodeWav } from '../wav.js';
+import { addSample } from '../samples.js';
+import { tickToSec } from '../tempo.js';
 import { ui } from '../ui-state.js';
 import { BAR, BEAT, STEP, PPQ, TRACKS, PATTERN_COLORS, clamp } from '../constants.js';
 import { getSampleMeta, getBuffer, loadBuffer, waveform } from '../samples.js';
@@ -225,6 +229,59 @@ export function createPlaylist(engine) {
     openAutomationEditor(clip, engine);
   }
 
+  // Comping: copy the chosen piece of a take to the track named Comp (created on a free
+  // track with the same mixer insert) and mute the take tracks.
+  function sendToComp(c) {
+    const p = store.project;
+    let comp = p.playlist.tracks.findIndex((tr) => tr.name === 'Comp');
+    if (comp < 0) {
+      for (let i = 0; i < TRACKS && comp < 0; i++) if (!p.playlist.clips.some((x) => x.track === i)) comp = i;
+      if (comp < 0) return hint(t('No free track for the comp'));
+    }
+    const len = clipLength(p, c);
+    store.change((pp) => {
+      const tr = pp.playlist.tracks[comp];
+      tr.name = 'Comp';
+      tr.mute = false;
+      const ins = pp.playlist.tracks[c.track].insert;
+      if (ins) tr.insert = ins;
+      // Replace what the comp already has in this time range.
+      pp.playlist.clips = pp.playlist.clips.filter((x) => !(x.track === comp && x.start < c.start + len && x.start + clipLength(pp, x) > c.start));
+      pp.playlist.clips.push({ ...JSON.parse(serialize(c)), id: newId('k'), track: comp });
+      for (const x of pp.playlist.clips) if (x.type === 'audio' && x.track !== comp && x.sampleId === c.sampleId) pp.playlist.tracks[x.track].mute = true;
+    });
+    hint(t('Copied to the Comp track'));
+  }
+
+  // Render a pattern clip (with its repeats, channels and mixer effects) to an audio clip.
+  async function renderToAudio(c) {
+    const p = store.project;
+    const len = clipLength(p, c);
+    hint(t('Rendering...'));
+    const copy = JSON.parse(serialize(p));
+    copy.playlist.clips = [{ ...JSON.parse(serialize(c)), start: 0, track: 0 }];
+    copy.playlist.tracks.forEach((tr) => { tr.mute = false; });
+    copy.markers = [];
+    copy.loop = { on: false, start: 0, end: BAR };
+    try {
+      const { channels, sampleRate } = await renderChannels(copy, 'song');
+      const n = Math.min(channels[0].length, Math.round(tickToSec(copy, len) * sampleRate));
+      const name = clipName(c) + ' (audio)';
+      const id = await addSample(name, 'Renders', encodeWav(channels.map((d) => d.slice(0, n)), sampleRate, 16));
+      store.change(() => {
+        delete c.patternId;
+        delete c.offset;
+        c.type = 'audio';
+        c.sampleId = id;
+        c.name = name;
+        c.len = len;
+      });
+      hint(t('Rendered: ') + name);
+    } catch (e) {
+      hint(String((e && e.message) || e));
+    }
+  }
+
   // Track menu: rename, mute, and the mixer insert its audio clips play through.
   function trackMenu(p, tr) {
     const track = store.project.playlist.tracks[tr];
@@ -257,6 +314,28 @@ export function createPlaylist(engine) {
         : c.type === 'audio'
         ? { label: t('Clip properties'), icon: 'SlidersVertical', onClick: () => openClipProperties(c) }
         : { label: t('Open in the piano roll'), icon: 'Piano', onClick: () => { store.project.currentPattern = c.patternId; store.emit(); } },
+      ...(c.type === 'audio' ? [
+        { label: t('Edit audio') + '...', icon: 'AudioWaveform', onClick: () => openWaveEditor(c, engine) },
+        { label: t('Detect BPM'), icon: 'Timer', onClick: async () => {
+          const bpm = await clipBpm(c);
+          hint(bpm ? clipName(c) + ': ' + bpm + ' BPM' : t('No clear tempo found'));
+        } },
+        { label: t('Fit to the project tempo (keep pitch)') + '...', icon: 'Timer', onClick: async () => {
+          const found = await clipBpm(c);
+          const v = await promptText(t('Tempo of this sample (BPM)'), found ? String(found) : '');
+          const src = Number(String(v || '').replace(',', '.'));
+          if (!(src > 20 && src < 400)) return;
+          stretchClip(c, src / store.project.bpm, Math.round(store.project.bpm) + ' BPM');
+        } },
+        { label: t('Change speed (keep pitch)') + '...', icon: 'Timer', onClick: async () => {
+          const v = await promptText(t('Speed in percent (50 = half speed, 200 = double)'), '100');
+          const pc = Number(String(v || '').replace(',', '.'));
+          if (!(pc >= 25 && pc <= 400) || pc === 100) return;
+          stretchClip(c, 100 / pc, pc + '%');
+        } },
+        { label: t('Send to the comp track'), icon: 'Layers', onClick: () => sendToComp(c) },
+      ] : []),
+      ...(!c.type ? [{ label: t('Render to an audio clip'), icon: 'AudioWaveform', onClick: () => renderToAudio(c) }] : []),
       { label: t('Split here'), icon: 'Scissors', onClick: () => { store.commit(); if (splitClip(c, at)) store.emit(); else store.undoStack.pop(); } },
       { label: t('Duplicate'), icon: 'CopyPlus', onClick: () => { clearClipSel(); c.s = true; duplicateClips(); } },
       { label: t('Loop this clip'), icon: 'Repeat', onClick: () => store.change((pp) => { pp.loop = { on: true, start: c.start, end: c.start + clipLength(pp, c) }; }) },
