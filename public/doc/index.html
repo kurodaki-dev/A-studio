@@ -66,6 +66,7 @@
   <li>The name button opens the channel menu: piano roll, settings, rename, clone, move, delete.</li>
   <li>A channel holding piano roll notes shows a preview instead of steps. Tap it to open the piano roll.</li>
   <li>The plus and minus buttons in the rack header add or remove bars from the pattern.</li>
+  <li>The <strong>Swing</strong> knob delays every odd 1/16 step of the pattern for a shuffled groove (up to half a step at 100%). It applies to playback, WAV and MIDI export.</li>
 </ul>
 
 <h2 id="piano-roll">Piano roll</h2>
@@ -85,6 +86,7 @@
   <li>Notes from the other channels show as ghost notes. The velocity lane edits note velocity.</li>
   <li>Snap goes from 1/6 step to a full bar, or off.</li>
   <li>Toolbar actions: copy, paste, duplicate, delete selection, transpose by a semitone or an octave, quantize, select all.</li>
+  <li><strong>Live recording</strong>: turn on the Record button (red circle) in the top bar, start the pattern in PAT mode and play on the piano roll keyboard. Each note is written at the play position, snapped to the grid, with the length you held it.</li>
 </ul>
 
 <h2 id="playlist">Playlist</h2>
@@ -117,6 +119,7 @@
   <li>The open project is saved automatically. Use Save or Save as to keep named projects on the device.</li>
   <li>Export project file writes a <code>.astudio</code> file you can share or back up. It does not contain imported samples: import the pack again on another device.</li>
   <li>Export as WAV renders the pattern (PAT mode) or the song (SONG mode) as 16 bit, 44.1 kHz stereo.</li>
+  <li>Export as MIDI writes a standard <code>.mid</code> file of the pattern or the song, one track per channel, with the tempo. Drums use MIDI channel 10 and General MIDI drum notes; other channels get a close General MIDI program. Open it in FL Studio or any other DAW.</li>
 </ul>
 
 <h2 id="settings">Settings and language</h2>
@@ -197,6 +200,12 @@ registerVoice(SineVoice);</code></pre>
   <tr><td><code>@type</code></td><td><code>instrument</code> (default) or <code>effect</code>.</td></tr>
   <tr><td><code>@oneshot</code></td><td>Optional. Marks a drum style sound that plays to its end whatever the note length.</td></tr>
 </table>
+<h3>Presets</h3>
+<p>Declare factory presets in the header. Each one sets some controls; the others keep their value.</p>
+<pre><code> * @preset "Warm pad" wave=0 cutoff=1200 reso=0.2 attack=0.6
+ * @preset "Acid" wave=0 cutoff=700 reso=0.9</code></pre>
+<p>A preset list appears above the controls, in the channel settings and in the FX window. <strong>Save as preset</strong> keeps your own settings on the device, per plugin; they can be deleted again.</p>
+
 <h3>Controls</h3>
 <p>Up to 12 controls, drawn by the app in the channel settings (instruments) or in the FX window (effects). Values reach your code in <code>params</code>, live.</p>
 <table>
@@ -212,7 +221,7 @@ registerVoice(SineVoice);</code></pre>
   <tr><th>Item</th><th>Description</th></tr>
   <tr><td><code>registerVoice(VoiceClass)</code></td><td>Required. Registers the class used for every note.</td></tr>
   <tr><td><code>constructor(note)</code></td><td><code>note.key</code> (MIDI number, 60 is C5), <code>note.frequency</code> in Hz (channel transposition included), <code>note.velocity</code> 0 to 1, <code>note.sampleRate</code>, <code>note.params</code> (current knob values).</td></tr>
-  <tr><td><code>process(left, right, params)</code></td><td>Called for every audio block. Write samples into <code>left</code> and <code>right</code>. Return <code>false</code> to end the voice; any other value keeps it alive.</td></tr>
+  <tr><td><code>process(left, right, params, transport)</code></td><td>Called for every audio block. Write samples into <code>left</code> and <code>right</code>. Return <code>false</code> to end the voice; any other value keeps it alive. <code>transport</code> is <code>{ bpm, playing, beat }</code>, where <code>beat</code> is the play position in beats, updated every block.</td></tr>
   <tr><td><code>noteOff()</code></td><td>Optional. Called when the note ends. Start your release here.</td></tr>
   <tr><td><code>button(id, params)</code></td><td>Optional. Called on every playing voice when a <code>@button</code> is pressed.</td></tr>
   <tr><td>Globals</td><td>Standard AudioWorklet globals are available: <code>sampleRate</code>, <code>currentFrame</code>, <code>currentTime</code>, <code>Math</code>. No <code>fetch</code>, no DOM, no storage.</td></tr>
@@ -244,10 +253,13 @@ registerEffect(SoftClip);</code></pre>
   <tr><th>Item</th><th>Description</th></tr>
   <tr><td><code>registerEffect(EffectClass)</code></td><td>Required for effects. One instance per slot.</td></tr>
   <tr><td><code>constructor({ sampleRate, params })</code></td><td>Called when the effect is placed in a slot.</td></tr>
-  <tr><td><code>process(inL, inR, outL, outR, params)</code></td><td>Called for every block of 128 samples. Read the input, write the output.</td></tr>
+  <tr><td><code>process(inL, inR, outL, outR, params, transport)</code></td><td>Called for every block of 128 samples. Read the input, write the output. <code>transport</code> gives <code>{ bpm, playing, beat }</code> for tempo synced effects.</td></tr>
   <tr><td><code>button(id, params)</code></td><td>Optional. Called when a <code>@button</code> is pressed.</td></tr>
 </table>
 <p>If an effect throws an error, its slot lets the sound through unchanged and the error is shown once.</p>
+
+<h3 id="catalog">Plugin catalog</h3>
+<p>Menu, Plugins and themes, <strong>Browse the catalog</strong> lists plugins and themes shared by the community, with a search field and filters by kind. One tap installs or reinstalls an item. The list is the file <a href="https://github.com/kurodaki-dev/A-studio/blob/main/public/plugins/catalog.json"><code>public/plugins/catalog.json</code></a> of the repository: to add yours, open a pull request that adds an entry (see the <a href="https://github.com/kurodaki-dev/A-studio/tree/main/public/plugins">plugins folder</a>).</p>
 
 <h3 id="github">Install from GitHub</h3>
 <p>Paste the link of a public repository, folder or file in Menu, Plugins and themes, <strong>Install from GitHub</strong>. The app lists the plugins and themes it finds and installs the ones you choose. Accepted links:</p>
@@ -289,7 +301,9 @@ astudio.on('state', (s) =&gt; {
   <tr><td><code>ui</code></td><td>Buttons, menu items, panels, messages in the hint bar.</td></tr>
   <tr><td><code>transport</code></td><td>Play, stop, tempo, PAT/SONG mode, playback state events.</td></tr>
   <tr><td><code>project-read</code></td><td>Name, tempo, patterns and channels of the open project.</td></tr>
-  <tr><td><code>project-write</code></td><td>Add or clear notes, change the current pattern. Changes can be undone like any edit.</td></tr>
+  <tr><td><code>project-write</code></td><td>Add, replace or clear notes, change the current pattern. Changes can be undone like any edit.</td></tr>
+  <tr><td><code>audio</code></td><td>Play notes through a channel or a built in instrument (previews).</td></tr>
+  <tr><td><code>storage</code></td><td>Keep the extension's own data on the device (up to 100 KB, deleted with the extension).</td></tr>
 </table>
 <h3>API</h3>
 <p>Every call returns a Promise.</p>
@@ -309,14 +323,21 @@ astudio.on('state', (s) =&gt; {
   <tr><td><code>astudio.project.addNotes([{ channel, step, length, key, velocity }])</code></td><td>Adds notes to the current pattern in one undo step. <code>channel</code> is an id or a name, <code>step</code> and <code>length</code> are in steps (16 per bar), <code>key</code> is a MIDI number (60 is C5), <code>velocity</code> 0 to 1. Returns the number of notes added.</td></tr>
   <tr><td><code>astudio.project.clearNotes(channel)</code></td><td>Clears the notes of a channel in the current pattern, or of every channel without argument.</td></tr>
   <tr><td><code>astudio.project.selectPattern(idOrName)</code></td><td>Makes a pattern current.</td></tr>
+  <tr><td><code>astudio.project.getNotes(channel)</code></td><td>Notes of a channel in the current pattern: <code>[{ step, length, key, velocity }]</code> (needs <code>project-read</code>).</td></tr>
+  <tr><td><code>astudio.project.setNotes(channel, notes)</code></td><td>Replaces the notes of a channel in the current pattern, in one undo step.</td></tr>
+  <tr><td><code>astudio.on('project', fn)</code></td><td>Calls <code>fn</code> with the project summary when the project changes (needs <code>project-read</code>).</td></tr>
+  <tr><td><code>astudio.audio.playNote({ channel, instrument, key, velocity, length })</code></td><td>Plays a note through a channel (id or name) or a built in instrument id such as <code>'piano'</code>. <code>length</code> in seconds.</td></tr>
+  <tr><td><code>astudio.storage.get(key)</code>, <code>set(key, value)</code>, <code>remove(key)</code>, <code>keys()</code></td><td>The extension's own saved data. Values are any JSON value.</td></tr>
+  <tr><td><code>astudio.ui.addShortcut({ id, key, label }, onPress)</code></td><td>Keyboard shortcut (tablet or web keyboard): a letter or digit with optional <code>shift+</code> or <code>alt+</code>, for example <code>'alt+c'</code>. App shortcuts keep priority.</td></tr>
 </table>
 <p>Errors thrown by an extension, and refused calls, are shown in an Extension error message. Removing the extension in Settings removes its buttons, panels and menu items.</p>
 
 <h3>Examples</h3>
 <ul>
+  <li><a href="examples/chord-helper.astudio-plugin.js" download>chord-helper.astudio-plugin.js</a>: extension with a Chords panel: pick a key, tap chords to hear them and build a progression, write it as block chords or arpeggios, save progressions. Uses notes, audio, storage, project events and an Alt+C shortcut.</li>
   <li><a href="examples/beat-tools.astudio-plugin.js" download>beat-tools.astudio-plugin.js</a>: extension with a Play/Stop button in the top bar, a menu item and a Beat generator panel (styles, density, tap tempo) that writes a beat into the pattern.</li>
   <li><a href="examples/poly-synth.astudio-plugin.js" download>poly-synth.astudio-plugin.js</a>: resonant filter synth that uses every control type: choice, knobs, switch and button.</li>
-  <li><a href="examples/stereo-delay.astudio-plugin.js" download>stereo-delay.astudio-plugin.js</a>: effect, delay with feedback, tone, ping pong switch and a Clear button.</li>
+  <li><a href="examples/stereo-delay.astudio-plugin.js" download>stereo-delay.astudio-plugin.js</a>: effect, delay synced to the tempo (or free), feedback, tone, ping pong, Clear button and presets.</li>
   <li><a href="examples/bitcrusher.astudio-plugin.js" download>bitcrusher.astudio-plugin.js</a>: effect, bit depth and sample rate reduction.</li>
   <li><a href="examples/supersaw.astudio-plugin.js" download>supersaw.astudio-plugin.js</a>: seven detuned saws, filter and envelope, three knobs.</li>
   <li><a href="examples/fm-bell.astudio-plugin.js" download>fm-bell.astudio-plugin.js</a>: two operator FM bell.</li>

@@ -87,3 +87,18 @@ export async function findFiles(input) {
   if (!files.length) throw new Error('No .astudio-plugin.js or .astudio-theme.json file found at this link');
   return files;
 }
+
+// Plugin catalog hosted in the A Studio repository.
+export const CATALOG_URL = RAW + 'kurodaki-dev/A-studio/main/public/plugins/catalog.json';
+
+export async function fetchCatalog() {
+  const data = JSON.parse(await fetchText(CATALOG_URL));
+  const clean = (x, kind) =>
+    x && typeof x.id === 'string' && /^[a-z0-9-]{1,40}$/.test(x.id) && typeof x.url === 'string' && x.url.startsWith(RAW)
+      ? { id: x.id, kind, type: kind === 'theme' ? 'theme' : ['instrument', 'effect', 'extension'].includes(x.type) ? x.type : 'instrument', name: String(x.name || x.id).slice(0, 40), author: String(x.author || '').slice(0, 60), description: String(x.description || '').slice(0, 200), url: x.url, name_: x.url.split('/').pop() }
+      : null;
+  return [
+    ...(Array.isArray(data.plugins) ? data.plugins : []).map((x) => clean(x, 'plugin')),
+    ...(Array.isArray(data.themes) ? data.themes : []).map((x) => clean(x, 'theme')),
+  ].filter(Boolean);
+}

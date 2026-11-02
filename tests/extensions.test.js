@@ -20,7 +20,8 @@ function loadProcessor(plugin, options) {
       this.port = { posted: [], postMessage(m) { this.posted.push(m); }, onmessage: null };
     }
   }
-  const run = new Function('AudioWorkletProcessor', 'registerProcessor', 'sampleRate', 'scope', moduleSource(plugin).replace(/currentFrame/g, 'scope.frame'));
+  const src = moduleSource(plugin).replace(/currentFrame/g, 'scope.frame').replace(/currentTime/g, '(scope.frame / 44100)');
+  const run = new Function('AudioWorkletProcessor', 'registerProcessor', 'sampleRate', 'scope', src);
   run(AudioWorkletProcessor, (name, P) => { Proc = P; }, 44100, scope);
   const proc = new Proc({ processorOptions: options });
   const render = (blocks) => {
@@ -169,7 +170,7 @@ test('the bitcrusher effect changes the sound', () => {
 
 test('the stereo delay echoes and its Clear button empties the buffer', () => {
   const p = parsePlugin(ex('stereo-delay.astudio-plugin.js'));
-  const params = paramValues(p, { time: 20, mix: 1, feedback: 0.5, pingpong: 0 });
+  const params = paramValues(p, { sync: 0, time: 20, mix: 1, feedback: 0.5, pingpong: 0 });
   const impulse = new Float32Array(128);
   impulse[0] = 1;
   const silent = () => new Float32Array(128);
@@ -264,4 +265,56 @@ test('the extension example from the documentation parses as published', () => {
   assert.equal(p.type, 'extension');
   assert.deepEqual(p.permissions, ['ui', 'transport']);
   new Function('astudio', code); // valid JavaScript
+});
+
+
+test('factory presets are parsed and only keep known controls', () => {
+  const p = parsePlugin(ex('poly-synth.astudio-plugin.js'));
+  assert.deepEqual(p.presets.map((x) => x.name), ['Warm pad', 'Square lead', 'Acid', 'Soft keys']);
+  assert.deepEqual(p.presets[2].values, { wave: 0, cutoff: 700, reso: 0.9, attack: 0.002, release: 0.12, sub: 0 });
+  const q = parsePlugin('/* @astudio-plugin\n * @id q\n * @name Q\n * @param a "A" 0 1 0.5\n * @button b "B"\n * @preset "X" a=0.9 b=3 zz=1\n */ registerVoice(class {})');
+  assert.deepEqual(q.presets[0].values, { a: 0.9 });
+});
+
+test('effects receive the tempo: a synced delay follows transport.bpm', () => {
+  const p = parsePlugin(ex('stereo-delay.astudio-plugin.js'));
+  const echoAt = (bpm) => {
+    const { proc } = loadProcessor(p, { params: paramValues(p, { sync: 1, division: 1, mix: 1, feedback: 0, pingpong: 0 }), transport: { bpm, playing: false } });
+    const impulse = new Float32Array(128);
+    impulse[0] = 1;
+    for (let b = 0; b < 400; b++) {
+      const out = [[new Float32Array(128), new Float32Array(128)]];
+      proc.process([[b === 0 ? impulse : new Float32Array(128), new Float32Array(128)]], out);
+      for (let i = 0; i < 128; i++) if (b * 128 + i > 0 && out[0][0][i] > 0.5) return b * 128 + i;
+    }
+    return -1;
+  };
+  assert.equal(echoAt(120), 22050, 'a quarter note at 120 BPM is 0.5 s');
+  assert.equal(echoAt(60), 44100);
+});
+
+test('instrument voices get the transport with a running beat position', () => {
+  const p = parsePlugin('/* @astudio-plugin\n * @id beat\n * @name Beat\n */ let seen = null; registerVoice(class { process(l, r, params, transport) { seen = transport; globalThis.__seen = transport; return true; } });');
+  const { proc, render } = loadProcessor(p, { params: {}, transport: { bpm: 120, playing: true, position: 0, at: 0 }, events: [{ id: 1, frame: 0, key: 60, freq: 261.63, vel: 1, dur: Infinity }] });
+  render(345); // about 1 second
+  assert.equal(globalThis.__seen.bpm, 120);
+  assert.ok(Math.abs(globalThis.__seen.beat - 2) < 0.05, 'two beats after one second at 120 BPM');
+  proc.port.onmessage({ data: { type: 'transport', bpm: 90, playing: false, position: 0, at: 0 } });
+  render(1);
+  assert.equal(globalThis.__seen.bpm, 90);
+  assert.equal(globalThis.__seen.playing, false);
+});
+
+test('the catalog lists valid entries that point to existing example files', async () => {
+  const cat = JSON.parse(readFileSync(new URL('../public/plugins/catalog.json', import.meta.url), 'utf8'));
+  for (const e of [...cat.plugins, ...cat.themes]) {
+    assert.match(e.url, /^https:\/\/raw\.githubusercontent\.com\/kurodaki-dev\/A-studio\/main\/public\/doc\/examples\//);
+    const file = e.url.split('/').pop();
+    const text = readFileSync(new URL('../public/doc/examples/' + file, import.meta.url), 'utf8');
+    if (file.endsWith('.js')) {
+      const p = parsePlugin(text);
+      assert.equal(p.id, e.id);
+      assert.equal(p.type, e.type);
+    }
+  }
 });

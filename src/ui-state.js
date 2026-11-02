@@ -4,6 +4,7 @@ export const ui = {
   sidebar: true,
   songMode: false,
   metronome: false,
+  recording: false,
   prTool: 'draw',
   prSnap: 'step',
   plTool: 'draw',

@@ -2,7 +2,7 @@
  * @astudio-plugin
  * @id poly-synth
  * @name Poly Synth
- * @version 1.0.0
+ * @version 1.1.0
  * @author A Studio
  * @category synth
  * @choice wave "Wave" saw|square|triangle|sine 0
@@ -12,6 +12,10 @@
  * @param release "Release" 0.01 4 0.4
  * @toggle sub "Sub osc" 1
  * @button drift "New drift"
+ * @preset "Warm pad" wave=0 cutoff=1200 reso=0.2 attack=0.6 release=1.8 sub=1
+ * @preset "Square lead" wave=1 cutoff=5000 reso=0.4 attack=0.005 release=0.15 sub=0
+ * @preset "Acid" wave=0 cutoff=700 reso=0.9 attack=0.002 release=0.12 sub=0
+ * @preset "Soft keys" wave=2 cutoff=3000 reso=0.1 attack=0.01 release=0.6 sub=1
  */
 
 // One oscillator plus an optional sub oscillator, a resonant state variable

@@ -28,7 +28,7 @@ const CONTROL_RES = [
 ];
 export const MAX_CONTROLS = 12;
 // What an extension may do, declared with @permissions in its header.
-export const PERMISSIONS = ['ui', 'transport', 'project-read', 'project-write'];
+export const PERMISSIONS = ['ui', 'transport', 'project-read', 'project-write', 'audio', 'storage'];
 
 function parseControls(head) {
   const out = [];
@@ -76,6 +76,7 @@ export function parsePlugin(code) {
   if (type === 'instrument' && !/registerVoice\s*\(/.test(code)) throw new Error('An instrument must call registerVoice(YourVoiceClass)');
   if (type === 'effect' && !/registerEffect\s*\(/.test(code)) throw new Error('An effect must call registerEffect(YourEffectClass)');
   const params = type === 'extension' ? [] : parseControls(head);
+  const presets = type === 'extension' ? [] : parsePresets(head, params);
   const permissions = type === 'extension' ? tag('permissions').split(/[\s,]+/).filter((x) => PERMISSIONS.includes(x)) : [];
   const cat = tag('category');
   return {
@@ -88,8 +89,61 @@ export function parsePlugin(code) {
     category: CATS.includes(cat) ? cat : 'synth',
     oneShot: /@oneshot\b/i.test(head),
     params,
+    presets,
     code,
   };
+}
+
+// @preset "Name" id=value id=value ...  (unknown ids are ignored)
+function parsePresets(head, params) {
+  const out = [];
+  const ids = new Set(params.filter((p) => p.kind !== 'button').map((p) => p.id));
+  for (const raw of head.split(/\r?\n/)) {
+    const line = raw.replace(/^\s*\*?\s*/, '');
+    const m = /^@preset[ \t]+"([^"\r\n]{1,30})"((?:[ \t]+[a-zA-Z][a-zA-Z0-9_]{0,30}=-?\d+(?:\.\d+)?)*)/.exec(line);
+    if (!m || out.length >= 32) continue;
+    const values = {};
+    for (const kv of m[2].trim().split(/[ \t]+/).filter(Boolean)) {
+      const [k, v] = kv.split('=');
+      if (ids.has(k)) values[k] = Number(v);
+    }
+    out.push({ name: m[1], values });
+  }
+  return out;
+}
+
+// Presets saved by the user, per plugin.
+const PRESET_KEY = 'astudio:presets';
+function readPresets() {
+  try {
+    const o = JSON.parse(localStorage.getItem(PRESET_KEY) || '{}');
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+export function userPresets(pluginId) {
+  const list = readPresets()[pluginId];
+  return Array.isArray(list) ? list.filter((x) => x && typeof x.name === 'string' && x.values && typeof x.values === 'object') : [];
+}
+
+export function saveUserPreset(pluginId, name, values) {
+  const all = readPresets();
+  const list = userPresets(pluginId).filter((x) => x.name !== name);
+  list.push({ name: String(name).slice(0, 30), values });
+  all[pluginId] = list.slice(-64);
+  localStorage.setItem(PRESET_KEY, JSON.stringify(all));
+}
+
+export function deleteUserPreset(pluginId, name) {
+  const all = readPresets();
+  all[pluginId] = userPresets(pluginId).filter((x) => x.name !== name);
+  try {
+    localStorage.setItem(PRESET_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
 }
 
 function read() {
@@ -134,6 +188,11 @@ export function installPlugin(code, source) {
 export function removePlugin(id) {
   cache = cache.filter((x) => x.id !== id);
   try {
+    localStorage.removeItem('astudio:ext:' + id);
+  } catch {
+    /* ignore */
+  }
+  try {
     localStorage.setItem(KEY, JSON.stringify(cache.map((x) => ({ code: x.code, source: x.source }))));
   } catch {
     /* ignore */
@@ -171,6 +230,19 @@ function effectSource(p) {
   return `"use strict";
 let __Effect = null;
 function registerEffect(E) { if (typeof E === 'function') __Effect = E; }
+const __transport = { bpm: 120, playing: false, beat: 0 };
+let __anchor = { position: 0, at: 0 };
+function __setTransport(t) {
+  if (!t || typeof t !== 'object') return;
+  if (typeof t.bpm === 'number') __transport.bpm = t.bpm;
+  if (typeof t.playing === 'boolean') __transport.playing = t.playing;
+  __anchor = { position: typeof t.position === 'number' ? t.position : 0, at: typeof t.at === 'number' ? t.at : currentTime };
+  __transport.beat = __anchor.position / 96;
+}
+function __tick() {
+  if (__transport.playing) __transport.beat = (__anchor.position + (currentTime - __anchor.at) * __transport.bpm * 96 / 60) / 96;
+}
+
 ${p.code}
 ;
 registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkletProcessor {
@@ -178,6 +250,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
     super();
     const o = (options && options.processorOptions) || {};
     this.params = Object.assign({}, o.params || {});
+    __setTransport(o.transport);
     this.zero = new Float32Array(128);
     this.reported = false;
     this.fx = null;
@@ -188,7 +261,8 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
     this.port.onmessage = (e) => {
       const m = e.data;
       if (!m || typeof m !== 'object') return;
-      if (m.type === 'params' && m.values && typeof m.values === 'object') {
+      if (m.type === 'transport') __setTransport(m);
+      else if (m.type === 'params' && m.values && typeof m.values === 'object') {
         for (const k of Object.keys(m.values)) if (typeof m.values[k] === 'number') this.params[k] = m.values[k];
       } else if (m.type === 'button' && typeof m.id === 'string') {
         this.params[m.id] = (this.params[m.id] || 0) + 1;
@@ -209,8 +283,9 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
     const inp = inputs[0] || [];
     const iL = inp[0] || this.zero.subarray(0, n);
     const iR = inp[1] || iL;
+    __tick();
     if (this.fx) {
-      try { this.fx.process(iL, iR, oL, oR, this.params); } catch (err) { this.fail(err); this.fx = null; }
+      try { this.fx.process(iL, iR, oL, oR, this.params, __transport); } catch (err) { this.fail(err); this.fx = null; }
     }
     if (!this.fx) {
       // Bypass: a broken effect lets the sound through unchanged.
@@ -235,6 +310,19 @@ function instrumentSource(p) {
   return `"use strict";
 let __Voice = null;
 function registerVoice(V) { if (typeof V === 'function') __Voice = V; }
+const __transport = { bpm: 120, playing: false, beat: 0 };
+let __anchor = { position: 0, at: 0 };
+function __setTransport(t) {
+  if (!t || typeof t !== 'object') return;
+  if (typeof t.bpm === 'number') __transport.bpm = t.bpm;
+  if (typeof t.playing === 'boolean') __transport.playing = t.playing;
+  __anchor = { position: typeof t.position === 'number' ? t.position : 0, at: typeof t.at === 'number' ? t.at : currentTime };
+  __transport.beat = __anchor.position / 96;
+}
+function __tick() {
+  if (__transport.playing) __transport.beat = (__anchor.position + (currentTime - __anchor.at) * __transport.bpm * 96 / 60) / 96;
+}
+
 const MAX_VOICES = 32;
 const MAX_TAIL = 10;
 ${p.code}
@@ -244,6 +332,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
     super();
     const o = (options && options.processorOptions) || {};
     this.params = Object.assign({}, o.params || {});
+    __setTransport(o.transport);
     this.queue = (o.events || []).slice().sort((a, b) => a.frame - b.frame);
     this.voices = [];
     this.L = new Float32Array(128);
@@ -253,7 +342,9 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
   }
   message(m) {
     if (!m || typeof m !== 'object') return;
-    if (m.type === 'note') {
+    if (m.type === 'transport') {
+      __setTransport(m);
+    } else if (m.type === 'note') {
       let i = this.queue.length;
       while (i > 0 && this.queue[i - 1].frame > m.frame) i--;
       this.queue.splice(i, 0, m);
@@ -294,6 +385,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
     const oL = out[0];
     const oR = out[1] || out[0];
     const n = oL.length;
+    __tick();
     const now = currentFrame;
     const end = now + n;
     while (this.queue.length && this.queue[0].frame < end) {
@@ -314,7 +406,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
       L.fill(0);
       R.fill(0);
       let alive;
-      try { alive = v.inst.process(L, R, this.params); } catch (err) { this.fail(err); continue; }
+      try { alive = v.inst.process(L, R, this.params, __transport); } catch (err) { this.fail(err); continue; }
       // Clamp to +-4 and replace NaN with silence, channel by channel.
       for (let i = 0; i < L.length; i++) {
         let a = L[i];

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "beat-tools",
+      "name": "Beat Tools",
+      "type": "extension",
+      "author": "A Studio",
+      "description": "Play/Stop button in the top bar, a menu item and a beat generator panel with tap tempo.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/beat-tools.astudio-plugin.js"
+    },
+    {
+      "id": "chord-helper",
+      "name": "Chord Helper",
+      "type": "extension",
+      "author": "A Studio",
+      "description": "Panel that writes chords and arpeggios into the current channel, with presets saved on the device.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/chord-helper.astudio-plugin.js"
+    },
+    {
+      "id": "poly-synth",
+      "name": "Poly Synth",
+      "type": "instrument",
+      "author": "A Studio",
+      "description": "Resonant filter synth with wave choice, sub oscillator, drift button and factory presets.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/poly-synth.astudio-plugin.js"
+    },
+    {
+      "id": "supersaw",
+      "name": "Supersaw",
+      "type": "instrument",
+      "author": "A Studio",
+      "description": "Seven detuned saws with filter and envelope.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/supersaw.astudio-plugin.js"
+    },
+    {
+      "id": "fm-bell",
+      "name": "FM Bell",
+      "type": "instrument",
+      "author": "A Studio",
+      "description": "Two operator FM bell.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/fm-bell.astudio-plugin.js"
+    },
+    {
+      "id": "noise-snare",
+      "name": "Noise Snare",
+      "type": "instrument",
+      "author": "A Studio",
+      "description": "One shot snare made of a tone and filtered noise.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/noise-snare.astudio-plugin.js"
+    },
+    {
+      "id": "stereo-delay",
+      "name": "Stereo Delay",
+      "type": "effect",
+      "author": "A Studio",
+      "description": "Delay synced to the tempo or free, ping pong, tone, Clear button and presets.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/stereo-delay.astudio-plugin.js"
+    },
+    {
+      "id": "bitcrusher",
+      "name": "Bitcrusher",
+      "type": "effect",
+      "author": "A Studio",
+      "description": "Bit depth and sample rate reduction.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/bitcrusher.astudio-plugin.js"
+    }
+  ],
+  "themes": [
+    {
+      "id": "ocean",
+      "name": "Ocean",
+      "author": "A Studio",
+      "description": "Deep blue theme.",
+      "url": "https://raw.githubusercontent.com/kurodaki-dev/A-studio/main/public/doc/examples/ocean.astudio-theme.json"
+    }
+  ]
+}
