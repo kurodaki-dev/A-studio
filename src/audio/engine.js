@@ -12,7 +12,17 @@ import { bpmAt, nextTempoChange, tickToSec } from '../tempo.js';
 
 export { faderGain, cutoffHz };
 
+// The reverb impulse is computed once per sample rate (an AudioBuffer can be
+// shared between audio contexts).
+const impulses = new Map();
 function impulse(ctx, seconds = 2.2, decay = 3) {
+  const sr = ctx.sampleRate;
+  if (impulses.has(sr)) return impulses.get(sr);
+  const b = makeImpulse(ctx, seconds, decay);
+  impulses.set(sr, b);
+  return b;
+}
+function makeImpulse(ctx, seconds, decay) {
   const sr = ctx.sampleRate;
   const len = Math.floor(sr * seconds);
   const b = ctx.createBuffer(2, len, sr);
@@ -43,7 +53,8 @@ function makeEq(ctx) {
   return bands;
 }
 
-export function createGraph(ctx, dest) {
+// lite: only the master (used to render one note for the channel settings preview).
+export function createGraph(ctx, dest, { lite = false } = {}) {
   const G = { ctx, channels: new Map(), inserts: [], pluginNodes: new Map(), pluginEvents: new Map(), noteId: 0, transport: { bpm: 120, playing: false, position: 0, at: 0 }, duckers: [], fxHold: new Map(), fxTimers: new Set(), autoHold: new Set(), autoStarted: new Set(), silent: new Set() };
   const masterIn = ctx.createGain();
   const masterPan = ctx.createStereoPanner();
@@ -65,6 +76,7 @@ export function createGraph(ctx, dest) {
   limiter.connect(masterAn);
   G.inserts[0] = { in: masterIn, eq: masterEq, pan: masterPan, vol: masterVol, an: masterAn, fxSig: '', fxNodes: [] };
 
+  if (lite) return G;
   const rev = ctx.createConvolver();
   rev.buffer = impulse(ctx);
   const revOut = ctx.createGain();
@@ -213,7 +225,7 @@ export function syncGraph(G, project, smooth) {
       if (e.fx && e.fx.target && e.slot.source) G.tuneFollowers.push({ source: e.slot.source, fx: e.fx });
     }
   }
-  setParam(G, G.delay.delayTime, Math.min(2, (60 / project.bpm) * 0.75), smooth);
+  if (G.delay) setParam(G, G.delay.delayTime, Math.min(2, (60 / project.bpm) * 0.75), smooth);
 
   const seen = new Set();
   for (const c of project.channels) {
@@ -1301,7 +1313,7 @@ export async function renderNote(project, channel, seconds = 2, key = 60) {
   const sr = 44100;
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const ctx = new OAC(2, Math.ceil(sr * (seconds + 0.6)), sr);
-  const G = createGraph(ctx, ctx.destination);
+  const G = createGraph(ctx, ctx.destination, { lite: true });
   G.offline = true;
   G.transport = { bpm: project.bpm, playing: true, position: 0, at: 0 };
   const c = JSON.parse(JSON.stringify(channel));

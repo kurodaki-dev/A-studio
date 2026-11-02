@@ -200,7 +200,7 @@ export function led(on, title, onClick) {
   const el = h('button', { class: 'led' + (on ? ' on' : ''), title, 'aria-label': title, 'aria-pressed': String(!!on), type: 'button', onClick });
   el.update = (v) => {
     el.classList.toggle('on', !!v);
-    el.setAttribute('aria-pressed', String(!!v));
+    if (el.getAttribute('aria-pressed') !== String(!!v)) el.setAttribute('aria-pressed', String(!!v));
   };
   return el;
 }

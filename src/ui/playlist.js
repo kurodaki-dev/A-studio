@@ -29,7 +29,12 @@ const SNAPS = [
 
 export function createPlaylist(engine) {
   const cv = h('canvas', { class: 'cv', 'aria-label': 'Playlist' });
-  const wrap = h('div', { class: 'cvwrap' }, cv);
+  // Playhead layer, redrawn alone while the song plays.
+  const headCv = h('canvas', { class: 'cv cv-head', 'aria-hidden': 'true' });
+  const wrap = h('div', { class: 'cvwrap' }, cv, headCv);
+  let hg = null;
+  let hdpr = 1;
+  let headShown = false;
   const view = { px: 0.12, rowH: 40, sx: 0, sy: 0 };
   // W and H are the grid edges; the scrollbars use the strips after them.
   let W = 0;
@@ -505,7 +510,29 @@ export function createPlaylist(engine) {
     for (const [tk, v] of c.points) if (tk <= len) g.fillRect(x + tk * view.px - 2, top + hh - v * hh - 2, 4, 4);
   }
 
+  function drawHead() {
+    if (!hg) return;
+    hg.setTransform(hdpr, 0, 0, hdpr, 0, 0);
+    hg.clearRect(0, 0, CW, CH);
+    if (!ui.songMode || !(engine.playing || engine.pos > 0)) return;
+    const x = Math.round(xAt(engine.position()));
+    if (x < HEAD_W || x > W) return;
+    hg.fillStyle = currentTheme().editor.playhead;
+    hg.fillRect(x, RULER_H, 1, H - RULER_H);
+    hg.beginPath();
+    hg.moveTo(x - 5, RULER_H - 8);
+    hg.lineTo(x + 5, RULER_H - 8);
+    hg.lineTo(x, RULER_H - 1);
+    hg.closePath();
+    hg.fill();
+  }
+
   function draw() {
+    drawMain();
+    drawHead();
+  }
+
+  function drawMain() {
     if (!g) return;
     const p = store.project;
     const th = currentTheme();
@@ -596,10 +623,6 @@ export function createPlaylist(engine) {
       g.fillRect(overlay.x, overlay.y, overlay.w, overlay.h);
       g.strokeRect(overlay.x + 0.5, overlay.y + 0.5, overlay.w, overlay.h);
     }
-    if (ui.songMode && (engine.playing || engine.pos > 0)) {
-      g.fillStyle = E.playhead;
-      g.fillRect(Math.round(xAt(engine.position())), RULER_H, 1, H - RULER_H);
-    }
     g.restore();
 
     // Ruler
@@ -641,16 +664,6 @@ export function createPlaylist(engine) {
       g.fillRect(mx + 7, 2, g.measureText(label).width + 4, 13);
       g.fillStyle = th.colors.text;
       g.fillText(label, mx + 9, 9);
-    }
-    if (ui.songMode && (engine.playing || engine.pos > 0)) {
-      const x = Math.round(xAt(engine.position()));
-      g.fillStyle = E.playhead;
-      g.beginPath();
-      g.moveTo(x - 5, RULER_H - 8);
-      g.lineTo(x + 5, RULER_H - 8);
-      g.lineTo(x, RULER_H - 1);
-      g.closePath();
-      g.fill();
     }
     g.restore();
     g.fillStyle = '#151a1d';
@@ -1010,6 +1023,11 @@ export function createPlaylist(engine) {
     draw();
   }
 
+  fitCanvas(headCv, (w, hh, r) => {
+    hdpr = r;
+    hg = headCv.getContext('2d');
+    drawHead();
+  });
   fitCanvas(cv, (w, hh, r) => {
     CW = w;
     CH = hh;
@@ -1029,7 +1047,8 @@ export function createPlaylist(engine) {
       draw();
     },
     frame() {
-      if (engine.playing && ui.songMode) draw();
+      if ((engine.playing && ui.songMode) || headShown) drawHead();
+      headShown = engine.playing && ui.songMode;
     },
     keydown(e) {
       const mod = e.ctrlKey || e.metaKey;
