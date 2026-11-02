@@ -957,4 +957,7 @@ export default {
   "Low latency": "Faible latence",
   "Restart the app to apply.": "Redémarre l'app pour appliquer.",
   "Stable avoids crackles and stutters when playback starts on tablets. Low latency answers faster when you play live, but can crackle on slow devices.": "Stable évite les grésillements et les accrocs au lancement de la lecture sur tablette. Faible latence répond plus vite quand tu joues en direct, mais peut grésiller sur les appareils lents.",
+  "New pattern for this track: ": "Nouveau pattern pour cette track : ",
+  "Make unique (edit this clip alone)": "Rendre unique (modifier ce clip seul)",
+  "This clip now has its own pattern: ": "Ce clip a maintenant son propre pattern : ",
 };
