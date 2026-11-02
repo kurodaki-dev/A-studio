@@ -28,6 +28,7 @@
   <a href="#automation">Automation</a>
   <a href="#mixer">Mixer</a>
   <a href="#recording">Recording and MIDI</a>
+  <a href="#vocals">Vocals</a>
   <a href="#browser">Browser and samples</a>
   <a href="#projects">Projects and export</a>
   <a href="#settings">Settings and language</a>
@@ -163,6 +164,34 @@
   <li><strong>MIDI keyboard</strong>: connect a USB MIDI keyboard. It plays the channel open in the piano roll, with velocity, and records notes while recording is armed. Turn it on or off in Settings. Web MIDI depends on the device: Settings shows when it is not supported.</li>
   <li><strong>Import MIDI file</strong> (menu): a <code>.mid</code> file becomes a new pattern with one channel per track and the tempo of the file. Drums on MIDI channel 10 are split into the built in drum sounds.</li>
 </ul>
+
+<h2 id="vocals">Vocals</h2>
+<p>Everything for singers and rappers, from the Record button (red circle):</p>
+<ol>
+  <li><strong>Set up a vocal insert with effects</strong>: pick a chain (Clean vocal, Trap auto tune, R&amp;B smooth, Rap upfront, Ad libs, Radio voice, Deep voice, Robot). A free mixer insert is named Vocals and gets the effects. Auto tune is set to the project scale, or to the key found in your notes. Your takes play through this insert.</li>
+  <li><strong>Hear the microphone with the effects</strong>: you hear yourself with auto tune and the other effects while you sing. Use headphones; the delay depends on the phone.</li>
+  <li><strong>Lyrics on screen</strong> shows a panel with your lyrics (saved in the project notes) that stays open while you record.</li>
+  <li><strong>Audio from the microphone</strong> records the take. The recording itself is clean (without effects), so you can change the effects afterwards.</li>
+</ol>
+<ul>
+  <li><strong>Loop recording</strong>: set a loop region in the playlist and record: each pass of the loop becomes a take on its own track. Only the last take plays; tap a track name to listen to another one.</li>
+  <li><strong>Tuner</strong>: shows the note you sing or play and how many cents off it is.</li>
+  <li>Each playlist track can play its audio clips through a mixer insert (long press the track name). Clip properties add reverse and normalize.</li>
+</ul>
+<h3>Voice effects</h3>
+<table>
+  <tr><th>Effect</th><th>What it does</th></tr>
+  <tr><td>Auto tune</td><td>Detects the pitch of the voice and moves it to the nearest note of the key and scale you choose. Retune 0 ms gives the hard, robotic effect; 100 ms and more sounds natural. Mix blends with the dry voice.</td></tr>
+  <tr><td>Voice changer</td><td>Shifts the voice up or down by up to 12 semitones, with a tone control. Presets: deep voice, monster, chipmunk, octave layers.</td></tr>
+  <tr><td>Harmonizer</td><td>Adds two shifted voices (for example a third and a fifth) to the voice, left and right.</td></tr>
+  <tr><td>Noise gate</td><td>Mutes the room noise between phrases.</td></tr>
+  <tr><td>De-esser</td><td>Lowers harsh "s" and "ch" sounds.</td></tr>
+  <tr><td>Doubler</td><td>Two slightly delayed and detuned copies spread left and right, for a wide, doubled voice.</td></tr>
+  <tr><td>Reverb</td><td>Room, plate or hall, with size, damping, pre delay and mix.</td></tr>
+  <tr><td>Echo</td><td>Delay in time with the tempo (1/4, 1/8, dotted 1/8...), with feedback and tone.</td></tr>
+  <tr><td>Robot voice</td><td>Ring modulation for a metallic, robotic voice.</td></tr>
+</table>
+<p>The FX window of an insert has <strong>Vocal chains</strong> (the same ready chains) and <strong>Save this chain</strong> to keep your own settings and reuse them in other projects. Pitch effects (auto tune, voice changer, harmonizer) shift the formants with the pitch: large shifts sound cartoonish, which is what the deep voice and chipmunk presets play on.</p>
 
 <h2 id="projects">Projects and export</h2>
 <ul>

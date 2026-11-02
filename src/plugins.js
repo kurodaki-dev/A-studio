@@ -4,6 +4,7 @@
 // app storage, to the network or to files. It receives notes and parameter
 // values and returns sound. API reference: /doc/#plugins.
 import { BUILTIN_EFFECTS, getBuiltinEffect } from './audio/builtinfx.js';
+import { loadVox, voxReady } from './audio/voxworklet.js';
 const KEY = 'astudio:plugins';
 const MAX_CODE = 256 * 1024;
 const CATS = ['drums', 'keys', 'bass', 'synth', 'strings', 'winds', 'mallets'];
@@ -431,7 +432,7 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
 // Load a plugin module into an audio context once. Resolves to true when ready.
 const loaded = new WeakMap();
 export function loadPluginModule(ctx, p) {
-  if (p.builtin) return Promise.resolve(true);
+  if (p.builtin) return p.worklet ? loadVox(ctx) : Promise.resolve(true);
   let map = loaded.get(ctx);
   if (!map) loaded.set(ctx, (map = new Map()));
   const name = processorName(p);
@@ -451,7 +452,7 @@ export function loadPluginModule(ctx, p) {
 }
 
 export function pluginReady(ctx, p) {
-  if (p.builtin) return true;
+  if (p.builtin) return p.worklet ? voxReady(ctx) : true;
   const map = loaded.get(ctx);
   return !!(map && map.ready && map.ready.has(processorName(p)));
 }

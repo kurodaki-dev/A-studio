@@ -4,6 +4,7 @@ import { store, clipLength } from '../store.js';
 import { BAR, BEAT, STEP, clamp } from '../constants.js';
 import { autoLabel, autoValue, formatTarget } from '../automation.js';
 import { currentTheme } from '../themes.js';
+import { getBuffer, loadBuffer } from '../samples.js';
 import { t } from '../i18n.js';
 
 // Curve shapes that replace the points of an automation clip.
@@ -181,9 +182,28 @@ export function openClipProperties(clip) {
   };
   const steps = (v) => (v ? v / STEP + ' ' + t('steps') : t('none'));
   const len = clipLength(store.project, clip);
-  openModal({
+  const normalize = async () => {
+    const buf = getBuffer(clip.sampleId) || (await loadBuffer(clip.sampleId));
+    if (!buf) return hint(t('Sample missing on this device'));
+    let peak = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i += 2) peak = Math.max(peak, Math.abs(d[i]));
+    }
+    if (peak < 1e-4) return hint(t('The clip is silent'));
+    // Playback applies 0.8 to clips: aim for a 0.95 peak.
+    set(() => { clip.gain = clamp(0.95 / (0.8 * peak), 0, 2); });
+    hint(t('Gain: ') + (20 * Math.log10(clip.gain)).toFixed(1) + ' dB');
+    m.close();
+    openClipProperties(clip);
+  };
+  const m = openModal({
     title: t('Clip properties'),
     body: h('div', { class: 'form' },
+      h('div', { class: 'set-inline' },
+        h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: !!clip.reverse, onChange: (e) => set(() => { if (e.target.checked) clip.reverse = true; else delete clip.reverse; }) }), h('span', null, t('Reverse'))),
+        h('button', { class: 'b tb', type: 'button', onClick: normalize }, t('Normalize')),
+      ),
       range(t('Gain'), 0, 2, 0.01, clip.gain == null ? 1 : clip.gain, (v) => (v <= 0 ? '-inf dB' : (20 * Math.log10(v)).toFixed(1) + ' dB'), (v) => set(() => { clip.gain = v; })),
       range(t('Pitch'), -24, 24, 1, clip.pitch || 0, (v) => (v > 0 ? '+' : '') + v + t(' semitones'), (v) => set(() => { clip.pitch = v; })),
       range(t('Fade in'), 0, Math.min(len, BAR * 4), STEP, clip.fadeIn || 0, steps, (v) => set(() => { clip.fadeIn = v; })),

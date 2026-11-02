@@ -178,3 +178,35 @@ export function randomSteps(length, density = 0.35, rnd = Math.random) {
   for (let tt = 0; tt < length; tt += STEP) if (rnd() < density) out.push({ t: tt, len: STEP, key: 60, vel: 0.6 + rnd() * 0.4 });
   return out;
 }
+
+// Key of a set of notes (Krumhansl profiles on the pitch classes weighted by length).
+// Returns { root, type: 'major' | 'minor', score } or null when there are no notes.
+const MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+const MINOR = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+function corr(a, b) {
+  const ma = a.reduce((x, y) => x + y, 0) / 12;
+  const mb = b.reduce((x, y) => x + y, 0) / 12;
+  let n = 0;
+  let da = 0;
+  let db = 0;
+  for (let i = 0; i < 12; i++) {
+    n += (a[i] - ma) * (b[i] - mb);
+    da += (a[i] - ma) ** 2;
+    db += (b[i] - mb) ** 2;
+  }
+  return da && db ? n / Math.sqrt(da * db) : 0;
+}
+export function detectKey(notes) {
+  const hist = new Array(12).fill(0);
+  for (const n of notes) hist[((n.key % 12) + 12) % 12] += Math.max(1, n.len);
+  if (!hist.some((x) => x > 0)) return null;
+  let best = null;
+  for (let r = 0; r < 12; r++) {
+    for (const [type, prof] of [['major', MAJOR], ['minor', MINOR]]) {
+      const rot = prof.map((_, i) => prof[(i - r + 12) % 12]);
+      const score = corr(hist, rot);
+      if (!best || score > best.score) best = { root: r, type, score };
+    }
+  }
+  return best;
+}

@@ -35,3 +35,35 @@ export async function stopMic(name) {
   const id = await addSample(name, 'Recordings', bytes);
   return { id };
 }
+
+// Live microphone into an audio node (to hear the voice effects while singing).
+// Returns a stop function. Latency depends on the device: use headphones.
+export async function startMonitor(ctx, dest) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, latency: 0 } });
+  const src = ctx.createMediaStreamSource(stream);
+  src.connect(dest);
+  return () => {
+    try {
+      src.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+    for (const tr of stream.getTracks()) tr.stop();
+  };
+}
+
+// Microphone analyser for the tuner. Returns { analyser, stop }.
+export async function openAnalyser(ctx) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  const src = ctx.createMediaStreamSource(stream);
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 4096;
+  src.connect(analyser);
+  return {
+    analyser,
+    stop() {
+      src.disconnect();
+      for (const tr of stream.getTracks()) tr.stop();
+    },
+  };
+}

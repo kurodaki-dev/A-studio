@@ -6,7 +6,8 @@ import { Engine, renderWav, renderStems, renderChannels } from './audio/engine.j
 import { encodeMp3 } from './mp3.js';
 import { decodeMidi, importMidi } from './midiimport.js';
 import { initMidi, midiEnabled } from './midiin.js';
-import { micSupported, startMic, stopMic, micRecording } from './recorder.js';
+import { micSupported, startMic, stopMic, micRecording, startMonitor, openAnalyser } from './recorder.js';
+import { VOCAL_CHAINS, chainSlots, noteOfFreq, detectPitch, projectKey } from './vocal.js';
 import { TEMPLATES } from './templates.js';
 import { TIME_SIGS } from './constants.js';
 import { pickBinary } from './platform.js';
@@ -93,11 +94,26 @@ const patBtn = h('button', { class: 'b tb seg', type: 'button', onClick: () => s
 const songBtn = h('button', { class: 'b tb seg', type: 'button', onClick: () => setSongMode(true) }, 'SONG');
 const playBtn = btn('Play', t('Play / pause (space)'), () => togglePlay(), 'play');
 const stopBtn = btn('Square', 'Stop', () => stop(), 'stop');
-try {
-  ui.countIn = localStorage.getItem('astudio:countin') === '1';
-} catch {
-  ui.countIn = false;
-}
+const pref = (k, d) => {
+  try {
+    const v = localStorage.getItem('astudio:' + k);
+    return v == null ? d : v;
+  } catch {
+    return d;
+  }
+};
+const setPref = (k, v) => {
+  try {
+    localStorage.setItem('astudio:' + k, String(v));
+  } catch {
+    /* ignore */
+  }
+};
+ui.countIn = pref('countin', '0') === '1';
+ui.monitor = pref('monitor', '0') === '1';
+ui.recInsert = Number(pref('recinsert', '0')) || 0;
+engine.metroVol = Number(pref('metrovol', '0.5'));
+if (!Number.isFinite(engine.metroVol)) engine.metroVol = 0.5;
 const recBtn = btn('Circle', t('Record'), (e) => recordMenu(e.currentTarget), 'rec');
 function recordMenu(anchor) {
   if (micRecording()) return stop();
@@ -110,15 +126,144 @@ function recordMenu(anchor) {
     } },
     { label: t('Audio from the microphone into the playlist'), icon: 'Mic', disabled: !micSupported(), onClick: () => recordAudio() },
     { sep: true },
+    { header: t('Voice') },
+    { label: t('Vocal insert: ') + (ui.recInsert ? ui.recInsert + ' ' + store.project.mixer[ui.recInsert].name : 'Master') + '...', icon: 'SlidersVertical', onClick: () => openMenu(anchor, [
+      { header: t('Takes play through this mixer insert') },
+      ...store.project.mixer.map((m, i) => ({ label: i === 0 ? 'Master' : i + '  ' + m.name, checked: ui.recInsert === i, onClick: () => { ui.recInsert = i; setPref('recinsert', i); } })),
+    ]) },
+    { label: t('Set up a vocal insert with effects') + '...', icon: 'Mic', onClick: () => openMenu(anchor, [
+      { header: t('Uses a free insert and loads a vocal chain') },
+      ...VOCAL_CHAINS.map((c) => ({ label: t(c.name), onClick: () => setupVocalInsert(c) })),
+    ]) },
+    { label: t('Hear the microphone with the effects (headphones)'), icon: 'Headphones', checked: ui.monitor, disabled: !micSupported(), onClick: () => toggleMonitor() },
+    { label: t('Tuner'), icon: 'Music', disabled: !micSupported(), onClick: () => openTuner() },
+    { label: t('Lyrics on screen'), icon: 'NotebookPen', checked: !!lyricsEl, onClick: () => toggleLyrics() },
+    { sep: true },
     { label: t('Count in one bar before recording'), icon: 'Metronome', checked: ui.countIn, onClick: () => {
       ui.countIn = !ui.countIn;
-      try {
-        localStorage.setItem('astudio:countin', ui.countIn ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
+      setPref('countin', ui.countIn ? '1' : '0');
     } },
   ]);
+}
+
+// A free insert named Vocals with a ready chain; recordings will play through it.
+function setupVocalInsert(chain) {
+  const p = store.project;
+  const used = new Set([...p.channels.map((c) => c.insert), ...p.playlist.tracks.map((tr) => tr.insert || 0)]);
+  let idx = ui.recInsert && p.mixer[ui.recInsert].name === 'Vocals' ? ui.recInsert : 0;
+  for (let i = p.mixer.length - 1; !idx && i > 0; i--) if (!used.has(i)) idx = i;
+  if (!idx) return alertBox(t('Vocal insert'), t('Every mixer insert is in use.'));
+  store.change((pp) => {
+    pp.mixer[idx].name = 'Vocals';
+    pp.mixer[idx].fx = chainSlots(chain);
+    // Auto tune follows the project scale, or the key found in the notes.
+    let sc = pp.scale && pp.scale.type !== 'none' ? pp.scale : null;
+    if (!sc) {
+      const k = projectKey(pp);
+      if (k) sc = { root: k.root, type: k.type };
+    }
+    if (sc) {
+      const map = { major: 1, minor: 2, harmonic: 3, pentaMajor: 4, pentaMinor: 5, blues: 6 };
+      for (const f of pp.mixer[idx].fx) if (f.plugin === 'astudio-autotune') {
+        f.params.key = sc.root;
+        if (map[sc.type] != null) f.params.scale = map[sc.type];
+      }
+    }
+  });
+  ui.recInsert = idx;
+  setPref('recinsert', idx);
+  if (ui.monitor) restartMonitor();
+  hint(t('Insert ') + idx + ' Vocals: ' + t(chain.name) + '. ' + t('Takes play through it.'));
+}
+
+// Live monitoring of the microphone through the vocal insert.
+let monitorStop = null;
+async function restartMonitor() {
+  if (monitorStop) monitorStop();
+  monitorStop = null;
+  if (!ui.monitor) return;
+  engine.init();
+  try {
+    monitorStop = await startMonitor(engine.ctx, (engine.G.inserts[ui.recInsert] || engine.G.inserts[0]).in);
+  } catch (e) {
+    ui.monitor = false;
+    setPref('monitor', '0');
+    alertBox(t('Microphone'), t('The microphone could not be opened. Allow A Studio to use it in the system settings. ') + String((e && e.message) || ''));
+  }
+}
+function toggleMonitor() {
+  ui.monitor = !ui.monitor;
+  setPref('monitor', ui.monitor ? '1' : '0');
+  restartMonitor();
+  hint(ui.monitor ? t('Microphone on: you hear your voice through the vocal insert. Use headphones.') : t('Microphone off'));
+}
+
+// Lyrics panel: stays on screen (not a dialog) so Play, Record and Stop keep working.
+let lyricsEl = null;
+function toggleLyrics() {
+  if (lyricsEl) {
+    lyricsEl.remove();
+    lyricsEl = null;
+    return;
+  }
+  const area = h('textarea', { class: 'lyrics-text', placeholder: t('Write or paste your lyrics here. They are saved in the project notes.'), 'aria-label': t('Lyrics') });
+  area.value = store.project.notes || '';
+  area.addEventListener('input', () => {
+    store.project.notes = area.value.slice(0, 2000);
+    scheduleSave();
+  });
+  let size = Number(pref('lyricsize', '18')) || 18;
+  const applySize = () => { area.style.fontSize = size + 'px'; };
+  applySize();
+  lyricsEl = h('div', { class: 'lyrics' },
+    h('div', { class: 'lyrics-head' },
+      icon('NotebookPen', 16), h('span', null, t('Lyrics')),
+      btn('Minus', t('Smaller text'), () => { size = Math.max(12, size - 2); setPref('lyricsize', size); applySize(); }, 'small'),
+      btn('Plus', t('Bigger text'), () => { size = Math.min(40, size + 2); setPref('lyricsize', size); applySize(); }, 'small'),
+      btn('X', t('Close'), () => toggleLyrics(), 'small'),
+    ),
+    area,
+  );
+  document.body.append(lyricsEl);
+}
+
+// Tuner: shows the note sung or played into the microphone.
+async function openTuner() {
+  engine.init();
+  let an;
+  try {
+    an = await openAnalyser(engine.ctx);
+  } catch (e) {
+    alertBox(t('Microphone'), t('The microphone could not be opened. Allow A Studio to use it in the system settings. ') + String((e && e.message) || ''));
+    return;
+  }
+  const note = h('div', { class: 'tuner-note' }, '...');
+  const cents = h('div', { class: 'tuner-cents' });
+  const needle = h('div', { class: 'tuner-needle' });
+  const meter = h('div', { class: 'tuner-meter' }, h('i', { class: 'tuner-mid' }), needle);
+  const buf = new Float32Array(an.analyser.fftSize);
+  let alive = true;
+  const loop = () => {
+    if (!alive) return;
+    an.analyser.getFloatTimeDomainData(buf);
+    const nf = noteOfFreq(detectPitch(buf, engine.ctx.sampleRate));
+    if (nf) {
+      note.textContent = nf.name;
+      cents.textContent = (nf.cents > 0 ? '+' : '') + nf.cents + ' cents';
+      needle.style.left = 50 + nf.cents + '%';
+      needle.classList.toggle('ok', Math.abs(nf.cents) <= 5);
+    }
+    setTimeout(loop, 60);
+  };
+  loop();
+  openModal({
+    title: t('Tuner'),
+    body: h('div', { class: 'tuner' }, note, meter, cents, h('p', { class: 'set-note' }, t('Sing or play one note. Middle C is C5, like in the piano roll.'))),
+    onClose: () => {
+      alive = false;
+      an.stop();
+    },
+  });
 }
 
 // Microphone take: the mic opens first, playback starts in SONG mode (after the
@@ -135,6 +280,7 @@ async function recordAudio() {
     return;
   }
   const micAt = engine.ctx.currentTime;
+  if (ui.monitor && !monitorStop) restartMonitor();
   if (engine.playing) engine.pause();
   engine.play({ countIn: ui.countIn ? 1 : 0 });
   audioRec = { start: engine.startPos, lead: engine.startAt - micAt, bpm: engine.bpm };
@@ -156,15 +302,38 @@ async function finishAudioRecording() {
   }
   const len = Math.max(STEP, Math.round(playedTicks));
   const p = store.project;
-  let track = 0;
-  for (let i = 0; i < TRACKS; i++) {
-    if (!p.playlist.clips.some((c) => c.track === i && c.start < r.start + len && c.start + (c.len || BAR) > r.start)) {
-      track = i;
-      break;
-    }
+  const free = (i) => !p.playlist.clips.some((c) => c.track === i && c.start < r.start + len && c.start + (c.len || BAR) > r.start);
+  // Prefer a free track that already plays through the vocal insert.
+  let track = -1;
+  for (let i = 0; i < TRACKS && track < 0; i++) if (free(i) && (p.playlist.tracks[i].insert || 0) === ui.recInsert && (ui.recInsert || !p.playlist.clips.some((c) => c.track === i))) track = i;
+  for (let i = 0; i < TRACKS && track < 0; i++) if (free(i) && !p.playlist.clips.some((c) => c.track === i)) track = i;
+  if (track < 0) track = 0;
+  const lp = p.loop;
+  const leadTicks = r.lead > 0.01 ? Math.round(r.lead / spt) : 0;
+  const firstLen = lp && lp.on ? lp.end - r.start : len;
+  if (lp && lp.on && len > firstLen + BAR / 4) {
+    // Loop recording: one take per pass of the loop, each on its own track; only the last one plays.
+    const span = lp.end - lp.start;
+    const passes = [{ start: r.start, len: firstLen, offset: leadTicks }];
+    for (let done = firstLen; done < len - BAR / 4; done += span) passes.push({ start: lp.start, len: Math.min(span, len - done), offset: leadTicks + done });
+    const tracks = [];
+    for (let i = 0; i < TRACKS && tracks.length < passes.length; i++) if (!p.playlist.clips.some((c) => c.track === i)) tracks.push(i);
+    store.change((pp) => {
+      passes.forEach((ps, k) => {
+        const tr = tracks[k] != null ? tracks[k] : track;
+        if (ui.recInsert) pp.playlist.tracks[tr].insert = ui.recInsert;
+        pp.playlist.tracks[tr].name = name + '.' + (k + 1);
+        pp.playlist.tracks[tr].mute = k < passes.length - 1;
+        pp.playlist.clips.push({ id: newId('k'), type: 'audio', sampleId: res.id, name: name + '.' + (k + 1), track: tr, start: Math.round(ps.start), len: Math.round(ps.len), offset: Math.round(ps.offset) });
+      });
+    });
+    loadBuffer(res.id);
+    hint(passes.length + t(' takes recorded. Only the last one plays: tap a track name to switch.'));
+    return;
   }
   store.change((pp) => {
-    pp.playlist.clips.push({ id: newId('k'), type: 'audio', sampleId: res.id, name, track, start: Math.round(r.start), len, ...(r.lead > 0.01 ? { offset: Math.round(r.lead / spt) } : {}) });
+    if (ui.recInsert) pp.playlist.tracks[track].insert = ui.recInsert;
+    pp.playlist.clips.push({ id: newId('k'), type: 'audio', sampleId: res.id, name, track, start: Math.round(r.start), len, ...(leadTicks ? { offset: leadTicks } : {}) });
   });
   loadBuffer(res.id);
   hint(name + t(' placed on ') + p.playlist.tracks[track].name);
