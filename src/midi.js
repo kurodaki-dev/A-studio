@@ -36,9 +36,10 @@ function trackData(events) {
 export function encodeMidi(project, mode) {
   const L = loopLength(project, mode);
   const perChannel = new Map();
-  collectEvents(project, mode, 0, L, (c, n, tt, pat) => {
+  collectEvents(project, mode, 0, L, (c, n, tt, pat, clip) => {
     if (!perChannel.has(c.id)) perChannel.set(c.id, []);
-    perChannel.get(c.id).push({ t: Math.round(tt + swingTicks(pat, n.t)), len: Math.max(1, n.len), key: n.key, vel: n.vel });
+    const shift = (clip && project.playlist.tracks[clip.track] && project.playlist.tracks[clip.track].pitch) || 0;
+    perChannel.get(c.id).push({ t: Math.round(tt + swingTicks(pat, n.t)), len: Math.max(1, n.len), key: Math.max(0, Math.min(127, n.key + shift)), vel: n.vel });
   });
 
   const tempo = Math.round(60000000 / project.bpm);

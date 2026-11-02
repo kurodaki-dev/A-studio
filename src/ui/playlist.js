@@ -1,4 +1,5 @@
-import { h, btn, icon, hint, openMenu, promptText } from './dom.js';
+import { h, btn, icon, hint, openMenu, promptText, openModal, dropdown } from './dom.js';
+import { openFxDialog } from './fxDialog.js';
 import { attachPointer, fitCanvas } from './pointer.js';
 import { registerDrop } from './dnd.js';
 import { currentTheme } from '../themes.js';
@@ -335,6 +336,7 @@ export function createPlaylist(engine, actions) {
     const anchor = { getBoundingClientRect: () => { const r = cv.getBoundingClientRect(); return { left: r.left + p.x, right: r.left + p.x, top: r.top + p.y, bottom: r.top + p.y }; } };
     openMenu(anchor, [
       { header: track.name },
+      { label: t('Sound of this track') + '...', icon: 'SlidersVertical', onClick: () => openTrackSound(tr) },
       { label: t('Rename'), icon: 'Pencil', onClick: async () => {
         const v = await promptText(t('Track name'), track.name);
         if (v) store.change(() => { track.name = v.slice(0, 40); });
@@ -349,14 +351,78 @@ export function createPlaylist(engine, actions) {
         { label: t('No color'), checked: track.color == null, onClick: () => store.change(() => { delete track.color; }) },
         ...PATTERN_COLORS.map((col, i) => ({ label: t('Color ') + (i + 1), checked: track.color === i, icon: 'Circle', onClick: () => store.change(() => { track.color = i; }) })),
       ]) },
-      { label: t('Mixer insert for audio clips') + ': ' + (track.insert ? track.insert : 'Master') + '...', icon: 'SlidersVertical', onClick: () => openMenu(anchor, [
-        { header: t('Audio clips of this track play through') },
-        ...store.project.mixer.map((m, i) => ({ label: i === 0 ? 'Master' : i + '  ' + m.name, checked: (track.insert || 0) === i, onClick: () => store.change(() => {
-          if (i) track.insert = i;
-          else delete track.insert;
-        }) })),
-      ]) },
     ]);
+  }
+
+  // A mixer insert used by no channel and no track (null when all are taken).
+  function freeInsert() {
+    const p = store.project;
+    const used = new Set([...p.channels.map((c) => c.insert), ...p.playlist.tracks.map((x) => x.insert || 0)]);
+    for (let i = 1; i < p.mixer.length; i++) if (!used.has(i) && !(p.mixer[i].fx || []).length) return i;
+    return null;
+  }
+
+  // Sound of a playlist track: volume, pan, transposition of its patterns and a mixer
+  // insert (with its effects) for everything on the track.
+  function openTrackSound(tr) {
+    const track = store.project.playlist.tracks[tr];
+    const pct = (v) => Math.round(v * 100) + '%';
+    const slider = (label, min, max, step, get, setv, fmt) => {
+      const out = h('output', null, fmt(get()));
+      const input = h('input', { type: 'range', class: 'range', min, max, step, value: get(), 'aria-label': label,
+        onPointerdown: () => store.commit(),
+        onKeydown: () => store.commit(),
+        onInput: (e) => { setv(Number(e.target.value)); out.textContent = fmt(get()); store.emit(); },
+        onDblclick: (e) => { store.commit(); setv(null); e.target.value = get(); out.textContent = fmt(get()); store.emit(); },
+      });
+      return h('label', { class: 'field' }, h('span', null, label), h('div', { class: 'rangebox' }, input, out));
+    };
+    const vol = slider(t('Volume'), 0, 1.5, 0.01, () => (track.vol == null ? 1 : track.vol), (v) => { if (v == null || v === 1) delete track.vol; else track.vol = v; }, pct);
+    const pan = slider(t('Pan'), -1, 1, 0.01, () => track.pan || 0, (v) => { if (!v) delete track.pan; else track.pan = v; }, (v) => (Math.abs(v) < 0.01 ? t('Center') : Math.round(Math.abs(v) * 100) + '% ' + (v < 0 ? t('left') : t('right'))));
+    const pitch = slider(t('Transposition'), -24, 24, 1, () => track.pitch || 0, (v) => { if (!v) delete track.pitch; else track.pitch = v; }, (v) => (v > 0 ? '+' : '') + v + t(' semitones'));
+    const insOptions = () => store.project.mixer.map((m, i) => ({ value: String(i), label: i === 0 ? t('Same as the channels (no track insert)') : i + '  ' + m.name }));
+    const insSel = dropdown({ label: t('Mixer insert'), value: String(track.insert || 0), options: insOptions(), onChange: (v) => {
+      store.change(() => {
+        const i = Number(v);
+        if (i) track.insert = i;
+        else delete track.insert;
+      });
+      fxRow.style.display = track.insert ? '' : 'none';
+    } });
+    const fxBtn = h('button', { class: 'b tb', type: 'button', onClick: () => {
+      if (!track.insert) return;
+      openFxDialog(track.insert, engine);
+    } }, icon('Sparkles', 16), t('Effects of this insert'));
+    const fxRow = h('div', { class: 'set-inline' }, fxBtn);
+    fxRow.style.display = track.insert ? '' : 'none';
+    // One tap: a free insert named after the track, then its effects.
+    const addFx = h('button', { class: 'b tb primary', type: 'button', onClick: () => {
+      if (!track.insert) {
+        const i = freeInsert();
+        if (!i) {
+          hint(t('Every mixer insert is used: choose one in the list.'));
+          return;
+        }
+        store.change((p) => {
+          track.insert = i;
+          p.mixer[i].name = track.name.slice(0, 20);
+        });
+        insSel.setOptions(insOptions(), String(i));
+        fxRow.style.display = '';
+      }
+      openFxDialog(track.insert, engine);
+    } }, icon('Plus', 16), t('Add effects to this track'));
+    openModal({
+      title: track.name + ': ' + t('track sound'),
+      body: h('div', { class: 'set-form' },
+        vol, pan, pitch,
+        h('p', { class: 'set-note' }, t('Volume and pan apply to everything on the track. Transposition moves the notes of its patterns (not the audio clips). Double tap a slider to reset it.')),
+        h('label', { class: 'field' }, h('span', null, t('Mixer insert')), insSel),
+        h('div', { class: 'set-inline' }, addFx),
+        fxRow,
+        h('p', { class: 'set-note' }, t('With a mixer insert, all the clips of the track (patterns and audio) go through it: its effects, EQ and fader change only this track.')),
+      ),
+    });
   }
 
   function clipMenu(p, hit) {
