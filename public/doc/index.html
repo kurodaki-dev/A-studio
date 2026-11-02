@@ -347,6 +347,29 @@ registerVoice(SineVoice);</code></pre>
 </table>
 <p>A file is limited to 256 KB. Use plain JavaScript in one file; <code>import</code> of other files is not available.</p>
 
+<h3 id="dsp">dsp helpers</h3>
+<p>Instrument and effect plugins can use the global <code>dsp</code> object, so a synth or an effect needs much less code. Everything runs per sample in the audio thread.</p>
+<table>
+  <tr><th>Helper</th><th>Use</th></tr>
+  <tr><td><code>new dsp.Osc(sampleRate)</code></td><td><code>.sine(f)</code>, <code>.saw(f)</code>, <code>.square(f, pw)</code>, <code>.triangle(f)</code>: one sample per call. Saw and square are band limited (PolyBLEP), so high notes do not alias.</td></tr>
+  <tr><td><code>new dsp.Env(sampleRate, { attack, decay, sustain, release })</code></td><td>ADSR: <code>.gate(true)</code> on note start, <code>.gate(false)</code> in <code>noteOff</code>, <code>.next()</code> per sample, <code>.done</code> when the release is over, <code>.set({...})</code> to change times.</td></tr>
+  <tr><td><code>new dsp.Biquad(sampleRate)</code></td><td><code>.set(type, freq, q, gainDb)</code> with lowpass, highpass, bandpass, notch, peak, lowshelf or highshelf, then <code>.process(x)</code>.</td></tr>
+  <tr><td><code>new dsp.Delay(sampleRate, maxSeconds)</code></td><td><code>.write(x)</code> then <code>.read(seconds)</code> (interpolated) for echoes, chorus, flanger.</td></tr>
+  <tr><td><code>new dsp.Smooth(sampleRate, ms, start)</code></td><td><code>.next(target)</code>: follows a knob without clicks.</td></tr>
+  <tr><td><code>new dsp.Noise(seed)</code></td><td><code>.white()</code>, <code>.pink()</code>.</td></tr>
+  <tr><td>Functions</td><td><code>dsp.mtof(note)</code>, <code>dsp.dbToGain(db)</code>, <code>dsp.gainToDb(g)</code>, <code>dsp.clamp(v, a, b)</code>, <code>dsp.lerp(a, b, t)</code>, <code>dsp.softClip(x)</code>, <code>dsp.TAU</code>.</td></tr>
+</table>
+<p>The editor templates <strong>Synth with dsp helpers</strong>, <strong>Drum (one shot)</strong> and <strong>Filter effect with dsp helpers</strong> show them in use.</p>
+
+<h3 id="editor">Plugin editor</h3>
+<ul>
+  <li>Line numbers, automatic indentation, Tab inserts two spaces.</li>
+  <li><strong>Add a control</strong> writes a knob, switch, choice list, push button or preset line in the header.</li>
+  <li><strong>Check</strong> reads the header and the code: a syntax error shows its message and a <strong>Go to line</strong> button (JavaScript reports where it noticed the error, sometimes the line after the typo).</li>
+  <li>Errors while the plugin runs (in the test or in a project) are shown with the line of your file.</li>
+  <li><strong>Install and try</strong>: an instrument plays a chord and gets a test keyboard (C5 to C6, hold the keys); an effect plays a short beat with drums and chords through it.</li>
+</ul>
+
 <h3>Effects</h3>
 <pre><code>/**
  * @astudio-plugin

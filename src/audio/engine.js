@@ -138,7 +138,7 @@ function syncEffects(G, ins, m, bpm) {
       }
       const node = new AudioWorkletNode(G.ctx, processorName(x.p), { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params, transport: G.transport } });
       node.port.onmessage = (e) => {
-        if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(x.p, e.data.message);
+        if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(x.p, e.data.message, e.data.stack);
       };
       return { node, input: node, output: node, slot: x.f, params: JSON.stringify(params) };
     });
@@ -431,7 +431,7 @@ function pluginNode(G, channel, ch) {
   const params = paramValues(plugin, channel.pluginParams);
   const node = new AudioWorkletNode(G.ctx, name, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params, transport: G.transport } });
   node.port.onmessage = (e) => {
-    if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(plugin, e.data.message);
+    if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(plugin, e.data.message, e.data.stack);
   };
   node.connect(ch.in);
   entry = { node, name, instrument: channel.instrument, params: JSON.stringify(params) };
@@ -725,7 +725,7 @@ export class Engine {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC({ latencyHint: 'interactive' });
       this.G = createGraph(this.ctx, this.ctx.destination);
-      this.G.onPluginError = (p, msg) => this.onPluginError && this.onPluginError(p, msg);
+      this.G.onPluginError = (p, msg, stack) => this.onPluginError && this.onPluginError(p, msg, stack);
       this.G.onModuleLoaded = () => this.sync();
       syncGraph(this.G, this.store.project, false);
       this.preloadPlugins();
@@ -771,6 +771,49 @@ export class Engine {
       if (!p || !(await loadPluginModule(this.ctx, p))) return;
     }
     for (const k of keys) playNote(this.G, c, this.ctx.currentTime + 0.02, k, 0.8, dur);
+  }
+
+  // Plays 4 seconds of drums and chords through an effect plugin (plugin editor test).
+  async previewEffect(p, params) {
+    this.init();
+    if (!(await loadPluginModule(this.ctx, p))) return false;
+    const ctx = this.ctx;
+    const G = this.G;
+    const node = new AudioWorkletNode(ctx, processorName(p), { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params: paramValues(p, params), transport: G.transport } });
+    node.port.onmessage = (e) => {
+      if (e.data && e.data.type === 'error' && G.onPluginError) G.onPluginError(p, e.data.message, e.data.stack);
+    };
+    node.connect(G.inserts[0].in);
+    const id = '__fxtest';
+    const ch = { in: ctx.createGain(), filt: ctx.createBiquadFilter(), pan: ctx.createStereoPanner(), insert: 0 };
+    ch.filt.frequency.value = 20000;
+    ch.in.connect(ch.filt);
+    ch.filt.connect(ch.pan);
+    ch.pan.connect(node);
+    if (this.fxTest) this.fxTest();
+    G.channels.set(id, ch);
+    const chan = (instrument) => ({ id, instrument, params: { pitch: 0, attack: 0, release: 0, cutoff: 1, reso: 0 } });
+    const t0 = ctx.currentTime + 0.05;
+    for (let b = 0; b < 8; b++) {
+      const t = t0 + b * 0.5;
+      if (b % 2 === 0) playNote(G, chan('kick'), t, 60, 0.9, 0.2);
+      else playNote(G, chan('snare'), t, 60, 0.8, 0.2);
+      playNote(G, chan('hat'), t + 0.25, 60, 0.5, 0.1);
+    }
+    for (const [k, at] of [[57, 0], [53, 2]]) for (const d of [0, 3, 7]) playNote(G, chan('epiano'), t0 + at, k + d, 0.6, 1.8);
+    const stop = () => {
+      try {
+        ch.pan.disconnect();
+        node.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+      G.channels.delete(id);
+      this.fxTest = null;
+    };
+    this.fxTest = stop;
+    setTimeout(() => { if (this.fxTest === stop) stop(); }, 6000);
+    return true;
   }
 
   // Push button of a plugin on a channel.

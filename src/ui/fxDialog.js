@@ -30,7 +30,15 @@ export function openFxDialog(index, engine, onShowPlugins) {
             const kick = store.project.channels.find((c) => c.instrument === 'kick') || store.project.channels[0];
             if (kick) fresh.source = kick.id;
           }
-          if (!v) m.fx.splice(i, 1);
+          if (!v) {
+            m.fx.splice(i, 1);
+            // Automation of the removed slot goes, later slots move down one place.
+            store.project.playlist.clips = store.project.playlist.clips.filter((c) => c.type !== 'auto' || c.target.split(':').slice(0, 3).join(':') !== 'fx:' + index + ':' + i);
+            for (const c of store.project.playlist.clips) {
+              const mt = c.type === 'auto' && /^fx:(\d+):(\d):(.+)$/.exec(c.target);
+              if (mt && Number(mt[1]) === index && Number(mt[2]) > i) c.target = 'fx:' + index + ':' + (Number(mt[2]) - 1) + ':' + mt[3];
+            }
+          }
           else if (slot) m.fx[i] = fresh;
           else m.fx.push(fresh);
           emit();

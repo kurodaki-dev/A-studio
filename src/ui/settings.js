@@ -13,6 +13,21 @@ import { APP_VERSION } from '../version.js';
 import { measureLatency } from '../recorder.js';
 import { midiSupported, midiEnabled, setMidiEnabled, midiInputs, onMidiChange } from '../midiin.js';
 
+const safeGet = (k) => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+const safeSet = (k, v) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* storage full or blocked */
+  }
+};
+
 // Settings window. section: 'general' | 'extensions' scrolls to that part.
 // Re-render the open Settings window (an extension changed one of its settings).
 let openRender = null;
@@ -97,6 +112,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
         render();
       },
       onTry: (p) => engine && engine.previewInstrument('plugin:' + p.id, [60, 64, 67], 0.8),
+      engine,
     });
   }
 
@@ -122,9 +138,9 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
           : row(t('Version'), h('span', null, APP_VERSION)),
         updatesSupported() ? row(t('Screen orientation'), dropdown({ label: t('Screen orientation'), value: orientationPref(), options: [{ value: 'landscape', label: t('Landscape') }, { value: 'auto', label: t('Automatic (portrait allowed)') }], onChange: (v) => applyOrientation(v) })) : null,
         row(t('Recording latency'), h('div', { class: 'set-inline' },
-          h('input', { class: 'input latency-input', type: 'number', min: 0, max: 500, step: 1, value: Number(localStorage.getItem('astudio:latency') || 0), 'aria-label': t('Recording latency'), onChange: (e) => {
+          h('input', { class: 'input latency-input', type: 'number', min: 0, max: 500, step: 1, value: Number(safeGet('astudio:latency') || 0), 'aria-label': t('Recording latency'), onChange: (e) => {
             const v = Math.max(0, Math.min(500, Math.round(Number(e.target.value) || 0)));
-            localStorage.setItem('astudio:latency', String(v));
+            safeSet('astudio:latency', String(v));
           } }),
           h('span', null, 'ms'),
           h('button', { class: 'b tb', type: 'button', onClick: async (e) => {
@@ -135,7 +151,7 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
             try {
               engine.init();
               const ms = await measureLatency(engine.ctx);
-              localStorage.setItem('astudio:latency', String(Math.max(0, Math.min(500, ms))));
+              safeSet('astudio:latency', String(Math.max(0, Math.min(500, ms))));
               hint(t('Recording latency: ') + ms + ' ms');
               render();
             } catch (err) {
