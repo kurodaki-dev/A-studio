@@ -91,6 +91,23 @@ export function createRack(engine, actions) {
   const el = h('div', { class: 'panel rack' }, head, scroller);
   let rows = [];
   let sig = '';
+  let tapTimer = null;
+  let lastTap = { id: null, at: 0 };
+  // A slow second tap can land on the channel menu, which opened over the name in the
+  // meantime: it still counts as the double tap.
+  document.addEventListener('pointerdown', (e) => {
+    if (!lastTap.id || performance.now() - lastTap.at > 450 || !e.target.closest || !e.target.closest('.menu')) return;
+    if (Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) > 40) return;
+    const id = lastTap.id;
+    lastTap = { id: null, at: 0 };
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    document.addEventListener('click', swallow, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener('click', swallow, true), 600);
+    closeMenu();
+    actions.openPianoRoll(id);
+  }, true);
   let lastStep = -1;
 
   function changeBars(d) {
@@ -134,16 +151,22 @@ export function createRack(engine, actions) {
       const missing = c.instrument === 'sampler' && !getSampleMeta(c.sample);
       // Tap: channel menu. Double tap: piano roll of the channel. The menu
       // waits a moment so the second tap of a double tap does not land on it.
-      let tapTimer = null;
       const name = h('button', { class: 'rack-name' + (c.instrument === 'sampler' ? ' sampler' : '') + (missing ? ' missing' : ''), type: 'button', title: (missing ? t('Sample missing on this device') : instrumentName(c.instrument)) + '. ' + t('Double tap: piano roll'), onClick: (e) => {
         const anchor = e.currentTarget;
-        if (tapTimer) {
+        // Second tap on the same channel within 450 ms, by time and not by the pending
+        // menu: fingers on a tablet are often slower than the menu delay, and the row
+        // can be rebuilt between the two taps.
+        const now = performance.now();
+        if (lastTap.id === c.id && now - lastTap.at < 450) {
+          lastTap = { id: null, at: 0 };
           clearTimeout(tapTimer);
           tapTimer = null;
           closeMenu();
           actions.openPianoRoll(c.id);
           return;
         }
+        lastTap = { id: c.id, at: now, x: e.clientX, y: e.clientY };
+        clearTimeout(tapTimer);
         tapTimer = setTimeout(() => {
           tapTimer = null;
           if (anchor.isConnected) channelMenu(anchor, c, ci);
