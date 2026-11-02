@@ -1,4 +1,4 @@
-import { INSTRUMENTS } from './instruments.js';
+import { INSTRUMENTS, warmUp } from './instruments.js';
 import { PPQ, BEAT, BAR, STEP, MIXER_SIZE } from '../constants.js';
 import { patternLength, songLength, getPattern, currentPattern, clipLength, clipValid } from '../store.js';
 import { getBuffer, loadBuffer } from '../samples.js';
@@ -826,6 +826,17 @@ export function loopLength(project, mode) {
   return mode === 'song' ? songLength(project) : patternLength(currentPattern(project));
 }
 
+// Audio buffer size: 'stable' (bigger, no crackles on tablets) or 'fast' (lower latency).
+export function audioBufferMode() {
+  try {
+    const v = localStorage.getItem('astudio:audiobuf');
+    if (v === 'fast' || v === 'stable') return v;
+  } catch {
+    /* ignore */
+  }
+  return 'stable';
+}
+
 export class Engine {
   constructor(store, getMode, getMetronome) {
     this.store = store;
@@ -846,12 +857,13 @@ export class Engine {
   init() {
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
-      this.ctx = new AC({ latencyHint: 'interactive' });
+      this.ctx = new AC({ latencyHint: audioBufferMode() === 'fast' ? 'interactive' : 'balanced' });
       this.G = createGraph(this.ctx, this.ctx.destination);
       this.G.onPluginError = (p, msg, stack) => this.onPluginError && this.onPluginError(p, msg, stack);
       this.G.onModuleLoaded = () => this.sync();
       syncGraph(this.G, this.store.project, false);
       this.preloadPlugins();
+      setTimeout(() => warmUp(this.ctx), 0);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
@@ -997,7 +1009,9 @@ export class Engine {
     if (this.pos < A || this.pos >= B) this.pos = A;
     this.playing = true;
     this.bpm = bpmAt(proj, this.pos, mode);
-    const t0 = this.ctx.currentTime + 0.05;
+    // Lead before the first note: long enough for the first scheduling pass on a slow
+    // device (measured on the previous start), otherwise the first beat stumbles.
+    const t0 = this.ctx.currentTime + (this.startLead || 0.12);
     const lead = countIn > 0 ? countIn * BAR * this.spt() : 0;
     for (let b = 0; lead && b < (countIn * BAR) / BEAT; b++) this.click(t0 + b * BEAT * this.spt(), (b * BEAT) % BAR === 0);
     this.anchorTime = t0 + lead;
@@ -1009,7 +1023,11 @@ export class Engine {
     this.fresh = true;
     this.G.autoStarted.clear();
     this.startTicker();
+    const s0 = performance.now();
+    this.ahead = Math.max(this.ahead || 0, 0.15);
     this.schedule();
+    const took = (performance.now() - s0) / 1000;
+    this.startLead = Math.max(0.12, Math.min(0.4, took * 1.5 + 0.05));
     this.G.transport = { bpm: this.bpm, playing: true, position: this.pos, at: this.anchorTime };
     pushTransport(this.G, this.G.transport);
   }

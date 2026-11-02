@@ -18,6 +18,11 @@ function noiseBuffer(ctx) {
   return b;
 }
 
+// Builds the shared buffers ahead of time so the first notes do not wait for them.
+export function warmUp(ctx) {
+  noiseBuffer(ctx);
+}
+
 function periodic(ctx, name, harm) {
   const cache = ctx.__waves || (ctx.__waves = {});
   if (cache[name]) return cache[name];
