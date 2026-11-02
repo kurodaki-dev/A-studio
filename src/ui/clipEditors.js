@@ -1,4 +1,4 @@
-import { h, openModal, dropdown, hint } from './dom.js';
+import { h, icon, openModal, dropdown, hint, openMenu } from './dom.js';
 import { attachPointer, fitCanvas } from './pointer.js';
 import { store, clipLength } from '../store.js';
 import { BAR, BEAT, STEP, clamp } from '../constants.js';
@@ -6,6 +6,7 @@ import { autoLabel, autoValue, formatTarget } from '../automation.js';
 import { currentTheme } from '../themes.js';
 import { getBuffer, loadBuffer, addSample } from '../samples.js';
 import { EDITS, timeStretch, detectBpm } from '../audiotools.js';
+import { reduceNoise, removeHum, removeRumble, removeDC, reduceBreaths, normalizeLoudness, centerMask, toMono, cleanVoice } from '../cleanup.js';
 import { encodeWav } from '../wav.js';
 import { t } from '../i18n.js';
 
@@ -272,6 +273,35 @@ export function openWaveEditor(clip, engine) {
       draw();
     };
     const b = (label, fn) => h('button', { class: 'b tb', type: 'button', onClick: fn }, label);
+    // Clean up tools: they work on the whole sample; for noise reduction the selection,
+    // when there is one, is the noise to learn (a part with only the background noise).
+    const clean = (label, fn) => async () => {
+      hint(t('Processing...'));
+      await new Promise((r) => setTimeout(r, 20));
+      history.push(chs);
+      const res = fn(chs);
+      chs = Array.isArray(res) ? res : res.channels;
+      draw();
+      hint(label + (res.base ? ': ' + res.base + ' Hz' : '') + (Number.isFinite(res.gainDb) ? ': ' + (res.gainDb > 0 ? '+' : '') + res.gainDb.toFixed(1) + ' dB' : ''));
+    };
+    const noise = (db) => clean(t('Noise reduced'), (c) => reduceNoise(c, sr, sel, db));
+    const cleanMenu = (e) => openMenu(e.currentTarget, [
+      { header: sel ? t('The selection is used as the noise to remove') : t('Select a part with only noise for a better result') },
+      { label: t('Reduce noise: light'), icon: 'Wind', onClick: noise(6) },
+      { label: t('Reduce noise: medium'), icon: 'Wind', onClick: noise(12) },
+      { label: t('Reduce noise: strong'), icon: 'Wind', onClick: noise(20) },
+      { label: t('Remove hum (50 or 60 Hz)'), icon: 'Activity', onClick: clean(t('Hum removed'), (c) => removeHum(c, sr)) },
+      { label: t('Remove rumble and plosives (under 80 Hz)'), icon: 'AudioWaveform', onClick: clean(t('Rumble removed'), (c) => removeRumble(c, sr, 80)) },
+      { label: t('Remove DC offset'), icon: 'Minus', onClick: clean(t('DC offset removed'), (c) => removeDC(c)) },
+      { label: t('Reduce breaths and noise between phrases'), icon: 'Wind', onClick: clean(t('Breaths reduced'), (c) => reduceBreaths(c, sr, 30, 12)) },
+      { sep: true },
+      { label: t('Normalize to -14 LUFS'), icon: 'SlidersVertical', onClick: clean(t('Loudness'), (c) => normalizeLoudness(c, sr, -14)) },
+      { label: t('Remove the vocals (karaoke)'), icon: 'Mic', disabled: chs.length < 2, onClick: clean(t('Vocals removed'), (c) => centerMask(c, false, sr)) },
+      { label: t('Keep only the vocals (centre)'), icon: 'Mic', disabled: chs.length < 2, onClick: clean(t('Vocals isolated'), (c) => centerMask(c, true, sr)) },
+      { label: t('Mono'), icon: 'Circle', onClick: clean(t('Mono'), (c) => toMono(c)) },
+      { sep: true },
+      { label: t('Clean up voice (all in one)'), icon: 'WandSparkles', onClick: clean(t('Voice cleaned up'), (c) => cleanVoice(c, sr)) },
+    ]);
     const play = async () => {
       engine.init();
       const ab = engine.ctx.createBuffer(chs.length, len(), sr);
@@ -307,6 +337,7 @@ export function openWaveEditor(clip, engine) {
           b(t('Play'), play), b(t('Cut'), op('cut')), b(t('Trim to selection'), op('trim')), b(t('Silence'), op('silence')),
           b('+3 dB', op('gain', 3)), b('-3 dB', op('gain', -3)), b(t('Fade in'), op('fadeIn')), b(t('Fade out'), op('fadeOut')),
           b(t('Reverse'), op('reverse')), b(t('Normalize'), op('normalize')),
+          h('button', { class: 'b tb primary', type: 'button', onClick: cleanMenu }, icon('WandSparkles', 16), t('Clean up')),
           b(t('Undo'), () => { if (history.length) { chs = history.pop(); draw(); } }),
         ),
         h('p', { class: 'set-note' }, t('Without a selection, an edit applies to the whole sample. Save keeps the original sample in the browser.')),
@@ -334,6 +365,24 @@ export async function stretchClip(clip, factor, label) {
   });
   m.close();
   hint(t('Stretched: ') + name);
+}
+
+// One tap voice clean up of a clip (DC, rumble, noise, breaths, -14 LUFS), saved as a new sample.
+export async function cleanClip(clip) {
+  const buf = getBuffer(clip.sampleId) || (await loadBuffer(clip.sampleId));
+  if (!buf) return hint(t('Sample missing on this device'));
+  const m = openModal({ title: t('Clean up voice'), body: h('p', null, t('Processing...')), actions: [] });
+  await new Promise((r) => setTimeout(r, 30));
+  const chs = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
+  const out = cleanVoice(chs, buf.sampleRate);
+  const name = (clip.name || 'Sample').replace(/ \(clean\)$/, '') + ' (clean)';
+  const id = await addSample(name, 'Edits', encodeWav(out, buf.sampleRate, 16));
+  store.change(() => {
+    clip.sampleId = id;
+    clip.name = name;
+  });
+  m.close();
+  hint(t('Voice cleaned up: ') + name);
 }
 
 export async function clipBpm(clip) {
