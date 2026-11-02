@@ -133,10 +133,10 @@ export default {
   "Help": "Aide",
   "How to create plugins and themes": "Créer des plugins et des thèmes",
   "Icons: Lucide (ISC license).": "Icônes : Lucide (licence ISC).",
-  "Import audio files or a ZIP pack with the import button above.": "Importez des fichiers audio ou un pack ZIP avec le bouton d’import en haut.",
+  "Import audio files or a ZIP / RAR pack with the import button above.": "Importez des fichiers audio ou un pack ZIP / RAR avec le bouton d’import en haut.",
   "Import failed": "Import impossible",
   "Import project file": "Importer un fichier projet",
-  "Import samples or a ZIP pack": "Importer des samples ou un pack ZIP",
+  "Import samples or a ZIP / RAR pack": "Importer des samples ou un pack ZIP / RAR",
   "Imported": "Importés",
   "Importing...": "Import en cours...",
   "Importing: ": "Import en cours : ",
@@ -994,4 +994,5 @@ export default {
   "Main pitch": "Pitch général",
   "PITCH": "PITCH",
   "Fine tune": "Accordage fin",
+  "This RAR archive is protected by a password.": "Cette archive RAR est protégée par un mot de passe.",
 };

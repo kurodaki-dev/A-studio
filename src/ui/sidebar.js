@@ -20,7 +20,7 @@ export function createSidebar(engine, actions) {
   const el = h('aside', { class: 'sidebar', 'aria-label': t('Browser') },
     h('div', { class: 'side-head' },
       h('span', { class: 'ptitle' }, t('Browser')),
-      btn('Upload', t('Import samples or a ZIP pack'), () => importDialog()),
+      btn('Upload', t('Import samples or a ZIP / RAR pack'), () => importDialog()),
       btn('ChevronLeft', t('Close browser'), () => actions.toggleSidebar(false), 'ghost'),
     ),
     h('div', { class: 'side-search-wrap' }, search),
@@ -181,7 +181,7 @@ export function createSidebar(engine, actions) {
     rows.push(folderRow('samples', t('My samples'), 0, samples.length));
     if (q || open.has('samples')) {
       if (!listSamples().length) {
-        rows.push(h('div', { class: 'side-empty' }, t('Import audio files or a ZIP pack with the import button above.')));
+        rows.push(h('div', { class: 'side-empty' }, t('Import audio files or a ZIP / RAR pack with the import button above.')));
       } else rows.push(...sampleTree(samples, q));
     }
 
