@@ -730,3 +730,9 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .sample-wrap { position: relative; height: 170px; border: 1px solid var(--line); touch-action: none; }
 .sample-wrap.short { height: 110px; }
 .sample-wrap .cv { position: absolute; inset: 0; }
+/* Phones in landscape: a lower waveform so the whole window fits. */
+@media (max-height: 520px) {
+  .sample-wrap { height: 120px; }
+  .sample-wrap.short { height: 80px; }
+  .ch-page { min-height: 0; }
+}
