@@ -57,6 +57,7 @@ Channel rack, piano roll, playlist, mixer and a browser for your own samples, in
 - **More**: recording latency calibration, formant preserving pitch shift (PSOLA), effect parameter automation, MIDI learn, project export with samples (ZIP), automatic backups, a getting started guide and a portrait layout.
 - **Tempo**: drag, type or tap tempo, tempo changes from markers, metronome, voice and CPU meter.
 - **Settings**: English or French interface, themes, code plugins, update check.
+- FL Studio style menu bar (FILE, EDIT, ADD, PATTERNS, VIEW, OPTIONS, TOOLS, HELP), shown or hidden with the three lines button.
 - Scrollbars and two finger gestures for navigation, landscape full screen layout, keyboard shortcuts on tablets (press `?` to list them).
 
 ## Piano roll

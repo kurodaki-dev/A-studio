@@ -31,7 +31,8 @@ import { BAR, STEP, NKEYS, TRACKS, clamp } from './constants.js';
 import { createExtensionHost } from './extensions.js';
 import { isInstrumentId, CATALOG } from './audio/catalog.js';
 import { pluginInstruments, getPlugin, reportPluginError } from './plugins.js';
-import { createChannel } from './ui/rack.js';
+import { createChannel, addChannelMenu } from './ui/rack.js';
+import { openMeterDialog } from './ui/meterDialog.js';
 import { encodeMidi } from './midi.js';
 import { APP_VERSION } from './version.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled, applyOrientation } from './update.js';
@@ -368,7 +369,7 @@ const undoBtn = btn('Undo2', t('Cancel'), () => { if (store.undo()) hint(t('Undo
 const redoBtn = btn('Redo2', t('Redo'), () => { if (store.redo()) hint(t('Redone')); });
 
 const topbar = h('header', { class: 'topbar' },
-  btn('Menu', 'Menu', (e) => mainMenu(e.currentTarget)),
+  btn('Menu', t('Menu bar (FILE, EDIT, VIEW...)'), () => setMenuBar(!menuBarOn)),
   h('div', { class: 'brand' }, 'A STUDIO'),
   h('div', { class: 'tgrp segs' }, patBtn, songBtn),
   h('div', { class: 'tgrp' }, playBtn, stopBtn, recBtn, metroBtn),
@@ -406,7 +407,17 @@ const extRail = h('div', { class: 'ext-rail' });
 const rail = h('nav', { class: 'rail' }, browserBtn, h('div', { class: 'rail-sep' }), railBtns, extRail);
 const stage = h('main', { class: 'stage' }, Object.values(panels).map((p) => p.el));
 const body = h('div', { class: 'body' }, rail, sidebar.el, stage);
-document.getElementById('app').append(topbar, body);
+// FL Studio style menu bar above the interface: FILE, EDIT, ADD, PATTERNS, VIEW,
+// OPTIONS, TOOLS, HELP. The three lines button shows or hides it.
+const menuBar = h('nav', { class: 'menubar', 'aria-label': t('Menu bar') });
+let menuBarOn = pref('menubar', '1') === '1';
+function setMenuBar(on) {
+  menuBarOn = on;
+  setPref('menubar', on ? '1' : '0');
+  menuBar.classList.toggle('hidden', !on);
+  closeMenu();
+}
+document.getElementById('app').append(menuBar, topbar, body);
 
 function setSidebar(on) {
   ui.sidebar = on;
@@ -1113,6 +1124,111 @@ function about() {
     ),
   });
 }
+
+// Edit commands go to the open panel (piano roll or playlist), like its keyboard shortcuts.
+function panelKey(key, opts = {}) {
+  const pnl = panels[ui.panel];
+  if (!pnl || !pnl.keydown) return hint(t('Open the piano roll or the playlist for this command'));
+  pnl.keydown({ key, ctrlKey: !!opts.ctrl, metaKey: false, shiftKey: !!opts.shift, altKey: false, preventDefault() {}, target: document.body });
+}
+
+const MENUS = {
+  FILE: () => [
+    { label: t('New project'), icon: 'FilePlus', onClick: newProj },
+    { label: t('Open'), icon: 'FolderOpen', onClick: openProjectDialog },
+    { label: t('Save'), icon: 'Save', onClick: save },
+    { label: t('Save as'), icon: 'Save', onClick: saveAs },
+    { label: t('Restore a backup'), icon: 'RefreshCw', onClick: restoreBackupDialog },
+    { sep: true },
+    { label: t('Import project file'), icon: 'Upload', onClick: importProject },
+    { label: t('Import MIDI file'), icon: 'FileMusic', onClick: importMidiFile },
+    { sep: true },
+    { label: ui.songMode ? t('Export song (WAV, MP3)') : t('Export pattern (WAV, MP3)'), icon: 'Download', onClick: exportWav },
+    { label: ui.songMode ? t('Export song as MIDI') : t('Export pattern as MIDI'), icon: 'FileMusic', onClick: exportMidi },
+    { label: ui.songMode ? t('Export song stems (ZIP)') : t('Export pattern stems (ZIP)'), icon: 'FileArchive', onClick: exportStems },
+    { label: t('Export project file'), icon: 'Share2', onClick: exportProject },
+    { label: t('Export project with samples (ZIP)'), icon: 'FileArchive', onClick: exportProjectWithSamples },
+    { sep: true },
+    { label: t('Project info'), icon: 'NotebookPen', onClick: projectInfo },
+  ],
+  EDIT: () => [
+    { label: t('Undo') + '  Ctrl+Z', icon: 'Undo2', disabled: !store.undoStack.length, onClick: () => store.undo() },
+    { label: t('Redo') + '  Ctrl+Y', icon: 'Redo2', disabled: !store.redoStack.length, onClick: () => store.redo() },
+    { sep: true },
+    { header: ui.panel === 'piano' ? 'Piano roll' : ui.panel === 'playlist' ? 'Playlist' : t('Open the piano roll or the playlist') },
+    { label: t('Select all') + '  Ctrl+A', icon: 'SquareDashed', onClick: () => panelKey('a', { ctrl: true }) },
+    { label: t('Copy') + '  Ctrl+C', icon: 'Copy', onClick: () => panelKey('c', { ctrl: true }) },
+    { label: t('Paste') + '  Ctrl+V', icon: 'ClipboardPaste', onClick: () => panelKey('v', { ctrl: true }) },
+    { label: t('Duplicate') + '  Ctrl+B', icon: 'CopyPlus', onClick: () => panelKey('b', { ctrl: true }) },
+    { label: t('Delete') + '  Del', icon: 'Trash', onClick: () => panelKey('Delete') },
+    { label: t('Quantize') + '  Ctrl+Q', icon: 'Magnet', disabled: ui.panel !== 'piano', onClick: () => panelKey('q', { ctrl: true }) },
+  ],
+  ADD: (anchor) => [
+    { label: t('Channel') + '...', icon: 'Plus', onClick: () => addChannelMenu(anchor, engine) },
+    { label: t('New pattern'), icon: 'Plus', onClick: newPattern },
+    { label: t('Microphone recording'), icon: 'Mic', onClick: () => recordAudio() },
+    { label: t('Effect on an insert'), icon: 'SlidersVertical', onClick: () => { showPanel('mixer'); hint(t('Tap FX under an insert to add an effect')); } },
+    { label: t('Automation clip'), icon: 'Activity', onClick: () => { showPanel('playlist'); hint(t('Use the automation button of the playlist toolbar')); } },
+    { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine, extHost }) },
+  ],
+  PATTERNS: (anchor) => {
+    patternMenu(anchor);
+    return null;
+  },
+  VIEW: () => [
+    { label: 'Playlist  F5', icon: 'LayoutList', checked: ui.panel === 'playlist', onClick: () => showPanel('playlist') },
+    { label: 'Channel rack  F6', icon: 'Grid3x3', checked: ui.panel === 'rack', onClick: () => showPanel('rack') },
+    { label: 'Piano roll  F7', icon: 'Piano', checked: ui.panel === 'piano', onClick: () => showPanel('piano') },
+    { label: t('Browser') + '  F8', icon: 'FolderOpen', checked: ui.sidebar, onClick: () => setSidebar(!ui.sidebar) },
+    { label: 'Mixer  F9', icon: 'SlidersVertical', checked: ui.panel === 'mixer', onClick: () => showPanel('mixer') },
+    { label: 'Live', icon: 'LayoutGrid', checked: ui.panel === 'live', onClick: () => showPanel('live') },
+    { sep: true },
+    { label: t('Master: spectrum and loudness'), icon: 'Activity', onClick: () => openMeterDialog(engine, 0) },
+    { label: t('Lyrics on screen'), icon: 'NotebookPen', checked: !!lyricsEl, onClick: () => toggleLyrics() },
+    { label: t('Menu bar (FILE, EDIT, VIEW...)'), icon: 'Menu', checked: menuBarOn, onClick: () => setMenuBar(!menuBarOn) },
+  ],
+  OPTIONS: () => [
+    { label: t('Settings'), icon: 'Settings', onClick: () => openSettings({ onExtensionsChange: extensionsChanged, engine, extHost }) },
+    { label: t('Plugins and themes'), icon: 'Puzzle', onClick: () => openSettings({ section: 'extensions', onExtensionsChange: extensionsChanged, engine, extHost }) },
+    { sep: true },
+    { label: t('Metronome'), icon: 'Metronome', checked: ui.metronome, onClick: () => metroBtn.click() },
+    { label: t('Count in one bar before recording'), icon: 'Timer', checked: ui.countIn, onClick: () => { ui.countIn = !ui.countIn; setPref('countin', ui.countIn ? '1' : '0'); } },
+    { label: t('Notes (piano roll keyboard and MIDI keyboard)'), icon: 'Circle', checked: ui.recording, onClick: () => recBtn.click() },
+    ...(updatesSupported() ? [{ sep: true }, { label: t('Check for updates'), icon: 'Download', onClick: () => checkForUpdate({ silent: false }) }] : []),
+  ],
+  TOOLS: () => [
+    { label: t('Tap tempo'), icon: 'Pointer', onClick: tapTempo },
+    { label: t('Tuner'), icon: 'Music', onClick: () => openTuner() },
+    { label: t('Set up a vocal insert with effects') + '...', icon: 'Mic', onClick: () => openMenu(menuBar, VOCAL_CHAINS.map((c) => ({ label: t(c.name), onClick: () => setupVocalInsert(c) }))) },
+    { label: t('Hear the microphone with the effects (headphones)'), icon: 'Headphones', checked: ui.monitor, onClick: () => toggleMonitor() },
+    { label: t('Split by channel'), icon: 'Layers', onClick: () => store.change((pp) => { if (!splitByChannel(pp, pp.currentPattern).length) hint(t('The pattern needs notes on at least two channels')); }) },
+    ...(extHost.menuItems().length ? [{ sep: true }, ...extHost.menuItems().map((m) => ({ label: m.label, icon: m.icon || 'Puzzle', onClick: m.onClick }))] : []),
+  ],
+  HELP: () => [
+    { label: t('Getting started'), icon: 'Lightbulb', onClick: () => openGuide() },
+    { label: t('Documentation'), icon: 'BookOpen', onClick: () => openExternal(DOCS_URL) },
+    { label: t('Keyboard shortcuts'), icon: 'Keyboard', onClick: shortcutsDialog },
+    { sep: true },
+    { label: t('Report a bug'), icon: 'Bug', onClick: () => openExternal(bugReportUrl()) },
+    { label: t('Request a feature'), icon: 'Lightbulb', onClick: () => openExternal(featureRequestUrl()) },
+    { sep: true },
+    { label: t('Privacy'), icon: 'Shield', onClick: () => openLegal('privacy', t('Privacy policy')) },
+    { label: t('Terms of use'), icon: 'FileText', onClick: () => openLegal('terms', t('Terms of use')) },
+    { label: 'Cookies', icon: 'Cookie', onClick: () => openLegal('cookies', t('Cookie policy')) },
+    { label: t('About'), icon: 'Info', onClick: about },
+  ],
+};
+const MENU_NAMES = { FILE: 'FILE', EDIT: 'EDIT', ADD: 'ADD', PATTERNS: 'PATTERNS', VIEW: 'VIEW', OPTIONS: 'OPTIONS', TOOLS: 'TOOLS', HELP: 'HELP' };
+menuBar.append(...Object.keys(MENUS).map((k) => h('button', { class: 'menubar-item', type: 'button', onClick: (e) => {
+  const items = MENUS[k](e.currentTarget);
+  if (items) openMenu(e.currentTarget, items);
+} }, t(MENU_NAMES[k]))));
+setMenuBar(menuBarOn);
+// Long press (or right click) on the three lines: the full menu in one list.
+topbar.firstChild.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  mainMenu(e.currentTarget);
+});
 
 function mainMenu(anchor) {
   openMenu(anchor, [

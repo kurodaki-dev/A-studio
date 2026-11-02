@@ -736,3 +736,10 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
   .sample-wrap.short { height: 80px; }
   .ch-page { min-height: 0; }
 }
+
+/* FL Studio style menu bar (FILE, EDIT, ADD, PATTERNS, VIEW, OPTIONS, TOOLS, HELP) */
+.menubar { display: flex; flex: none; height: 28px; background: #232a2e; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.menubar::-webkit-scrollbar { display: none; }
+.menubar.hidden { display: none; }
+.menubar-item { flex: none; height: 100%; padding: 0 12px; background: transparent; border: 0; color: var(--dim); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; cursor: pointer; }
+.menubar-item:hover, .menubar-item:focus-visible { background: var(--panel2); color: var(--text); }
