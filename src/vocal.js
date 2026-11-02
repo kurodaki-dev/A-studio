@@ -29,7 +29,7 @@ export const VOCAL_CHAINS = [
     id: 'rnb',
     name: 'R&B smooth',
     fx: [
-      { plugin: 'astudio-autotune', params: { key: 0, scale: 1, retune: 120, mix: 1 } },
+      { plugin: 'astudio-autotune', params: { key: 0, scale: 1, retune: 70, flex: 0.35, vibrato: 0.7, mix: 1 } },
       { plugin: 'astudio-doubler', params: { width: 0.7, depth: 0.3, mix: 0.35 } },
       { plugin: 'astudio-compressor', params: { threshold: -18, ratio: 3, attack: 10, release: 160, makeup: 4 } },
       { plugin: 'astudio-reverb', params: { size: 3, damp: 0.4, predelay: 40, mix: 0.28 } },

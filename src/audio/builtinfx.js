@@ -171,11 +171,30 @@ export const BUILTIN_EFFECTS = [
     name: 'Auto tune',
     vocal: true,
     worklet: 'astudio-vox-tune',
-    params: [choice('key', 'Key', ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']), choice('scale', 'Scale', ['Chromatic', 'Major', 'Minor', 'Harmonic minor', 'Major pentatonic', 'Minor pentatonic', 'Blues']), knob('retune', 'Retune ms', 0, 400, 20), knob('mix', 'Mix', 0, 1, 1), toggle('formant', 'Keep formants', 1)],
+    // MIDI mode: the slot's source channel gives the target notes.
+    followsChannel: true,
+    params: [
+      choice('key', 'Key', ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']),
+      choice('scale', 'Scale', ['Chromatic', 'Major', 'Minor', 'Harmonic minor', 'Major pentatonic', 'Minor pentatonic', 'Blues']),
+      choice('mode', 'Target', ['Scale', 'MIDI notes of a channel']),
+      knob('retune', 'Retune ms', 0, 400, 20),
+      knob('flex', 'Flex tune', 0, 1, 0),
+      knob('vibrato', 'Keep vibrato', 0, 1, 0),
+      knob('formantShift', 'Formant', -1, 1, 0),
+      knob('vibDepth', 'Add vibrato cents', 0, 100, 0),
+      knob('vibRate', 'Vibrato rate Hz', 1, 9, 5.5),
+      knob('mix', 'Mix', 0, 1, 1),
+      toggle('formant', 'Keep formants', 1),
+      toggle('lowLatency', 'Low latency (live)', 0),
+    ],
     presets: [
-      { name: 'Hard tune (robotic)', values: { retune: 0, mix: 1 } },
-      { name: 'Natural', values: { retune: 120, mix: 1 } },
-      { name: 'Light touch', values: { retune: 250, mix: 0.7 } },
+      { name: 'Hard tune (robotic)', values: { retune: 0, flex: 0, vibrato: 0, vibDepth: 0, mix: 1 } },
+      { name: 'Natural', values: { retune: 70, flex: 0.35, vibrato: 0.7, vibDepth: 0, mix: 1 } },
+      { name: 'Light touch', values: { retune: 180, flex: 0.7, vibrato: 1, vibDepth: 0, mix: 1 } },
+      { name: 'Hard tune with vibrato', values: { retune: 0, flex: 0, vibrato: 0, vibDepth: 25, vibRate: 5.5, mix: 1 } },
+      { name: 'Deeper timbre', values: { retune: 40, flex: 0.3, vibrato: 0.6, formantShift: -0.4, mix: 1 } },
+      { name: 'Brighter timbre', values: { retune: 40, flex: 0.3, vibrato: 0.6, formantShift: 0.4, mix: 1 } },
+      { name: 'Live monitoring (low latency)', values: { retune: 20, flex: 0.2, vibrato: 0.5, lowLatency: 1, mix: 1 } },
     ],
   },
   {
@@ -391,7 +410,22 @@ for (const fx of BUILTIN_EFFECTS) {
   if (!fx.worklet) continue;
   fx.create = (ctx, params) => {
     const node = new AudioWorkletNode(ctx, fx.worklet, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { params } });
-    return { input: node, output: node, node, set: (v) => node.port.postMessage({ type: 'params', values: v }) };
+    const self = {
+      input: node,
+      output: node,
+      node,
+      onPitch: null,
+      set: (v) => node.port.postMessage({ type: 'params', values: v }),
+    };
+    node.port.onmessage = (e) => {
+      if (e.data && e.data.type === 'pitch' && self.onPitch) self.onPitch(e.data);
+    };
+    if (fx.followsChannel) {
+      // Target note for MIDI mode, in frames of the audio context.
+      self.target = (key, from, to) => node.port.postMessage({ type: 'target', key, from, to });
+      self.clearTargets = () => node.port.postMessage({ type: 'clearTargets' });
+    }
+    return self;
   };
 }
 
@@ -399,7 +433,7 @@ for (const fx of BUILTIN_EFFECTS) {
 // PSOLA delays by 2 periods of 70 Hz plus 256 samples, see voxworklet.js.
 const psolaDelay = (sr) => (2 * Math.ceil(sr / 70) + 256) / sr;
 for (const fx of BUILTIN_EFFECTS) {
-  if (fx.id === 'astudio-autotune') fx.latency = (v, sr) => (v.formant === 0 ? 0 : psolaDelay(sr));
+  if (fx.id === 'astudio-autotune') fx.latency = (v, sr) => (v.formant === 0 || v.lowLatency ? 0 : psolaDelay(sr));
   else if (fx.id === 'astudio-pitch') fx.latency = (v, sr) => (v.formant ? psolaDelay(sr) : 0);
 }
 
