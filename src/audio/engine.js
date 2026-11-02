@@ -187,7 +187,14 @@ export function pushTransport(G, t) {
   for (const ins of G.inserts) for (const e of ins.fxNodes || []) if (e.node) e.node.port.postMessage(msg);
 }
 
+// Pitch offset of a channel in semitones: transposition, fine tune and main pitch.
+function pitchOf(G, channel) {
+  const p = channel.params;
+  return (p.pitch || 0) + (p.fine || 0) / 100 + (G.masterPitch || 0);
+}
+
 export function syncGraph(G, project, smooth) {
+  G.masterPitch = (project.masterPitch || 0) / 100;
   const mx = project.mixer;
   const anySolo = mx.some((m, i) => i > 0 && m.solo);
   // Parameters driven by an automation clip are left to it while the song plays.
@@ -428,7 +435,7 @@ function playSampler(G, channel, ch, t, key, vel, dur, fromKey) {
   const chain = voiceChain(G, channel, t, Number.isFinite(dur) ? t + dur : Infinity, vg);
   const s = ctx.createBufferSource();
   s.buffer = buf;
-  const rate = Math.pow(2, (src.rateKey + (p.pitch || 0) - src.root) / 12);
+  const rate = Math.pow(2, (src.rateKey + pitchOf(G, channel) - src.root) / 12);
   s.playbackRate.value = rate;
   s.connect(chain.entry);
   const off = src.a * buf.duration;
@@ -553,8 +560,9 @@ function pluginNode(G, channel, ch) {
 }
 
 function playPlugin(G, channel, ch, t, key, vel, dur) {
-  const k = key + (channel.params.pitch || 0);
-  const ev = { type: 'note', id: ++G.noteId, frame: Math.round(t * G.ctx.sampleRate), key: k, freq: 440 * Math.pow(2, (k - 69) / 12), vel, dur };
+  const shift = pitchOf(G, channel);
+  const k = key + Math.round(shift);
+  const ev = { type: 'note', id: ++G.noteId, frame: Math.round(t * G.ctx.sampleRate), key: k, freq: 440 * Math.pow(2, (key + shift - 69) / 12), vel, dur };
   if (G.offline) {
     // Offline export: events go to the node at creation, see renderWav.
     if (!G.pluginEvents.has(channel.id)) G.pluginEvents.set(channel.id, []);
@@ -585,7 +593,7 @@ export function playNote(G, channel, t, key, vel, dur, fromKey = null) {
   if (channel.instrument.startsWith('plugin:')) return playPlugin(G, channel, ch, t, key, vel, dur);
   const inst = channel.instrument === 'osc3' ? osc3Instrument(channel) : INSTRUMENTS[channel.instrument] || INSTRUMENTS.piano;
   const p = channel.params;
-  const f = 440 * Math.pow(2, (key + (p.pitch || 0) - 69) / 12);
+  const f = 440 * Math.pow(2, (key + pitchOf(G, channel) - 69) / 12);
   const vg = ctx.createGain();
   vg.connect(ch.in);
   const off = Number.isFinite(dur) ? t + Math.max(dur, 0.005) : Infinity;

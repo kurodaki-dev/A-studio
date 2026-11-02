@@ -51,7 +51,12 @@ export function openChannelSettings(id, engine) {
   const pitchOut = h('output', null);
   const pitch = h('input', { type: 'range', class: 'range', min: -24, max: 24, step: 1, value: c.params.pitch, onInput: (e) => set(() => { c.params.pitch = Number(e.target.value); showPitch(); }) });
   const showPitch = () => { pitchOut.textContent = (c.params.pitch > 0 ? '+' : '') + c.params.pitch + t(' semitones'); };
+  // Fine tune in cents (100 cents = one semitone).
+  const fineOut = h('output', null);
+  const showFine = () => { fineOut.textContent = ((c.params.fine || 0) > 0 ? '+' : '') + (c.params.fine || 0) + ' cents'; };
+  const fine = h('input', { type: 'range', class: 'range', min: -100, max: 100, step: 1, value: c.params.fine || 0, 'aria-label': t('Fine tune'), onInput: (e) => set(() => { c.params.fine = Number(e.target.value); showFine(); }), onDblclick: (e) => { e.target.value = 0; set(() => { c.params.fine = 0; showFine(); }); } });
   showPitch();
+  showFine();
   // Controls declared by a code plugin in its header.
   function pluginKnobs() {
     const plugin = c.instrument.startsWith('plugin:') ? getPlugin(c.instrument.slice(7)) : null;
@@ -132,7 +137,7 @@ export function openChannelSettings(id, engine) {
           set(() => {
             c.instrument = 'sampler';
             c.sample = sid;
-            Object.assign(c.params, { pitch: 0, attack: 0, decay: 0, sustain: 1, release: 0, cutoff: 1, reso: 0, fenvAmt: 0, penvAmt: 0, start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
+            Object.assign(c.params, { pitch: 0, fine: 0, attack: 0, decay: 0, sustain: 1, release: 0, cutoff: 1, reso: 0, fenvAmt: 0, penvAmt: 0, start: 0, end: 1, fadeIn: 0, fadeOut: 0 });
             if (c.lfo) c.lfo.on = false;
           });
           hint(t('The channel now plays the sample of its sound. Cut it in the waveform.'));
@@ -194,6 +199,7 @@ export function openChannelSettings(id, engine) {
       h('label', { class: 'field' }, h('span', null, t('Instrument')), inst),
       h('label', { class: 'field' }, h('span', null, t('Mixer insert')), insert),
       h('label', { class: 'field' }, h('span', null, t('Transposition')), h('div', { class: 'rangebox' }, pitch, pitchOut)),
+      h('label', { class: 'field' }, h('span', null, t('Fine tune')), h('div', { class: 'rangebox' }, fine, fineOut)),
       c.instrument === 'sampler' ? samplerSection() : null,
       c.instrument === 'osc3' ? synthSection() : null,
       pluginKnobs(),
