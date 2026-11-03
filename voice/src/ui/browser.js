@@ -3,7 +3,7 @@
 import { h, icon, iconBtn, textBtn, hint, openMenu, confirmBox, alertBox, promptText, pickFiles, openModal } from './dom.js';
 import { store } from '../store.js';
 import { BUILTIN_VOICES } from '../voices/builtin.js';
-import { listVoices, removeVoice, importArchive, addVoicevoxEngine, voiceImage, kv, forgetBanks } from '../voices/library.js';
+import { listVoices, removeVoice, importArchive, addVoicevoxEngine, voiceImage, kv, forgetBanks, downloadCommunityVocoder, COMMUNITY_VOCODER } from '../voices/library.js';
 import { DEFAULT_ENGINE } from '../voices/voicevox.js';
 import { allPlugins, installPlugin, removePlugin } from '../plugins.js';
 import { allThemes, currentTheme, chooseTheme, installTheme, removeTheme } from '../themes.js';
@@ -17,13 +17,14 @@ const TYPE_ICON = { builtin: 'AudioWaveform', utau: 'Mic', diffsinger: 'Sparkles
 
 export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
   let tab = 'voices';
+  let vocoderInstalled = false;
   let filter = '';
   const body = h('div', { class: 'br-body' });
   const search = h('input', { class: 'input br-search', placeholder: t('Search'), 'aria-label': t('Search'), onInput: (e) => { filter = e.target.value.toLowerCase(); build(); } });
   const tabsEl = h('div', { class: 'br-tabs', role: 'tablist' });
   const TABS = [['voices', 'Mic', t('Voices')], ['projects', 'FolderOpen', t('Projects')], ['plugins', 'Puzzle', t('Plugins')], ['themes', 'Palette', t('Themes')]];
   for (const [id, ic, label] of TABS) {
-    tabsEl.append(h('button', { class: 'br-tab', type: 'button', role: 'tab', 'data-tab': id, title: label, 'aria-label': label, onClick: () => { tab = id; build(); } }, icon(ic, 18), h('span', null, label)));
+    tabsEl.append(h('button', { class: 'br-tab', type: 'button', role: 'tab', 'data-tab': id, title: label, 'aria-label': label, onClick: () => { tab = id; build(); } }, icon(ic, 16), h('span', null, label)));
   }
   const el = h('aside', { class: 'browser' }, tabsEl, search, body);
 
@@ -44,10 +45,42 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
       clearCache();
       hint(added.map((v) => v.name + ' (' + TYPE_LABEL[v.type] + ')').join(', ') + ' ' + t('added'));
       const ds = added.find((v) => v.type === 'diffsinger' && !v.bundledVocoder);
-      if (ds) alertBox(t('Vocoder needed'), t('This DiffSinger voice has no vocoder inside. Import a DiffSinger vocoder package too (an .oudep or .zip with vocoder.yaml, for example pc_nsf_hifigan_44.1k_hop512_128bin), then it will sing.'));
+      if (ds && !(await listVoices()).some((v) => v.type === 'vocoder')) offerVocoder();
     } catch (e) {
       m.close();
       alertBox(t('Import failed'), tErr((e && e.message) || e));
+    }
+    build();
+  }
+
+  // DiffSinger voices without their own vocoder: download the community one in one tap.
+  function offerVocoder() {
+    openModal({
+      title: t('Vocoder needed'),
+      body: h('div', null,
+        h('p', null, t('This DiffSinger voice has no vocoder inside. A Voice Studio can download the DiffSinger community vocoder (PC-NSF-HiFiGAN by OpenVPI, the one most voices use), once for every voice.')),
+        h('p', { class: 'note' }, Math.round(COMMUNITY_VOCODER.size / 1048576) + ' ' + t('MB, licence CC BY-NC-SA 4.0 (non commercial use). You can also import another vocoder (.oudep).'))),
+      actions: [{ label: t('Later') }, { label: t('Download the vocoder'), primary: true, onClick: () => { getVocoder(); } }],
+    });
+  }
+
+  async function getVocoder() {
+    const bar = h('div', { class: 'progress-fill' });
+    const label = h('p', null, t('Downloading...'));
+    const m = openModal({ title: t('Vocoder'), body: h('div', null, label, h('div', { class: 'progress' }, bar)), actions: [] });
+    try {
+      await downloadCommunityVocoder((got, total) => {
+        const pct = Math.min(100, Math.round((got / total) * 100));
+        bar.style.width = pct + '%';
+        label.textContent = t('Downloading...') + ' ' + pct + '%';
+      });
+      m.close();
+      clearCache();
+      hint(t('Vocoder installed: DiffSinger voices can sing'));
+      store.emit();
+    } catch (e) {
+      m.close();
+      alertBox(t('Vocoder'), tErr((e && e.message) || e) + '\n\n' + t('Check the internet connection and try again.'));
     }
     build();
   }
@@ -69,7 +102,7 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
     const track = store.track();
     const active = track.voice === v.id;
     const singing = v.type !== 'vocoder' && v.type !== 'humanizer';
-    const card = h('div', { class: 'vcard' + (active ? ' on' : ''), role: 'button', tabindex: 0, title: singing ? t('Tap: sing the current track with this voice') : '',
+    const card = h('div', { class: 'vcard' + (active ? ' on' : ''), 'data-id': v.id, role: 'button', tabindex: 0, title: singing ? t('Tap: sing the current track with this voice') : '',
       onClick: () => {
         if (!singing) return hint(t('This item is used by the voices, it does not sing by itself.'));
         store.change(() => { store.track().voice = v.id; });
@@ -77,8 +110,8 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
       },
       onContextmenu: (e) => { e.preventDefault(); menu(e, v); },
     },
-    img ? h('img', { class: 'vimg', src: img, alt: '' }) : h('div', { class: 'vimg ph' }, icon(TYPE_ICON[v.type] || 'Mic', 22)),
-    h('div', { class: 'vtext' }, h('div', { class: 'vname' }, v.name), h('div', { class: 'vtype' }, t(TYPE_LABEL[v.type] || v.type) + (v.aliases ? ' · ' + v.aliases + ' alias' : '') + (v.type === 'diffsinger' && !v.bundledVocoder ? ' · ' + t('needs a vocoder') : ''))),
+    img ? h('img', { class: 'vimg', src: img, alt: '' }) : h('div', { class: 'vimg ph' }, icon(TYPE_ICON[v.type] || 'Mic', 18)),
+    h('div', { class: 'vtext' }, h('div', { class: 'vname' }, v.name), h('div', { class: 'vtype' }, t(TYPE_LABEL[v.type] || v.type) + (v.aliases ? ' · ' + v.aliases + ' alias' : '') + (v.type === 'diffsinger' && !v.bundledVocoder && !vocoderInstalled ? ' · ' + t('needs a vocoder') : ''))),
     v.type !== 'builtin' ? iconBtn('Menu', t('More'), (e) => { e.stopPropagation(); menu(e.currentTarget, v); }, 'small') : null);
     return card;
   }
@@ -106,6 +139,7 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
       } catch {
         stored = [];
       }
+      vocoderInstalled = stored.some((v) => v.type === 'vocoder');
       const groups = [
         [t('Built-in (vocoder)'), BUILTIN_VOICES.map((v) => ({ id: v.id, name: v.name, type: 'builtin' }))],
         ['DiffSinger', stored.filter((v) => v.type === 'diffsinger')],
@@ -116,6 +150,9 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
       const out = [h('div', { class: 'br-actions' },
         textBtn(t('Import a voice'), importVoice, 'primary', 'Upload'),
         textBtn('VOICEVOX', addEngine, '', 'Server'))];
+      if (stored.some((v) => v.type === 'diffsinger' && !v.bundledVocoder) && !stored.some((v) => v.type === 'vocoder')) {
+        out.push(h('div', { class: 'warn-card' }, h('span', null, t('Your DiffSinger voice needs a vocoder to sing.')), textBtn(t('Download the vocoder'), getVocoder, 'primary', 'Download')));
+      }
       for (const [label, list] of groups) {
         const shown = list.filter((v) => match(v.name));
         if (!shown.length) continue;
@@ -180,5 +217,11 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
     }
   }
 
-  return { el, build, importVoice, addEngine, show(id) { tab = id; build(); } };
+  // The card of the voice of the current track is highlighted (after any change).
+  function markActive() {
+    const id = store.track().voice;
+    el.querySelectorAll('.vcard').forEach((c) => c.classList.toggle('on', c.dataset.id === id));
+  }
+
+  return { el, build, markActive, offerVocoder, importVoice, addEngine, show(id) { tab = id; build(); } };
 }

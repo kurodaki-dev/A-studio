@@ -9,8 +9,8 @@ import { trackPhrases } from '../render.js';
 import { TRACK_COLORS } from '../store.js';
 import { t } from '../i18n.js';
 
-export const KEY_W = 54;
-export const RULER_H = 26;
+export const KEY_W = 46;
+export const RULER_H = 22;
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const isBlack = (k) => [1, 3, 6, 8, 10].includes(k % 12);
 
@@ -18,7 +18,7 @@ export const ui = {
   tool: 'draw', // select | draw | pitch | erase | pan
   snap: PPQ / 4,
   px: 0.12, // pixels per tick
-  rowH: 20,
+  rowH: 17,
   sx: 0,
   sy: 0,
   sel: new Set(),
@@ -116,7 +116,7 @@ export function createEditor({ onNoteEdit, onSelect, getPlayhead, onSeek }) {
     g.globalAlpha = 1;
     // Notes of the track
     const noteCol = TRACK_COLORS[track.color % TRACK_COLORS.length];
-    g.font = "600 12px system-ui, 'Noto Sans CJK JP', 'Noto Sans JP', sans-serif";
+    g.font = "600 11px system-ui, 'Noto Sans CJK JP', 'Noto Sans JP', sans-serif";
     g.textBaseline = 'middle';
     for (const n of track.notes) {
       const x = xAt(n.t);
@@ -146,11 +146,11 @@ export function createEditor({ onNoteEdit, onSelect, getPlayhead, onSeek }) {
       g.fillText(label + (n.vib && n.vib.depth > 0 ? ' ∿' : ''), x + 5, y + ui.rowH / 2);
       g.restore();
       // Romaji (or phonemes) above the note when there is room.
-      if (ui.rowH >= 16 && w > 22 && ly && ly !== '-' && ly !== 'R') {
+      if (ui.rowH >= 15 && w > 22 && ly && ly !== '-' && ly !== 'R') {
         g.fillStyle = css('dim');
         g.font = '10px system-ui, sans-serif';
         g.fillText(n.ph || kanaToRomaji(ly), x + 3, y - 6);
-        g.font = "600 12px system-ui, 'Noto Sans CJK JP', 'Noto Sans JP', sans-serif";
+        g.font = "600 11px system-ui, 'Noto Sans CJK JP', 'Noto Sans JP', sans-serif";
       }
     }
     // Pitch curve of what will be sung

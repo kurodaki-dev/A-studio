@@ -244,4 +244,13 @@ export default {
   "A theme needs a \"name\" and \"colors\"": "Un thème a besoin d'un « name » et de « colors »",
   " (no recording or phoneme)": " (pas d'enregistrement ou de phonème)",
   "Start the VOICEVOX engine on a computer of the same network, use its address (for example http://192.168.1.20:50021) and allow other apps in its settings (CORS: all).": "Lance le moteur VOICEVOX sur un ordinateur du même réseau, utilise son adresse (par exemple http://192.168.1.20:50021) et autorise les autres apps dans ses réglages (CORS : all).",
+  "This DiffSinger voice has no vocoder inside. A Voice Studio can download the DiffSinger community vocoder (PC-NSF-HiFiGAN by OpenVPI, the one most voices use), once for every voice.": "Cette voix DiffSinger n'a pas de vocoder intégré. A Voice Studio peut télécharger le vocoder communautaire DiffSinger (PC-NSF-HiFiGAN d'OpenVPI, celui que la plupart des voix utilisent), une seule fois pour toutes les voix.",
+  "MB, licence CC BY-NC-SA 4.0 (non commercial use). You can also import another vocoder (.oudep).": "Mo, licence CC BY-NC-SA 4.0 (usage non commercial). Tu peux aussi importer un autre vocoder (.oudep).",
+  "Later": "Plus tard",
+  "Download the vocoder": "Télécharger le vocoder",
+  "Downloading...": "Téléchargement…",
+  "Vocoder installed: DiffSinger voices can sing": "Vocoder installé : les voix DiffSinger peuvent chanter",
+  "Check the internet connection and try again.": "Vérifie la connexion internet et réessaie.",
+  "Your DiffSinger voice needs a vocoder to sing.": "Ta voix DiffSinger a besoin d'un vocoder pour chanter.",
+  "Download failed: HTTP ": "Téléchargement impossible : HTTP ",
 };

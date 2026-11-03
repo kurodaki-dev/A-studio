@@ -69,6 +69,7 @@ export async function renderProject(project, { onProgress = () => {}, signal = n
   }
   let done = 0;
   const problems = [];
+  let needVocoder = false;
   for (const j of jobs) {
     if (signal && signal.aborted) break;
     onProgress(done, jobs.length, j.tr.name);
@@ -80,12 +81,13 @@ export async function renderProject(project, { onProgress = () => {}, signal = n
     }
     cache.set(j.key, res);
     if (cache.size > 600) cache.delete(cache.keys().next().value);
-    if (res.error) problems.push(j.tr.name + ': ' + tErr(res.error));
+    if (res.error && /^No vocoder/.test(res.error)) needVocoder = true;
+    else if (res.error) problems.push(j.tr.name + ': ' + tErr(res.error));
     if (res.missing && res.missing.length) problems.push(j.tr.name + ': ' + [...new Set(res.missing)].join(' ') + t(' (no recording or phoneme)'));
     done++;
   }
   onProgress(done, jobs.length, '');
-  return { rendered: done, problems: [...new Set(problems)] };
+  return { rendered: done, problems: [...new Set(problems)], needVocoder };
 }
 
 const audible = (project) => {
