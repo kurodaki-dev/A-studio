@@ -36,11 +36,11 @@ export function createInspector({ onLyrics }) {
     if (v.type === 'utau') {
       parts.push(
         h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: track.humanize, onChange: (e) => set((tr) => { tr.humanize = e.target.checked; }) }), h('span', null, t('Humanize (natural pitch moves)'))),
-        h('p', { class: 'note' }, settings.humanizer === 'builtin' ? t('Uses the built-in light humanizer (offline). Change it in VOICE > Humanizer.') : t('Uses the imported humanizer model (local).')),
+        h('p', { class: 'note' }, settings.humanizer === 'builtin' ? t('Uses the built-in rules. Change it in VOICE > Humanizer.') : settings.humanizer === 'ai' ? t('Uses the built-in AI model (local). Change it in VOICE > Humanizer.') : t('Uses the imported humanizer model (local).')),
       );
     }
     if (v.type === 'diffsinger') {
-      parts.push(slider({ label: t('Render steps'), min: 1, max: 100, step: 1, value: track.steps, def: 20, format: (x) => String(x), onStart: () => store.commit(), onInput: (x) => { store.track().steps = x; } }));
+      parts.push(slider({ label: t('Render steps'), min: 1, max: 100, step: 1, value: track.steps, def: 10, format: (x) => String(x), onStart: () => store.commit(), onInput: (x) => { store.track().steps = x; } }));
       if (v.speakers && v.speakers.length > 1) parts.push(h('label', { class: 'field' }, h('span', null, t('Speaker')), select({ label: t('Speaker'), value: track.speaker, options: v.speakers.map((s, i) => ({ value: i, label: s.split('/').pop() })), onChange: (x) => set((tr) => { tr.speaker = Number(x); }) })));
       parts.push(h('p', { class: 'note' }, t('More steps sound smoother but render slower. DiffSinger runs on this device.')));
     }

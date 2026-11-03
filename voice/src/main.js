@@ -446,12 +446,13 @@ async function humanizerDialog() {
   } catch {
     models = [];
   }
-  const sel = select({ label: t('Humanizer'), value: settings.humanizer, options: [{ value: 'builtin', label: t('Built-in (light, offline, rule based)') }, ...models.map((m) => ({ value: m.id, label: m.name + ' (ONNX)' }))], onChange: async (v) => { settings.humanizer = v; await kv.set('humanizer', v); clearCache(); store.emit(); } });
+  const sel = select({ label: t('Humanizer'), value: settings.humanizer, options: [{ value: 'ai', label: t('AI model (built-in, local, trained on real singers)') }, { value: 'builtin', label: t('Rules (light, offline)') }, ...models.map((m) => ({ value: m.id, label: m.name + ' (ONNX)' }))], onChange: async (v) => { settings.humanizer = v; await kv.set('humanizer', v); clearCache(); store.emit(); } });
   const amt = h('input', { type: 'range', class: 'range', min: 0, max: 2, step: 0.05, value: settings.humanizeAmount, 'aria-label': t('Amount'), onChange: async (e) => { settings.humanizeAmount = Number(e.target.value); await kv.set('humanizeAmount', settings.humanizeAmount); clearCache(); store.emit(); } });
   openModal({
     title: t('Humanizer for UTAU voices'),
     body: h('div', { class: 'form' },
-      h('p', { class: 'note' }, t('UTAU voices join recordings, so their pitch can sound flat. The humanizer adds the small moves of a real singer: overshoot, drift, a little vibrato, a fall at the end. Turn it on per track in the inspector ("Humanize"). It is off by default.')),
+      h('p', { class: 'note' }, t('UTAU voices join recordings, so their pitch can sound flat. The humanizer gives it the moves of a real singer. Turn it on per track in the inspector ("Humanize"). It is off by default.')),
+      h('p', { class: 'note' }, t('AI model: a small neural network (about 100 KB) that runs on this device. It was trained on the pitch curves of 17 real singers (M4Singer corpus, CC BY-NC-SA 4.0) to turn flat notes into sung pitch: glides, overshoots, preparations. Rules: simple built-in moves (drift, vibrato, fall at the end).')),
       h('label', { class: 'field' }, h('span', null, t('Model')), sel),
       h('label', { class: 'field' }, h('span', null, t('Amount')), amt),
       h('p', { class: 'note' }, t('You can import your own humanizer model (.onnx, local): input "f0" [1, T] in MIDI notes at 100 frames per second, output the humanized pitch [1, T]. Import it with VOICE > Import a voice.')),
@@ -679,7 +680,7 @@ async function start() {
   await loadThemes();
   await loadPlugins();
   try {
-    settings.humanizer = (await kv.get('humanizer')) || 'builtin';
+    settings.humanizer = (await kv.get('humanizer')) || 'ai';
     settings.humanizeAmount = Number((await kv.get('humanizeAmount')) ?? 1);
     const saved = await kv.get('autosave');
     if (saved) store.load(JSON.parse(saved));

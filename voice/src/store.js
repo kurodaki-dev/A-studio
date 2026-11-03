@@ -46,7 +46,7 @@ export function makeTrack(index, voice = 'builtin:aria') {
     mute: false,
     solo: false,
     humanize: false,
-    steps: 20,
+    steps: 10,
     speaker: 0,
     notes: [],
     curves: {},
@@ -85,7 +85,7 @@ export function normalizeProject(raw) {
     tr.mute = !!t.mute;
     tr.solo = !!t.solo;
     tr.humanize = !!t.humanize;
-    tr.steps = Math.round(num(t.steps, 20, 1, 100));
+    tr.steps = Math.round(num(t.steps, 10, 1, 100));
     tr.speaker = Math.round(num(t.speaker, 0, 0, 255));
     tr.notes = (Array.isArray(t.notes) ? t.notes : [])
       .filter((n) => n && Number.isFinite(n.t) && Number.isFinite(n.key))

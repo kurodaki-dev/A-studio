@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { openZip } from '../../voice/src/zip.js';
-import { setOrtLoader, loadDiffSinger, renderDiffSinger, parseDsConfig, msToFrames, phonemize, checkVocoder, parseVocoderYaml } from '../../voice/src/voices/diffsinger.js';
+import { setOrtLoader, loadDiffSinger, renderDiffSinger, parseDsConfig, msToFrames, phonemize, checkVocoder, parseVocoderYaml, wordDivAndDur } from '../../voice/src/voices/diffsinger.js';
 import { newProject, makeNote, PPQ } from '../../voice/src/store.js';
 import { makePhrases, pitchFn, curveFn, midiToHz } from '../../voice/src/phrase.js';
 import { pitchTrack, medianPitch } from '../../voice/src/dsp.js';
@@ -49,4 +49,14 @@ test('DiffSinger bank renders through ONNX models at the note pitch', async () =
     const f = medianPitch(pitchTrack(part(a, c), SR));
     assert.ok(Math.abs(f - midiToHz(key)) / midiToHz(key) < 0.02, key + ': ' + f);
   }
+});
+
+test('word divisions for the variance model (as OpenUtau)', () => {
+  const isVowel = (p) => ['a', 'i', 'SP'].includes(p);
+  // SP(head) k a SP(gap) s i SP(tail)
+  const padded = [{ ph: 'SP', pad: true }, { ph: 'k' }, { ph: 'a' }, { ph: 'SP', pad: true }, { ph: 's' }, { ph: 'i' }, { ph: 'SP', pad: true }];
+  const { div, dur } = wordDivAndDur(padded, [8, 4, 20, 5, 6, 30, 8], isVowel);
+  assert.deepEqual(div, [2, 3, 1, 1]);
+  assert.equal(div.reduce((a, b) => a + b, 0), padded.length);
+  assert.deepEqual(dur, [12, 31, 30, 8]);
 });

@@ -253,4 +253,13 @@ export default {
   "Check the internet connection and try again.": "Vérifie la connexion internet et réessaie.",
   "Your DiffSinger voice needs a vocoder to sing.": "Ta voix DiffSinger a besoin d'un vocoder pour chanter.",
   "Download failed: HTTP ": "Téléchargement impossible : HTTP ",
+  "AI model (built-in, local, trained on real singers)": "Modèle IA (intégré, local, entraîné sur de vrais chanteurs)",
+  "Rules (light, offline)": "Règles (léger, hors ligne)",
+  "UTAU voices join recordings, so their pitch can sound flat. The humanizer gives it the moves of a real singer. Turn it on per track in the inspector (\"Humanize\"). It is off by default.": "Les voix UTAU assemblent des enregistrements, leur hauteur peut sonner plate. L'humaniseur lui donne les mouvements d'un vrai chanteur. Active-le par track dans l'inspecteur (« Humaniser »). Il est désactivé par défaut.",
+  "AI model: a small neural network (about 100 KB) that runs on this device. It was trained on the pitch curves of 17 real singers (M4Singer corpus, CC BY-NC-SA 4.0) to turn flat notes into sung pitch: glides, overshoots, preparations. Rules: simple built-in moves (drift, vibrato, fall at the end).": "Modèle IA : un petit réseau de neurones (environ 100 Ko) qui tourne sur cet appareil. Il a été entraîné sur les courbes de hauteur de 17 vrais chanteurs (corpus M4Singer, CC BY-NC-SA 4.0) pour transformer des notes plates en hauteur chantée : glissés, dépassements, préparations. Règles : mouvements simples intégrés (dérive, vibrato, chute en fin de phrase).",
+  "Uses the built-in rules. Change it in VOICE > Humanizer.": "Utilise les règles intégrées. Change-le dans VOIX > Humaniseur.",
+  "Uses the built-in AI model (local). Change it in VOICE > Humanizer.": "Utilise le modèle IA intégré (local). Change-le dans VOIX > Humaniseur.",
+  "Humanizer model missing": "Modèle d'humanisation manquant",
+  "Variance model not found: ": "Modèle de variance introuvable : ",
+  "The variance model needs an input this app does not provide: ": "Le modèle de variance demande une entrée que l'app ne fournit pas : ",
 };
