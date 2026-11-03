@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(ExtensionBridgePlugin.class);
+        registerPlugin(VoicevoxCorePlugin.class);
         super.onCreate(savedInstanceState);
         hideSystemBars();
     }

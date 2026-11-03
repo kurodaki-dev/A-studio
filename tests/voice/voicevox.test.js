@@ -53,3 +53,42 @@ test('built-in humanizer stays small and smooth', () => {
   assert.ok(max > 0.05 && max < 1, 'max ' + max);
   assert.ok(h(1.02, notes, 1) > 0); // overshoot upward after the jump
 });
+
+test('built-in VOICEVOX (native plugin, no engine): our pitch replaces the teacher\'s on voiced frames', async () => {
+  const { setNativePlugin, nativeStatus, nativeSingers, BUILTIN } = await import('../../voice/src/voices/vvnative.js');
+  const { renderVoicevox: render } = await import('../../voice/src/voices/voicevox.js');
+  const seen = {};
+  setNativePlugin({
+    async status() { return { runtime: true, model: true, dict: false }; },
+    async singers() { return { singers: [{ name: 'ずんだもん', uuid: 'u', styles: [{ name: 'ノーマル', id: 3003, type: 'sing' }] }] }; },
+    async query({ score, style }) {
+      seen.score = JSON.parse(score);
+      seen.teacher = style;
+      const n = seen.score.notes.reduce((s, x) => s + x.frame_length, 0);
+      return { token: 'tok1', f0: Array.from({ length: n }, (_, i) => (i > 20 ? 200 : 0)), volume: Array(n).fill(0.5) };
+    },
+    async synthesize({ token, f0, volume, style }) {
+      seen.synth = { token, f0, volume, style };
+      const wav = encodeWav(new Float32Array(24000).fill(0.2), 24000);
+      return { wav: Buffer.from(wav).toString('base64') };
+    },
+  });
+  const st = await nativeStatus();
+  assert.deepEqual(st, { runtime: true, model: true, dict: false, ready: false });
+  assert.equal((await nativeSingers())[0].styles[0].id, 3003);
+  const p = newProject();
+  const tr = p.tracks[0];
+  tr.notes = [makeNote(0, 60, PPQ, 'do'), makeNote(PPQ, 62, PPQ, 'ra')];
+  const ph = makePhrases(tr, p)[0];
+  const r = await render(ph, { base: BUILTIN, speaker: 3003, teacher: 6000, pitch: pitchFn(ph.notes, tr, p.bpm), dyn: curveFn(tr, 'dyn', p.bpm) });
+  assert.equal(seen.teacher, 6000);
+  assert.equal(seen.score.notes[0].key, null);
+  assert.deepEqual(seen.score.notes.filter((n) => n.key !== null).map((n) => [n.key, n.lyric]), [[60, 'ド'], [62, 'ラ']]);
+  assert.equal(seen.synth.token, 'tok1');
+  assert.equal(seen.synth.style, 3003);
+  assert.equal(seen.synth.f0[5], 0); // unvoiced frames stay unvoiced
+  assert.ok(Math.abs(seen.synth.f0[40] - 261.6) < 30); // our curve on voiced frames
+  assert.ok(seen.synth.volume.every((v) => v >= 0 && Number.isFinite(v)));
+  assert.equal(r.data.length, Math.ceil((ph.end - ph.start) * 44100));
+  setNativePlugin(null);
+});

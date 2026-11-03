@@ -4,6 +4,7 @@
 import { decodeWav, resample } from '../dsp.js';
 import { toKatakana } from '../lyrics.js';
 import { midiToHz } from '../phrase.js';
+import { BUILTIN, nativeQuery, nativeSynthesize } from './vvnative.js';
 
 export const VV_FPS = 93.75; // frames per second of the engine (24000 / 256)
 export const DEFAULT_ENGINE = 'http://localhost:50021';
@@ -91,9 +92,11 @@ export function phraseScore(phrase) {
   return { notes, lead };
 }
 
-// Renders a phrase: { base, speaker, teacher, pitch(t), dyn(t), sr }.
+// Renders a phrase: { base, speaker, teacher, pitch(t), dyn(t), sr }. base is the address of
+// a VOICEVOX engine, or "builtin" for the VOICEVOX CORE inside the app (Android).
 export async function renderVoicevox(phrase, { base, speaker, teacher = 6000, pitch, dyn, sr = 44100 }) {
   const { notes, lead } = phraseScore(phrase);
+  if (base === BUILTIN) return renderBuiltinVoicevox(phrase, { notes, lead, speaker, teacher, pitch, dyn, sr });
   const query = await call(base, '/sing_frame_audio_query?speaker=' + encodeURIComponent(teacher), { method: 'POST', body: { notes } });
   if (!query || !Array.isArray(query.f0)) throw new Error('VOICEVOX engine gave no frame query');
   // Our pitch curve on the voiced frames, our dynamics on the volume.
@@ -103,6 +106,27 @@ export async function renderVoicevox(phrase, { base, speaker, teacher = 6000, pi
     if (Array.isArray(query.volume) && query.volume[i] != null) query.volume[i] *= dyn(t) / 100;
   }
   const wav = await call(base, '/frame_synthesis?speaker=' + encodeURIComponent(speaker), { method: 'POST', body: query, accept: 'audio/wav' });
+  const w = decodeWav(wav);
+  const data = resample(w.data, w.sr, sr);
+  const len = Math.ceil((phrase.end - phrase.start) * sr);
+  const out = new Float32Array(len);
+  const skip = Math.round((lead / VV_FPS) * sr);
+  out.set(data.subarray(skip, skip + len));
+  return { data: out, missing: [] };
+}
+
+// The same phrase through the VOICEVOX CORE of the app: the teacher gives frame f0 and
+// volume, ours replace them on the voiced frames, the voice style synthesizes.
+async function renderBuiltinVoicevox(phrase, { notes, lead, speaker, teacher, pitch, dyn, sr }) {
+  const q = await nativeQuery({ notes }, teacher);
+  const f0 = q.f0.slice();
+  const volume = q.volume.slice();
+  for (let i = 0; i < f0.length; i++) {
+    const t = phrase.start + (i - lead) / VV_FPS;
+    if (f0[i] > 0) f0[i] = midiToHz(pitch(t));
+    if (volume[i] != null) volume[i] *= dyn(t) / 100;
+  }
+  const wav = await nativeSynthesize(q.token, f0, volume, speaker);
   const w = decodeWav(wav);
   const data = resample(w.data, w.sr, sr);
   const len = Math.ceil((phrase.end - phrase.start) * sr);

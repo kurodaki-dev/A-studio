@@ -554,16 +554,32 @@ async function renderAll(quiet = false) {
     renderBtn.classList.remove('busy');
   }
 }
+let starting = false;
 async function togglePlay() {
+  // Pause: the playhead stays where it is, a new press goes on from there.
   if (player.playing) return stop(true);
+  // A second press while the phrases are still rendering cancels the start.
+  if (starting) {
+    starting = false;
+    return;
+  }
+  starting = true;
   await renderAll(true);
+  if (!starting) return;
+  starting = false;
   player.play(store.project, playFrom);
   playBtn.classList.add('on');
 }
+// Stop (button, or the end of the song): the playhead goes back to the beginning and the
+// editor scrolls back to it. Pause (space) keeps the position: stop(true).
 function stop(keep = false) {
+  starting = false;
   if (player.playing && keep) playFrom = player.position();
+  else playFrom = 0;
   player.stop();
   playBtn.classList.remove('on');
+  timeEl.textContent = fmt(playFrom);
+  if (!keep) editor.follow(0);
   editor.drawHead();
 }
 function seek(sec) {

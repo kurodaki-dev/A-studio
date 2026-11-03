@@ -262,4 +262,11 @@ export default {
   "Humanizer model missing": "Modèle d'humanisation manquant",
   "Variance model not found: ": "Modèle de variance introuvable : ",
   "The variance model needs an input this app does not provide: ": "Le modèle de variance demande une entrée que l'app ne fournit pas : ",
+  "The VOICEVOX runtime is not available on this device. Use the engine mode (address of a VOICEVOX engine).": "Le moteur VOICEVOX n'est pas disponible sur cet appareil. Utilise le mode « moteur » (adresse d'un moteur VOICEVOX).",
+  "VOICEVOX built in": "VOICEVOX intégré",
+  "A Voice Studio will download the VOICEVOX singing voices (about 130 MB) and the Japanese dictionary (about 22 MB) from their official GitHub releases, once. No engine to start. Each voice asks for the credit \"VOICEVOX:name\" when you publish a song.": "A Voice Studio va télécharger les voix chantées VOICEVOX (environ 130 Mo) et le dictionnaire japonais (environ 22 Mo) depuis leurs releases GitHub officielles, une seule fois. Aucun moteur à lancer. Chaque voix demande le crédit « VOICEVOX:nom » quand tu publies un chant.",
+  "Download": "Télécharger",
+  "VOICEVOX engine": "Moteur VOICEVOX",
+  "VOICEVOX renders inside the app.": "VOICEVOX rend directement dans l'app.",
+  "When you publish a song, credit the voice: \"VOICEVOX:": "Quand tu publies un chant, crédite la voix : « VOICEVOX:",
 };
