@@ -13,7 +13,8 @@ let ortLoader = async () => {
   // The WebAssembly file is bundled next to the page by the build.
   const ort = await import('onnxruntime-web/wasm');
   ort.env.wasm.numThreads = 1;
-  ort.env.wasm.proxy = false;
+  // The models run in a worker: the interface stays responsive during long renders.
+  ort.env.wasm.proxy = true;
   return ort;
 };
 export function setOrtLoader(fn) {

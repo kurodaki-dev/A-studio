@@ -92,6 +92,8 @@ export async function renderProject(project, { onProgress = () => {}, signal = n
   for (const j of jobs) {
     if (signal && signal.aborted) break;
     onProgress(done, jobs.length, j.tr.name);
+    // Let the interface draw and answer between two phrases.
+    await new Promise((r) => setTimeout(r, 0));
     let res;
     try {
       res = await renderPhrase(j.ph, j.tr, project);
