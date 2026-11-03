@@ -17,7 +17,7 @@ const ICONS = {
   BookOpen, Wind, Gauge, User, Type, Keyboard, CircleHelp, Magnet, Menu,
 };
 
-export function icon(name, size = 18) {
+export function icon(name, size = 16) {
   return createElement(ICONS[name] || ICONS.Music, { width: size, height: size, 'stroke-width': 2, class: 'ic', 'aria-hidden': 'true' });
 }
 

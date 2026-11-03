@@ -213,3 +213,60 @@ export function voiceImage(v) {
 }
 
 export const parseYaml = (t) => YAML.parse(t);
+
+// The DiffSinger community vocoder of OpenVPI (PC-NSF-HiFiGAN, 44.1 kHz, hop 512,
+// 128 mel bins: the one most DiffSinger voices use), downloaded on demand.
+// Licence: CC BY-NC-SA 4.0 (OpenVPI), non commercial use.
+export const COMMUNITY_VOCODER = {
+  name: 'pc_nsf_hifigan_44.1k_hop512_128bin_2025.02',
+  base: 'https://huggingface.co/DanielMarius/dms-pc-nsf-hifigan-44-1k-hop512-128bin-2025-02/resolve/main/',
+  files: ['vocoder.yaml', 'pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx', 'NOTICE.txt'],
+  size: 56616643,
+};
+
+async function fetchBytes(url, onBytes) {
+  const res = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+  if (!res.ok) throw new Error('Download failed: HTTP ' + res.status);
+  if (!res.body || !res.body.getReader) return new Uint8Array(await res.arrayBuffer());
+  const reader = res.body.getReader();
+  const parts = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    got += value.length;
+    onBytes(got);
+  }
+  const out = new Uint8Array(got);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
+
+export async function hasVocoder() {
+  return (await listVoices()).some((v) => v.type === 'vocoder');
+}
+
+// Downloads the community vocoder into the library. onProgress(received, total).
+export async function downloadCommunityVocoder(onProgress = () => {}) {
+  const v = COMMUNITY_VOCODER;
+  const id = newVoiceId('vocoder');
+  const files = [];
+  let done = 0;
+  for (const f of v.files) {
+    const data = await fetchBytes(v.base + f, (n) => onProgress(done + n, v.size));
+    done += data.length;
+    const path = v.name + '/' + f;
+    await tx('files', 'readwrite', (s) => { s.put(data, id + '::' + path); });
+    files.push(path);
+  }
+  const vc = parseVocoderYaml(decodeText(await readFile(id, v.name + '/vocoder.yaml')));
+  const rec = { id, type: 'vocoder', name: vc.name || v.name, root: v.name, files, image: null, size: done, added: Date.now(), vocoder: vc, licence: 'CC BY-NC-SA 4.0 (OpenVPI)' };
+  await tx('voices', 'readwrite', (s) => { s.put(rec); });
+  forgetBanks();
+  return rec;
+}

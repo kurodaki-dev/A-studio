@@ -25,8 +25,8 @@ let rendering = false;
 
 // ---------- Mode switch (A Studio | A Voice Studio), above the menu bar ----------
 const modeSwitch = h('div', { class: 'mode-switch', role: 'tablist', 'aria-label': t('Switch app') },
-  h('button', { class: 'mode-btn', type: 'button', role: 'tab', 'aria-selected': 'false', title: 'A Studio', 'aria-label': 'A Studio', onClick: () => openStudio() }, icon('Piano', 20), h('span', null, 'A Studio')),
-  h('button', { class: 'mode-btn on', type: 'button', role: 'tab', 'aria-selected': 'true', title: 'A Voice Studio', 'aria-label': 'A Voice Studio' }, icon('Mic', 20), h('span', null, 'A Voice Studio')),
+  h('button', { class: 'mode-btn', type: 'button', role: 'tab', 'aria-selected': 'false', title: 'A Studio', 'aria-label': 'A Studio', onClick: () => openStudio() }, icon('Piano', 16), h('span', null, 'A Studio')),
+  h('button', { class: 'mode-btn on', type: 'button', role: 'tab', 'aria-selected': 'true', title: 'A Voice Studio', 'aria-label': 'A Voice Studio' }, icon('Mic', 16), h('span', null, 'A Voice Studio')),
 );
 
 // ---------- Panels ----------
@@ -544,7 +544,8 @@ async function renderAll(quiet = false) {
     const r = await renderProject(store.project, { onProgress: (d, n, name) => { statusEl.textContent = n ? t('Rendering ') + (d + 1 > n ? n : d + 1) + ' / ' + n + (name ? ' · ' + name : '') : ''; } });
     statusEl.textContent = '';
     editor.draw();
-    if (r.problems.length) alertBox(t('Render'), r.problems.slice(0, 12).join('\n'));
+    if (r.needVocoder) browser.offerVocoder();
+    else if (r.problems.length) alertBox(t('Render'), r.problems.slice(0, 12).join('\n'));
     else if (!quiet) hint(r.rendered ? r.rendered + ' ' + t('phrases rendered') : t('Everything is rendered'));
     return true;
   } finally {
@@ -624,6 +625,7 @@ function about() {
 let savePending = null;
 store.subscribe(() => {
   buildTracks();
+  browser.markActive();
   editor.draw();
   lane.draw();
   inspector.build();
