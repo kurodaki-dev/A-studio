@@ -11,7 +11,17 @@ import { SR } from './dsp.js';
 import { t, tErr } from './i18n.js';
 
 const cache = new Map(); // key -> { data, missing, info, error }
-export const settings = { humanizer: 'builtin', humanizeAmount: 1 };
+// humanizer: 'ai' (the built-in neural model), 'builtin' (rules) or an imported model id.
+export const settings = { humanizer: 'ai', humanizeAmount: 1 };
+
+// The built-in neural humanizer (about 100 KB), trained on the pitch curves of real
+// singers (M4Singer), loaded on first use.
+async function aiHumanizerBytes() {
+  const url = (await import('./models/humanizer.onnx?url')).default;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Humanizer model missing');
+  return new Uint8Array(await res.arrayBuffer());
+}
 
 export function clearCache() {
   cache.clear();
@@ -21,7 +31,16 @@ let humSession = null;
 let humId = null;
 async function humanizerFor(track, phrase, base) {
   if (!track.humanize) return null;
-  if (settings.humanizer === 'builtin' || !settings.humanizer) {
+  if (settings.humanizer === 'ai' || !settings.humanizer) {
+    const ort = await getOrt();
+    if (humId !== 'ai') {
+      humSession = await ort.InferenceSession.create(await aiHumanizerBytes());
+      humId = 'ai';
+    }
+    const fn = await onnxHumanizer(ort, humSession, phrase, base);
+    return (x) => fn(x) * settings.humanizeAmount;
+  }
+  if (settings.humanizer === 'builtin') {
     const seed = [...track.id].reduce((s, c) => s + c.charCodeAt(0), 0);
     return builtinHumanizer(seed, settings.humanizeAmount);
   }

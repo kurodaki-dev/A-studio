@@ -178,18 +178,33 @@ export async function loadDiffSinger(src, root = '', findVocoder = async () => n
   const dictPath = ['dsdur/dsdict.yaml', 'dsdict.yaml', 'dsvariance/dsdict.yaml', 'dspitch/dsdict.yaml'].map(real).find(Boolean)
     || src.names.find((n) => n.startsWith(joinPath(root, '')) && /dsdict[^/]*\.yaml$/i.test(n));
   if (dictPath) dict = parseDsDict(decodeText(await src.read(dictPath)));
+  // Variance predictor (dsvariance/): energy, breathiness... curves for the acoustic
+  // model, predicted from the phonemes and the pitch, like OpenUtau.
+  let variance = null;
+  const vt = await text('dsvariance/dsconfig.yaml');
+  if (vt) {
+    const vc = YAML.parse(vt) || {};
+    const vph = await text('dsvariance/' + (vc.phonemes || 'phonemes.txt'));
+    if (vc.linguistic && vc.variance && vph != null) {
+      variance = {
+        linguistic: 'dsvariance/' + vc.linguistic,
+        variance: 'dsvariance/' + vc.variance,
+        phonemes: parsePhonemes(vc.phonemes || 'phonemes.txt', vph),
+        continuous: !!vc.use_continuous_acceleration,
+      };
+    }
+  }
   const ch = await text('character.yaml');
   const chText = await text('character.txt');
   let name = root.split('/').filter(Boolean).pop() || 'DiffSinger';
   let image = null;
-  if (ch) {
-    const c = YAML.parse(ch) || {};
-    if (c.text) name = String(c.text);
-    if (c.image) image = real(c.image);
-  } else if (chText) {
+  const c = ch ? YAML.parse(ch) || {} : {};
+  if (c.text) name = String(c.text);
+  else if (chText) {
     const m = /^\s*name\s*=\s*(.*)$/im.exec(chText);
     if (m) name = m[1].trim();
   }
+  if (c.image) image = real(c.image);
   // Vocoder: bundled one, else the installed one named in dsconfig, else any compatible.
   let vocoder = null;
   const vy = await text('dsvocoder/vocoder.yaml');
@@ -211,6 +226,7 @@ export async function loadDiffSinger(src, root = '', findVocoder = async () => n
     dict,
     vocoder,
     speakers: ds.speakers || [],
+    variance,
     async session(kind) {
       if (sessions[kind]) return sessions[kind];
       const ort = await getOrt();
@@ -218,6 +234,10 @@ export async function loadDiffSinger(src, root = '', findVocoder = async () => n
       if (kind === 'acoustic') {
         const r = real(ds.acoustic);
         if (!r) throw new Error('Acoustic model not found: ' + ds.acoustic);
+        bytes = await src.read(r);
+      } else if (kind === 'linguistic' || kind === 'variance') {
+        const r = real(variance[kind]);
+        if (!r) throw new Error('Variance model not found: ' + variance[kind]);
         bytes = await src.read(r);
       } else {
         if (!vocoder) throw new Error('No vocoder for this voice. Import a DiffSinger vocoder package (.oudep or .zip with vocoder.yaml).');
@@ -276,7 +296,78 @@ const i64 = (arr) => BigInt64Array.from(arr.map((x) => BigInt(Math.round(x))));
 
 // Renders a phrase. ctx: { bank, pitch(t) MIDI, dyn(t) %, gen(t), steps, speaker, sr }.
 // Returns { data, missing, notes } where notes lists approximations made.
-export async function renderDiffSinger(phrase, { bank, pitch, dyn, gen, steps = 20, speaker = 0, sr = 44100 }) {
+// Word divisions of padded segments (OpenUtau WordDivAndDur): a word starts on each
+// vowel; the head, the phonemes before the first vowel and the tail are words too.
+export function wordDivAndDur(padded, phDur, isVowel) {
+  let vowels = padded.map((p, i) => (!p.pad && isVowel(p.ph) ? i : -1)).filter((i) => i >= 0);
+  if (!vowels.length) vowels = [padded.length - 2];
+  const tail = padded.length - 1;
+  const div = [vowels[0]];
+  for (let k = 1; k < vowels.length; k++) div.push(vowels[k] - vowels[k - 1]);
+  div.push(tail - vowels[vowels.length - 1], 1);
+  const dur = [];
+  let o = 0;
+  for (const n of div) {
+    let sum = 0;
+    for (let j = 0; j < n; j++) sum += phDur[o + j];
+    dur.push(sum);
+    o += n;
+  }
+  return { div, dur };
+}
+
+// Runs a session, giving scalar inputs (speedup, steps, depth) the shape the model
+// was exported with ([1] in some exports, a plain scalar in others).
+async function runFlexible(ort, session, feeds) {
+  try {
+    return await session.run(feeds);
+  } catch {
+    const again = { ...feeds };
+    for (const k of ['speedup', 'steps', 'depth']) if (again[k]) again[k] = tensor(ort, again[k].type, again[k].data, again[k].dims.length ? [] : [1]);
+    return session.run(again);
+  }
+}
+
+// Energy, breathiness, voicing and tension predicted by the variance model of the bank.
+async function predictVariance(ort, bank, padded, durations, midiFrames) {
+  const v = bank.variance;
+  const ling = await bank.session('linguistic');
+  const vari = await bank.session('variance');
+  const sp = v.phonemes.has('SP') ? 'SP' : [...v.phonemes.keys()][0];
+  const tokens = padded.map((p) => v.phonemes.get(p.pad ? sp : p.ph) ?? v.phonemes.get(sp) ?? 0);
+  const T = midiFrames.length;
+  const lf = { tokens: tensor(ort, 'int64', i64(tokens), [1, tokens.length]) };
+  const lnames = new Set(ling.inputNames);
+  if (lnames.has('word_div')) {
+    const { div, dur } = wordDivAndDur(padded, durations, isVowelFor(bank));
+    lf.word_div = tensor(ort, 'int64', i64(div), [1, div.length]);
+    lf.word_dur = tensor(ort, 'int64', i64(dur), [1, dur.length]);
+  }
+  if (lnames.has('ph_dur')) lf.ph_dur = tensor(ort, 'int64', i64(durations), [1, durations.length]);
+  const lout = await ling.run(lf);
+  const encoder = lout.encoder_out || lout[ling.outputNames[0]];
+  const vnames = vari.inputNames;
+  const kinds = ['energy', 'breathiness', 'voicing', 'tension'].filter((k) => vnames.includes(k));
+  const vf = {
+    encoder_out: encoder,
+    ph_dur: tensor(ort, 'int64', i64(durations), [1, durations.length]),
+    pitch: tensor(ort, 'float32', midiFrames, [1, T]),
+  };
+  for (const k of kinds) vf[k] = tensor(ort, 'float32', new Float32Array(T), [1, T]);
+  if (vnames.includes('retake')) vf.retake = tensor(ort, 'bool', new Uint8Array(T * kinds.length).fill(1), [1, T, kinds.length]);
+  if (vnames.includes('speedup')) vf.speedup = tensor(ort, 'int64', i64([100]), []);
+  if (vnames.includes('steps')) vf.steps = tensor(ort, 'int64', i64([10]), [1]);
+  for (const n of vnames) if (!vf[n]) throw new Error('The variance model needs an input this app does not provide: ' + n);
+  const out = await runFlexible(ort, vari, vf);
+  const res = {};
+  for (const k of kinds) {
+    const t = out[k + '_pred'];
+    if (t) res[k] = Float32Array.from(t.data);
+  }
+  return res;
+}
+
+export async function renderDiffSinger(phrase, { bank, pitch, dyn, gen, bre = () => 0, ten = () => 0, steps = 20, speaker = 0, sr = 44100 }) {
   const ort = await getOrt();
   const ds = bank.config;
   const vc = bank.vocoder && bank.vocoder.config;
@@ -293,15 +384,15 @@ export async function renderDiffSinger(phrase, { bank, pitch, dyn, gen, steps = 
   const frameMs = (1000 * ds.hopSize) / ds.sampleRate;
   const frameSec = frameMs / 1000;
   // Padded segments: SP head, phonemes with SP in the gaps, SP tail.
-  const padded = [{ ph: 'SP', ms: HEAD * frameMs }];
+  const padded = [{ ph: 'SP', ms: HEAD * frameMs, pad: true }];
   segs.forEach((s, i) => {
     if (i > 0) {
       const gap = s.start - segs[i - 1].end;
-      if (gap > 1e-4) padded.push({ ph: 'SP', ms: gap * 1000 });
+      if (gap > 1e-4) padded.push({ ph: 'SP', ms: gap * 1000, pad: true });
     }
     padded.push({ ph: s.ph, ms: (s.end - s.start) * 1000 });
   });
-  padded.push({ ph: 'SP', ms: TAIL * frameMs });
+  padded.push({ ph: 'SP', ms: TAIL * frameMs, pad: true });
   const sp = bank.phonemes.has('SP') ? 'SP' : bank.phonemes.has('pau') ? 'pau' : [...bank.phonemes.keys()][0];
   const tokens = padded.map((p) => bank.phonemes.get(p.ph === 'SP' ? sp : p.ph) ?? 0);
   const durations = msToFrames(padded.map((p) => p.ms), frameMs);
@@ -359,13 +450,28 @@ export async function renderDiffSinger(phrase, { bank, pitch, dyn, gen, steps = 
     feeds.gender = tensor(ort, 'float32', g, [1, total]);
   }
   if (names.has('velocity')) feeds.velocity = tensor(ort, 'float32', new Float32Array(total).fill(1), [1, total]);
-  // Variance curves need the variance model of the bank, which is not used here:
-  // neutral values keep the voice working (as noted in the render report).
-  const neutral = { energy: -20, breathiness: -60, voicing: -10, tension: 0 };
-  for (const [k, v] of Object.entries(neutral)) {
-    if (names.has(k)) {
-      feeds[k] = tensor(ort, 'float32', new Float32Array(total).fill(v), [1, total]);
-      info.push(k);
+  // Energy, breathiness, voicing, tension: predicted by the variance model of the bank
+  // (plus the user curves, as in OpenUtau), or neutral values when the bank has none.
+  const needed = ['energy', 'breathiness', 'voicing', 'tension'].filter((k) => names.has(k));
+  if (needed.length) {
+    let pred = {};
+    if (bank.variance) {
+      const midi = new Float32Array(total);
+      for (let i = 0; i < total; i++) midi[i] = pitch(t0 + i * frameSec);
+      pred = await predictVariance(ort, bank, padded, durations, midi);
+    }
+    const neutral = { energy: -20, breathiness: -60, voicing: -10, tension: 0 };
+    for (const k of needed) {
+      const arr = new Float32Array(total);
+      for (let i = 0; i < total; i++) {
+        const t = t0 + i * frameSec;
+        const base = pred[k] ? pred[k][i] : neutral[k];
+        if (k === 'breathiness') arr[i] = Math.max(-96, Math.min(0, base + (bre(t) * 12) / 100));
+        else if (k === 'tension') arr[i] = Math.max(-10, Math.min(10, base + ten(t) / 20));
+        else arr[i] = Math.max(-96, Math.min(0, base));
+      }
+      feeds[k] = tensor(ort, 'float32', arr, [1, total]);
+      if (!pred[k]) info.push(k);
     }
   }
   const run = {};
@@ -373,14 +479,7 @@ export async function renderDiffSinger(phrase, { bank, pitch, dyn, gen, steps = 
     if (!feeds[n]) throw new Error('The acoustic model needs an input this app does not provide: ' + n);
     run[n] = feeds[n];
   }
-  let res;
-  try {
-    res = await acoustic.run(run);
-  } catch {
-    // Some exports want the scalar inputs without a dimension.
-    for (const k of ['speedup', 'steps', 'depth']) if (run[k]) run[k] = tensor(ort, run[k].type, run[k].data, []);
-    res = await acoustic.run(run);
-  }
+  const res = await runFlexible(ort, acoustic, run);
   const mel = res[acoustic.outputNames[0]];
   let melData = mel.data;
   if (vc.melBase !== ds.melBase) {
