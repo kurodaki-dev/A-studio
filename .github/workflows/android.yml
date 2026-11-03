@@ -68,12 +68,27 @@ jobs:
       - name: Copier l'interface dans le projet Android
         run: npx cap sync android
 
+      # A Voice Studio: the vocal extension, a second APK (voice/).
+      - name: Construire A Voice Studio
+        run: npm run build:voice
+
+      - name: Copier A Voice Studio dans son projet Android
+        working-directory: voice
+        run: npx cap sync android
+
       - name: APK de test (pull request)
         if: github.event_name == 'pull_request'
         working-directory: android
         run: |
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../A-Studio.apk
+
+      - name: APK de test d'A Voice Studio (pull request)
+        if: github.event_name == 'pull_request'
+        working-directory: voice/android
+        run: |
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../../A-Voice-Studio.apk
 
       - name: Préparer la clé de signature
         if: github.event_name != 'pull_request'
@@ -96,17 +111,28 @@ jobs:
           ./gradlew assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk ../A-Studio.apk
 
+      - name: APK signé d'A Voice Studio
+        if: github.event_name != 'pull_request'
+        working-directory: voice/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../../A-Voice-Studio.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: A-Studio-apk
-          path: A-Studio.apk
+          path: |
+            A-Studio.apk
+            A-Voice-Studio.apk
 
       - name: Publier la release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$APP_VERSION" A-Studio.apk \
+          gh release create "v$APP_VERSION" A-Studio.apk A-Voice-Studio.apk \
             --target "$GITHUB_SHA" \
             --title "A Studio $APP_VERSION" \
             --generate-notes \

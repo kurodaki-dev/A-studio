@@ -1,0 +1,12 @@
+{
+  "name": "a-voice-studio",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A Voice Studio, the vocal synthesis extension of A Studio. Its dependencies are installed at the repository root (npm ci there).",
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/share": "8.0.3"
+  }
+}
