@@ -1022,4 +1022,8 @@ export default {
   "It is installed apart (an extension, without its own icon) and opens from this switch.": "Elle s'installe à part (une extension, sans icône à elle) et s'ouvre avec ce bouton.",
   "Install A Voice Studio": "Installer A Voice Studio",
   "Confirm the install in the Android window, then tap the A Voice Studio switch again.": "Confirme l'installation dans la fenêtre d'Android, puis appuie de nouveau sur le bouton A Voice Studio.",
+  "A new version of A Voice Studio is available: ": "Une nouvelle version d'A Voice Studio est disponible : ",
+  "Your voices and projects are kept.": "Tes voix et tes projets sont gardés.",
+  "Open without updating": "Ouvrir sans mettre à jour",
+  "Update now": "Mettre à jour",
 };

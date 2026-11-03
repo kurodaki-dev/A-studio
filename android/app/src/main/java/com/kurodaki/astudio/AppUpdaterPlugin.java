@@ -44,13 +44,17 @@ public class AppUpdaterPlugin extends Plugin {
     public void extensionInstalled(PluginCall call) {
         JSObject ret = new JSObject();
         boolean installed;
+        long build = 0;
         try {
-            getContext().getPackageManager().getPackageInfo(VOICE_PACKAGE, 0);
+            android.content.pm.PackageInfo info = getContext().getPackageManager().getPackageInfo(VOICE_PACKAGE, 0);
             installed = true;
+            build = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? info.getLongVersionCode() : info.versionCode;
         } catch (android.content.pm.PackageManager.NameNotFoundException e) {
             installed = false;
         }
         ret.put("installed", installed);
+        // Build number of the installed extension, to offer its updates.
+        ret.put("build", build);
         call.resolve(ret);
     }
 
