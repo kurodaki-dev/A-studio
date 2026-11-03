@@ -44,7 +44,10 @@ export function createInspector({ onLyrics }) {
       if (v.speakers && v.speakers.length > 1) parts.push(h('label', { class: 'field' }, h('span', null, t('Speaker')), select({ label: t('Speaker'), value: track.speaker, options: v.speakers.map((s, i) => ({ value: i, label: s.split('/').pop() })), onChange: (x) => set((tr) => { tr.speaker = Number(x); }) })));
       parts.push(h('p', { class: 'note' }, t('More steps sound smoother but render slower. DiffSinger runs on this device.')));
     }
-    if (v.type === 'voicevox') parts.push(h('p', { class: 'note' }, t('VOICEVOX renders on the engine at ') + (v.url || '') + '. ' + t('Lyrics are sung in Japanese kana.')));
+    if (v.type === 'voicevox') {
+      parts.push(h('p', { class: 'note' }, (v.url === 'builtin' ? t('VOICEVOX renders inside the app.') : t('VOICEVOX renders on the engine at ') + (v.url || '') + '.') + ' ' + t('Lyrics are sung in Japanese kana.')));
+      parts.push(h('p', { class: 'note' }, t('When you publish a song, credit the voice: "VOICEVOX:') + String(v.name).split(' (')[0] + '".'));
+    }
     const sel = track.notes.filter((n) => ui.sel.has(n.id));
     parts.push(h('h3', null, sel.length ? (sel.length === 1 ? t('Note') : sel.length + ' ' + t('notes')) : t('Notes')));
     if (!sel.length) {

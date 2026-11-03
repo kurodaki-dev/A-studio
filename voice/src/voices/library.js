@@ -1,7 +1,7 @@
 // Voice library: imported voicebanks (UTAU, DiffSinger), DiffSinger vocoders, humanizer
 // models and VOICEVOX engine voices. Files are kept in IndexedDB on the device.
 import YAML from 'yaml';
-import { openZip, decodeText } from '../zip.js';
+import { openZip, openZipBlob, decodeText } from '../zip.js';
 import { loadUtau } from './utau.js';
 import { loadDiffSinger, parseVocoderYaml, checkVocoder } from './diffsinger.js';
 import { listSingers, teacherOf, cleanUrl } from './voicevox.js';
@@ -89,15 +89,56 @@ export async function getVoice(id) {
   if (id && id.startsWith('builtin:')) return BUILTIN_VOICES.find((v) => v.id === id) ? { id, type: 'builtin', name: BUILTIN_VOICES.find((v) => v.id === id).name } : null;
   return tx('voices', 'readonly', (s) => req(s.get(id)));
 }
+// Browsers refuse one stored value above about 128 MB (and Android WebViews can be lower):
+// big files (DiffSinger acoustic models are 270 MB) are cut in 24 MB pieces.
+const CHUNK = 24 * 1024 * 1024;
+
+// Stores a file; returns the number of pieces (0 when it fits in one value).
+async function putFile(id, path, data) {
+  if (data.length <= CHUNK) {
+    await tx('files', 'readwrite', (s) => { s.put(data, id + '::' + path); });
+    return 0;
+  }
+  const n = Math.ceil(data.length / CHUNK);
+  for (let i = 0; i < n; i++) {
+    const piece = data.slice(i * CHUNK, (i + 1) * CHUNK);
+    await tx('files', 'readwrite', (s) => { s.put(piece, id + '::' + path + '#' + i); });
+  }
+  return n;
+}
+
 export async function readFile(id, path) {
   const v = await tx('files', 'readonly', (s) => req(s.get(id + '::' + path)));
-  if (v == null) throw new Error('File missing in the library: ' + path);
-  return v instanceof Uint8Array ? v : new Uint8Array(await (v.arrayBuffer ? v.arrayBuffer() : v));
+  if (v != null) return v instanceof Uint8Array ? v : new Uint8Array(await (v.arrayBuffer ? v.arrayBuffer() : v));
+  // Cut in pieces: the number of pieces is in the voice record.
+  const rec = await tx('voices', 'readonly', (s) => req(s.get(id)));
+  const n = rec && rec.big && rec.big[path];
+  if (!n) throw new Error('File missing in the library: ' + path);
+  const parts = [];
+  let size = 0;
+  for (let i = 0; i < n; i++) {
+    const piece = await tx('files', 'readonly', (s) => req(s.get(id + '::' + path + '#' + i)));
+    if (piece == null) throw new Error('File missing in the library: ' + path);
+    parts.push(piece);
+    size += piece.length;
+  }
+  const out = new Uint8Array(size);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
 }
 export async function removeVoice(id) {
   const v = await getVoice(id);
   if (!v) return;
-  await tx('files', 'readwrite', (s) => { for (const f of v.files || []) s.delete(id + '::' + f); });
+  await tx('files', 'readwrite', (s) => {
+    for (const f of v.files || []) {
+      s.delete(id + '::' + f);
+      for (let i = 0; i < ((v.big && v.big[f]) || 0); i++) s.delete(id + '::' + f + '#' + i);
+    }
+  });
   await tx('voices', 'readwrite', (s) => { s.delete(id); });
   banks.delete(id);
 }
@@ -109,20 +150,22 @@ export function sourceOf(v) {
 const newVoiceId = (type) => type + ':' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // Imports an archive (ZIP or .oudep) or a single model file. Returns the voices added.
-export async function importArchive(fileName, bytes, onProgress = () => {}) {
+// source: a File / Blob (read piece by piece, nothing big stays in memory) or bytes.
+export async function importArchive(fileName, source, onProgress = () => {}) {
   let names;
   let read;
   if (/\.onnx$/i.test(fileName)) {
+    const bytes = source instanceof Uint8Array ? source : new Uint8Array(await source.arrayBuffer());
     names = [fileName];
-    read = () => bytes;
+    read = async () => bytes;
   } else {
-    const zip = openZip(bytes);
+    const zip = source instanceof Uint8Array ? openZip(source) : await openZipBlob(source);
     names = zip.names;
-    read = (n) => zip.read(n);
+    read = async (n) => zip.read(n);
   }
   const banksFound = detectBanks(names);
   if (!banksFound.length) throw new Error('No voicebank found: a UTAU bank has an oto.ini, a DiffSinger bank a dsconfig.yaml, a vocoder a vocoder.yaml.');
-  const zipSrc = { names, read: async (n) => read(n) };
+  const zipSrc = { names, read };
   const added = [];
   for (const b of banksFound) {
     const pre = b.root ? b.root + '/' : '';
@@ -143,7 +186,7 @@ export async function importArchive(fileName, bytes, onProgress = () => {}) {
       extra = { speakers: bank.speakers, bundledVocoder: !!bank.vocoder, vocoderName: bank.config.vocoder || '' };
     } else if (b.type === 'vocoder') {
       const y = names.find((n) => n.toLowerCase() === (pre + 'vocoder.yaml').toLowerCase());
-      const vc = parseVocoderYaml(decodeText(read(y)));
+      const vc = parseVocoderYaml(decodeText(await read(y)));
       name = vc.name || name;
       extra = { vocoder: vc };
     } else if (b.type === 'humanizer') {
@@ -151,16 +194,37 @@ export async function importArchive(fileName, bytes, onProgress = () => {}) {
       name = b.file.split('/').pop().replace(/\.onnx$/i, '');
     }
     let size = 0;
+    const big = {};
     for (let i = 0; i < files.length; i++) {
-      const data = read(files[i]);
+      const data = await read(files[i]);
       size += data.length;
-      await tx('files', 'readwrite', (s) => { s.put(data, id + '::' + files[i]); });
+      const n = await putFile(id, files[i], data);
+      if (n) big[files[i]] = n;
       onProgress(i + 1, files.length, name);
     }
-    const rec = { id, type: b.type, name, root: b.root, files, image, size, added: Date.now(), ...extra };
+    const rec = { id, type: b.type, name, root: b.root, files, image, size, added: Date.now(), big, ...extra };
     await tx('voices', 'readwrite', (s) => { s.put(rec); });
     added.push(rec);
   }
+  return added;
+}
+
+// Built-in VOICEVOX (Android): every singing style of the model becomes a voice, run by
+// the VOICEVOX CORE inside the app.
+export async function addVoicevoxBuiltin(singers) {
+  const teacher = 6000;
+  const added = [];
+  for (const s of singers) {
+    for (const st of s.styles) {
+      // The model has 81 "frame_decode" styles (the voices) and the singing teacher (6000).
+      if (st.type !== 'frame_decode') continue;
+      if (st.id === teacher) continue;
+      const rec = { id: 'voicevox:builtin#' + st.id, type: 'voicevox', name: s.name + ' (' + st.name + ')', url: 'builtin', speaker: st.id, teacher, files: [], added: Date.now() };
+      await tx('voices', 'readwrite', (x) => { x.put(rec); });
+      added.push(rec);
+    }
+  }
+  if (!added.length) throw new Error('This model has no singing voice.');
   return added;
 }
 
@@ -256,16 +320,18 @@ export async function downloadCommunityVocoder(onProgress = () => {}) {
   const v = COMMUNITY_VOCODER;
   const id = newVoiceId('vocoder');
   const files = [];
+  const bigFiles = {};
   let done = 0;
   for (const f of v.files) {
     const data = await fetchBytes(v.base + f, (n) => onProgress(done + n, v.size));
     done += data.length;
     const path = v.name + '/' + f;
-    await tx('files', 'readwrite', (s) => { s.put(data, id + '::' + path); });
+    const n = await putFile(id, path, data);
+    if (n) bigFiles[path] = n;
     files.push(path);
   }
   const vc = parseVocoderYaml(decodeText(await readFile(id, v.name + '/vocoder.yaml')));
-  const rec = { id, type: 'vocoder', name: vc.name || v.name, root: v.name, files, image: null, size: done, added: Date.now(), vocoder: vc, licence: 'CC BY-NC-SA 4.0 (OpenVPI)' };
+  const rec = { id, type: 'vocoder', name: vc.name || v.name, root: v.name, files, image: null, size: done, added: Date.now(), big: bigFiles, vocoder: vc, licence: 'CC BY-NC-SA 4.0 (OpenVPI)' };
   await tx('voices', 'readwrite', (s) => { s.put(rec); });
   forgetBanks();
   return rec;

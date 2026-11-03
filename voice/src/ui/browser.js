@@ -3,8 +3,9 @@
 import { h, icon, iconBtn, textBtn, hint, openMenu, confirmBox, alertBox, promptText, pickFiles, openModal } from './dom.js';
 import { store } from '../store.js';
 import { BUILTIN_VOICES } from '../voices/builtin.js';
-import { listVoices, removeVoice, importArchive, addVoicevoxEngine, voiceImage, kv, forgetBanks, downloadCommunityVocoder, COMMUNITY_VOCODER } from '../voices/library.js';
+import { listVoices, removeVoice, importArchive, addVoicevoxEngine, addVoicevoxBuiltin, voiceImage, kv, forgetBanks, downloadCommunityVocoder, COMMUNITY_VOCODER } from '../voices/library.js';
 import { DEFAULT_ENGINE } from '../voices/voicevox.js';
+import { nativeSupported, nativeStatus, nativeInstall, nativeSingers } from '../voices/vvnative.js';
 import { allPlugins, installPlugin, removePlugin } from '../plugins.js';
 import { allThemes, currentTheme, chooseTheme, installTheme, removeTheme } from '../themes.js';
 import { clearCache } from '../render.js';
@@ -36,8 +37,7 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
     const added = [];
     try {
       for (const f of files) {
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        const got = await importArchive(f.name, bytes, (done, total, name) => { status.textContent = name + ': ' + done + ' / ' + total; });
+        const got = await importArchive(f.name, f, (done, total, name) => { status.textContent = name + ': ' + done + ' / ' + total; });
         added.push(...got);
       }
       m.close();
@@ -81,6 +81,37 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
     } catch (e) {
       m.close();
       alertBox(t('Vocoder'), tErr((e && e.message) || e) + '\n\n' + t('Check the internet connection and try again.'));
+    }
+    build();
+  }
+
+  // Built-in VOICEVOX (Android): downloads the voices once, then no engine is needed.
+  async function addBuiltinVoicevox() {
+    const st = await nativeStatus();
+    if (!st.runtime) return alertBox('VOICEVOX', t('The VOICEVOX runtime is not available on this device. Use the engine mode (address of a VOICEVOX engine).'));
+    if (!st.ready) {
+      const ok = await confirmBox(t('VOICEVOX built in'), t('A Voice Studio will download the VOICEVOX singing voices (about 130 MB) and the Japanese dictionary (about 22 MB) from their official GitHub releases, once. No engine to start. Each voice asks for the credit "VOICEVOX:name" when you publish a song.'), t('Download'));
+      if (!ok) return;
+      const bar = h('div', { class: 'progress-fill' });
+      const label = h('p', null, t('Downloading...'));
+      const m = openModal({ title: 'VOICEVOX', body: h('div', null, label, h('div', { class: 'progress' }, bar)), actions: [] });
+      try {
+        await nativeInstall((got, total, what) => {
+          const pct = total > 0 ? Math.min(100, Math.round((got / total) * 100)) : 0;
+          bar.style.width = pct + '%';
+          label.textContent = t('Downloading...') + ' ' + what + (total > 0 ? ' ' + pct + '%' : '');
+        });
+        m.close();
+      } catch (e) {
+        m.close();
+        return alertBox('VOICEVOX', tErr((e && e.message) || e) + '\n\n' + t('Check the internet connection and try again.'));
+      }
+    }
+    try {
+      const added = await addVoicevoxBuiltin(await nativeSingers());
+      hint(added.length + ' ' + t('VOICEVOX voices added'));
+    } catch (e) {
+      alertBox('VOICEVOX', tErr((e && e.message) || e));
     }
     build();
   }
@@ -149,7 +180,8 @@ export function createBrowser({ onProjects, onRunPlugin, onEditPlugin }) {
       ];
       const out = [h('div', { class: 'br-actions' },
         textBtn(t('Import a voice'), importVoice, 'primary', 'Upload'),
-        textBtn('VOICEVOX', addEngine, '', 'Server'))];
+        textBtn('VOICEVOX', nativeSupported() ? addBuiltinVoicevox : addEngine, '', 'Server'))];
+      if (nativeSupported()) out[0].append(textBtn(t('VOICEVOX engine'), addEngine, '', 'Server'));
       if (stored.some((v) => v.type === 'diffsinger' && !v.bundledVocoder) && !stored.some((v) => v.type === 'vocoder')) {
         out.push(h('div', { class: 'warn-card' }, h('span', null, t('Your DiffSinger voice needs a vocoder to sing.')), textBtn(t('Download the vocoder'), getVocoder, 'primary', 'Download')));
       }

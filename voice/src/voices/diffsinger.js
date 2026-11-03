@@ -7,15 +7,11 @@ import { resample } from '../dsp.js';
 import { moraPhonemes, kanaToRomaji } from '../lyrics.js';
 import { timeline, midiToHz } from '../phrase.js';
 
-// ONNX Runtime is loaded on first use (about 14 MB of WebAssembly).
+// ONNX Runtime runs in a Web Worker (ortworker.js), loaded on first use (about 14 MB of
+// WebAssembly): the interface stays responsive while a phrase renders. The tests
+// replace the loader with onnxruntime-web itself (Node has no Worker).
 let ortPromise = null;
-let ortLoader = async () => {
-  // The WebAssembly file is bundled next to the page by the build.
-  const ort = await import('onnxruntime-web/wasm');
-  ort.env.wasm.numThreads = 1;
-  ort.env.wasm.proxy = false;
-  return ort;
-};
+let ortLoader = async () => (await import('../ortclient.js')).ortClient;
 export function setOrtLoader(fn) {
   ortLoader = fn;
   ortPromise = null;

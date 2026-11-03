@@ -72,6 +72,9 @@ jobs:
       - name: Construire A Voice Studio
         run: npm run build:voice
 
+      - name: Télécharger VOICEVOX CORE (bibliothèques officielles)
+        run: bash voice/scripts/fetch-voicevox.sh
+
       - name: Copier A Voice Studio dans son projet Android
         working-directory: voice
         run: npx cap sync android

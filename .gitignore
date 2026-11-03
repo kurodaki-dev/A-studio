@@ -5,3 +5,5 @@ dist
 A-Studio.apk
 voice/dist
 A-Voice-Studio.apk
+voice/android/app/libs/
+voice/android/app/src/main/jniLibs/
