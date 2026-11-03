@@ -5,7 +5,7 @@
 // - Web: it is published next to A Studio, in the voice/ folder of the site.
 import { h, openModal, alertBox } from './ui/dom.js';
 import { isNative } from './platform.js';
-import { REPO } from './version.js';
+import { REPO, buildFromTag } from './version.js';
 import { AppUpdater, fetchLatest, installUpdate } from './update.js';
 import { t, fmtNum } from './i18n.js';
 
@@ -50,8 +50,11 @@ export async function openVoiceStudio() {
     return;
   }
   try {
-    const { installed } = await AppUpdater.extensionInstalled();
+    const { installed, build } = await AppUpdater.extensionInstalled();
     if (installed) {
+      // A newer extension in the latest release: offer it (opening stays possible).
+      const newer = await newerExtension(build).catch(() => null);
+      if (newer) return offerUpdate(newer);
       await AppUpdater.openExtension();
       return;
     }
@@ -59,4 +62,27 @@ export async function openVoiceStudio() {
     /* older app without the bridge: offer the download */
   }
   offerInstall();
+}
+
+// The extension of the latest release when it is newer than the installed build.
+async function newerExtension(build) {
+  if (!build) return null;
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 4000));
+  const rel = await Promise.race([fetchLatest(), timeout]);
+  if (!rel) return null;
+  const asset = voiceAsset(rel);
+  return asset && buildFromTag(rel.tag_name) > build ? asset : null;
+}
+
+function offerUpdate(asset) {
+  openModal({
+    title: 'A Voice Studio',
+    body: h('div', null,
+      h('p', null, t('A new version of A Voice Studio is available: ') + asset.version + (asset.size ? ' (' + fmtNum(asset.size / 1048576) + t(' MB)') : '')),
+      h('p', null, t('Your voices and projects are kept.'))),
+    actions: [
+      { label: t('Open without updating'), onClick: () => { AppUpdater.openExtension().catch(() => {}); } },
+      { label: t('Update now'), primary: true, onClick: () => { installUpdate(asset, { title: 'A Voice Studio', done: t('Confirm the install in the Android window, then tap the A Voice Studio switch again.') }); } },
+    ],
+  });
 }
