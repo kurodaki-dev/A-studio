@@ -25,7 +25,7 @@ export function setAutoCheck(on) {
 // Only the Android app needs updates: the web version is always the latest one.
 export const updatesSupported = () => isNative();
 
-async function fetchLatest() {
+export async function fetchLatest() {
   const res = await fetch(LATEST_URL, {
     headers: { Accept: 'application/vnd.github+json' },
     cache: 'no-store',
@@ -36,10 +36,11 @@ async function fetchLatest() {
   return res.json();
 }
 
-const AppUpdater = registerPlugin('AppUpdater');
+export const AppUpdater = registerPlugin('AppUpdater');
 
-// Download inside the app, then open the Android installer.
-async function installUpdate(rel) {
+// Download inside the app, then open the Android installer. done: text shown once the
+// installer is open (A Studio itself, or the A Voice Studio extension).
+export async function installUpdate(rel, { title = t('Update'), done = t('Confirm the install in the Android window. A Studio restarts with the new version once you tap Open.') } = {}) {
   try {
     const { allowed } = await AppUpdater.canInstall();
     if (!allowed) {
@@ -59,7 +60,7 @@ async function installUpdate(rel) {
   }
   const bar = h('div', { class: 'progress-fill' });
   const label = h('p', null, t('Downloading...'));
-  const m = openModal({ title: t('Update'), body: h('div', null, label, h('div', { class: 'progress' }, bar)), actions: [] });
+  const m = openModal({ title, body: h('div', null, label, h('div', { class: 'progress' }, bar)), actions: [] });
   const sub = await AppUpdater.addListener('progress', ({ received, total }) => {
     const pct = total > 0 ? Math.round((received / total) * 100) : 0;
     bar.style.width = pct + '%';
@@ -67,12 +68,12 @@ async function installUpdate(rel) {
   });
   try {
     await AppUpdater.downloadAndInstall({ url: rel.url });
-    label.textContent = t('Confirm the install in the Android window. A Studio restarts with the new version once you tap Open.');
+    label.textContent = done;
     bar.style.width = '100%';
     setTimeout(() => m.close(), 4000);
   } catch (e) {
     m.close();
-    alertBox(t('Update'), t('The download failed: ') + String((e && e.message) || e));
+    alertBox(title, t('The download failed: ') + String((e && e.message) || e));
   } finally {
     sub.remove();
   }

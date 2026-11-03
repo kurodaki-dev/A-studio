@@ -757,3 +757,11 @@ kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--i
 .poly-label { color: var(--dim); }
 .poly-stepper { display: flex; align-items: center; gap: 4px; }
 .poly-max { min-width: 34px; text-align: center; padding: 4px 6px; border-radius: 4px; background: var(--input, #1f2629); font-variant-numeric: tabular-nums; }
+
+/* Switch A Studio | A Voice Studio, above the menu bar */
+.app-switch { display: flex; flex: none; justify-content: center; padding: 4px 8px; background: #1b2124; border-bottom: 1px solid var(--line); }
+.app-switch-pill { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: #2a3236; border: 1px solid var(--line); }
+.app-switch-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--dim); font-size: 13px; font-weight: 600; cursor: pointer; }
+.app-switch-btn.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+.app-switch-btn:not(.on):hover { color: var(--text); }
+@media (max-width: 520px) { .app-switch-btn span { display: none; } .app-switch-btn { padding: 0 20px; } }

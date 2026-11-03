@@ -3,3 +3,5 @@ dist
 *.log
 .DS_Store
 A-Studio.apk
+voice/dist
+A-Voice-Studio.apk

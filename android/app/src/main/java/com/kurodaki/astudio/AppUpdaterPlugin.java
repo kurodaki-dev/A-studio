@@ -37,6 +37,36 @@ public class AppUpdaterPlugin extends Plugin {
         call.resolve();
     }
 
+    // A Voice Studio, the vocal extension (a separate APK without a launcher icon).
+    private static final String VOICE_PACKAGE = "com.kurodaki.avoicestudio";
+
+    @PluginMethod
+    public void extensionInstalled(PluginCall call) {
+        JSObject ret = new JSObject();
+        boolean installed;
+        try {
+            getContext().getPackageManager().getPackageInfo(VOICE_PACKAGE, 0);
+            installed = true;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            installed = false;
+        }
+        ret.put("installed", installed);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openExtension(PluginCall call) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("avoicestudio://open"));
+            intent.setPackage(VOICE_PACKAGE);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("A Voice Studio is not installed");
+        }
+    }
+
     @PluginMethod
     public void canInstall(PluginCall call) {
         JSObject ret = new JSObject();
