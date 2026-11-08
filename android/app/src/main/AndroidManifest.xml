@@ -25,14 +25,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- The A Voice Studio extension comes back to A Studio with astudio://open. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="astudio" />
-            </intent-filter>
-
         </activity>
 
         <provider
@@ -45,11 +37,6 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
     </application>
-
-    <!-- Lets A Studio see whether the A Voice Studio extension is installed. -->
-    <queries>
-        <package android:name="com.kurodaki.avoicestudio" />
-    </queries>
 
     <!-- Used only to check GitHub for a newer release and download it. The Content
          Security Policy in index.html blocks every other connection from the interface. -->

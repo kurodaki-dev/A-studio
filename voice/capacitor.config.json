@@ -1,9 +1,0 @@
-{
-  "appId": "com.kurodaki.avoicestudio",
-  "appName": "A Voice Studio",
-  "webDir": "dist",
-  "android": {
-    "allowMixedContent": true,
-    "webContentsDebuggingEnabled": false
-  }
-}
