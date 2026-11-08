@@ -597,6 +597,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .editor-status { font-size: 12px; min-height: 18px; color: var(--dim); white-space: pre-wrap; }
 .editor-status.ok { color: var(--green); }
 .editor-status.err { color: var(--red); }
+.editor-status.warn { color: var(--accent); }
 
 /* Interface extensions */
 .ext-host { position: fixed; width: 0; height: 0; overflow: hidden; left: -10px; top: -10px; }

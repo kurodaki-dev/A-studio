@@ -29,28 +29,84 @@ const BUILT_IN = [
   },
 ];
 
+// Color helpers (hex "#rgb" or "#rrggbb").
+export function hexToRgb(hex) {
+  const h = hex.length === 4 ? hex.replace(/#(.)(.)(.)/, '#$1$1$2$2$3$3') : hex;
+  const n = parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const toHex = (rgb) => '#' + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+// Mix of two colors, t = 0 gives a, t = 1 gives b.
+export const mix = (a, b, t) => {
+  const x = hexToRgb(a);
+  const y = hexToRgb(b);
+  return toHex(x.map((v, i) => v + (y[i] - v) * t));
+};
+// WCAG relative luminance and contrast ratio (1 to 21).
+function luminance(hex) {
+  const c = hexToRgb(hex).map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+export function contrast(a, b) {
+  const x = luminance(a);
+  const y = luminance(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+export const isLight = (hex) => luminance(hex) > 0.4;
+
+// Editor colors that match a set of UI colors, for themes that leave "editor" out
+// (a light theme then gets a light grid, not the dark one of the default theme).
+export function editorFromColors(c) {
+  return {
+    gridWhite: mix(c.panel, c.text, 0.1),
+    gridBlack: mix(c.panel, c.bg, 0.5),
+    note: c.green,
+    noteSelected: c.red,
+    playhead: c.accent,
+    trackA: mix(c.panel, c.text, 0.06),
+    trackB: c.panel,
+    ruler: mix(c.panel, c.bg, 0.6),
+  };
+}
+
+const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
 export function validateTheme(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Not a JSON object');
   if (raw.type !== 'astudio-theme') throw new Error('"type" must be "astudio-theme"');
-  const id = typeof raw.id === 'string' ? raw.id.trim().toLowerCase() : '';
+  const id = str(raw.id, 100).toLowerCase();
   if (!/^[a-z0-9-]{1,40}$/.test(id)) throw new Error('"id" must use a to z, 0 to 9 and "-" only');
   if (BUILT_IN.some((t) => t.id === id)) throw new Error('This id is reserved by a built in theme');
-  const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 40) : '';
+  const name = str(raw.name, 40);
   if (!name) throw new Error('"name" is required');
-  const base = BUILT_IN[0];
   const pick = (src, keys, def) => {
     const out = {};
-    for (const k of keys) out[k] = src && HEX.test(src[k]) ? src[k] : def[k];
+    for (const k of keys) out[k] = src && typeof src[k] === 'string' && HEX.test(src[k]) ? src[k].toLowerCase() : def[k];
     return out;
   };
+  const colors = pick(raw.colors, UI_KEYS, BUILT_IN[0].colors);
+  // Text must stay readable: unreadable text and secondary text are replaced.
+  const ink = isLight(colors.bg) ? '#1f2629' : '#e6ebee';
+  if (contrast(colors.text, colors.panel) < 3) colors.text = ink;
+  if (contrast(colors.dim, colors.panel) < 1.8) colors.dim = mix(colors.text, colors.panel, 0.4);
+  if (contrast(colors['lcd-text'], colors.lcd) < 3) colors['lcd-text'] = isLight(colors.lcd) ? '#1f2629' : '#b9e08a';
   return {
     type: 'astudio-theme',
     id,
     name,
-    author: typeof raw.author === 'string' ? raw.author.slice(0, 60) : '',
-    colors: pick(raw.colors, UI_KEYS, base.colors),
-    editor: pick(raw.editor, EDITOR_KEYS, base.editor),
+    author: str(raw.author, 60),
+    version: str(raw.version, 20),
+    colors,
+    editor: pick(raw.editor, EDITOR_KEYS, editorFromColors(colors)),
   };
+}
+
+// The JSON file of a theme, to share it or to start a new one from it.
+export function themeFile(th, id = th.id, name = th.name) {
+  return JSON.stringify({ type: 'astudio-theme', id, name, author: th.author || '', version: th.version || '1.0.0', colors: th.colors, editor: th.editor }, null, 2) + '\n';
 }
 
 function readInstalled() {
@@ -69,6 +125,21 @@ export const allThemes = () => [...BUILT_IN.map((t) => ({ ...t, builtIn: true })
 export const currentTheme = () => current;
 export const editorColors = () => current.editor;
 
+// Called with the new theme each time one is applied (editors redraw with it).
+const listeners = new Set();
+export function onThemeChange(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+function save(list) {
+  try {
+    localStorage.setItem(KEY_LIST, JSON.stringify(list));
+  } catch {
+    throw new Error('The device storage is full: delete a theme or a plugin first');
+  }
+}
+
 export function applyTheme(id) {
   const th = allThemes().find((t) => t.id === id) || BUILT_IN[0];
   current = th;
@@ -76,18 +147,13 @@ export function applyTheme(id) {
   for (const k of UI_KEYS) root.setProperty('--' + k, th.colors[k]);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', th.colors.bg);
-  document.documentElement.style.colorScheme = th.id === 'daylight' || isLight(th.colors.bg) ? 'light' : 'dark';
+  document.documentElement.style.colorScheme = isLight(th.colors.bg) ? 'light' : 'dark';
+  for (const fn of listeners) fn(th);
   try {
     localStorage.setItem(KEY_CURRENT, th.id);
   } catch {
     /* ignore */
   }
-}
-
-function isLight(hex) {
-  const h = hex.length === 4 ? hex.replace(/#(.)(.)(.)/, '#$1$1$2$2$3$3') : hex;
-  const n = parseInt(h.slice(1), 16);
-  return ((n >> 16) & 255) * 0.299 + ((n >> 8) & 255) * 0.587 + (n & 255) * 0.114 > 150;
 }
 
 export function initTheme() {
@@ -102,18 +168,18 @@ export function initTheme() {
 
 export function installTheme(raw) {
   const th = validateTheme(raw);
-  installed = installed.filter((x) => x.id !== th.id);
-  installed.push(th);
-  localStorage.setItem(KEY_LIST, JSON.stringify(installed));
+  const list = [...installed.filter((x) => x.id !== th.id), th];
+  save(list); // saved first: nothing changes when the storage is full
+  installed = list;
   return th;
 }
 
 export function removeTheme(id) {
   installed = installed.filter((x) => x.id !== id);
   try {
-    localStorage.setItem(KEY_LIST, JSON.stringify(installed));
+    save(installed);
   } catch {
-    /* ignore */
+    /* removing frees space: nothing to report */
   }
   if (current.id === id) applyTheme('default');
 }

@@ -39,7 +39,7 @@ import { encodeMidi } from './midi.js';
 import { APP_VERSION } from './version.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled, applyOrientation } from './update.js';
 import { t, locale, lang } from './i18n.js';
-import { initTheme } from './themes.js';
+import { initTheme, onThemeChange } from './themes.js';
 import { openSettings, refreshOpenSettings } from './ui/settings.js';
 import { openExternal, DOCS_URL, bugReportUrl, featureRequestUrl } from './links.js';
 
@@ -1328,6 +1328,12 @@ function mainMenu(anchor) {
 }
 
 // A theme or plugin was installed, removed or selected.
+// A new theme only needs the editors to redraw with its colors.
+onThemeChange(() => {
+  dirty = true;
+  for (const p of Object.values(panels)) if (p.redrawMinis) p.redrawMinis();
+});
+
 function extensionsChanged() {
   sidebar.refresh();
   extHost.reload();

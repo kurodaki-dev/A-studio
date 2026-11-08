@@ -389,7 +389,7 @@ registerVoice(SineVoice);</code></pre>
 <ul>
   <li>Line numbers, automatic indentation, Tab inserts two spaces.</li>
   <li><strong>Add a control</strong> writes a knob, switch, choice list, push button or preset line in the header.</li>
-  <li><strong>Check</strong> reads the header and the code: a syntax error shows its message and a <strong>Go to line</strong> button (JavaScript reports where it noticed the error, sometimes the line after the typo).</li>
+  <li><strong>Check</strong> reads the header and the code: a syntax error shows its message and a <strong>Go to line</strong> button (JavaScript reports where it noticed the error, sometimes the line after the typo). Header lines that are ignored (a control written differently from this page, an id used twice, more than 12 controls, an unknown permission or category) show as a warning with their line.</li>
   <li>Errors while the plugin runs (in the test or in a project) are shown with the line of your file.</li>
   <li><strong>Install and try</strong>: an instrument plays a chord and gets a test keyboard (C5 to C6, hold the keys); an effect plays a short beat with drums and chords through it.</li>
 </ul>
@@ -498,6 +498,7 @@ astudio.on('state', (s) =&gt; {
   <tr><td><code>astudio.settings.addSection({ title, description, fields })</code></td><td>Adds a section for the extension in the Settings window. <code>fields</code>: up to 12 of <code>{ id, type, label, placeholder, value }</code> where <code>type</code> is <code>text</code>, <code>password</code>, <code>toggle</code>, <code>button</code> or <code>info</code> (read only text). Values are saved on the device.</td></tr>
   <tr><td><code>astudio.settings.get()</code>, <code>astudio.settings.set(id, value)</code></td><td>Read the values, or change one (for example a status line or a switch).</td></tr>
   <tr><td><code>astudio.on('settings', fn)</code></td><td>Called with <code>{ id, value, values }</code> when the user changes a field or presses a button.</td></tr>
+  <tr><td><code>const stop = astudio.on(event, fn)</code></td><td><code>on</code> returns a function that stops listening; <code>astudio.off(event, fn)</code> does the same.</td></tr>
   <tr><td><code>astudio.net.connect(url, onEvent)</code></td><td>Opens a WebSocket (needs <code>network</code>). <code>onEvent</code> receives <code>{ type: 'open' | 'message' | 'close' | 'error', data }</code>. Returns <code>{ send(text), close() }</code>.</td></tr>
   <tr><td><code>astudio.project.addChannel(instrument, name)</code></td><td>Adds a channel (needs <code>project-write</code>). <code>astudio.project.instruments()</code> lists the instrument ids (needs <code>project-read</code>).</td></tr>
   <tr><td><code>astudio.ui.addShortcut({ id, key, label }, onPress)</code></td><td>Keyboard shortcut (tablet or web keyboard): a letter or digit with optional <code>shift+</code> or <code>alt+</code>, for example <code>'alt+c'</code>. App shortcuts keep priority.</td></tr>
@@ -519,7 +520,7 @@ astudio.on('state', (s) =&gt; {
 <p>Projects store plugin channels as <code>plugin:&lt;id&gt;</code> with their knob values. If the plugin is missing on a device, the channel stays silent until you install it.</p>
 
 <h2 id="themes">Themes</h2>
-<p>A theme changes the colors of the interface and of the editors. It only contains hex colors (<code>#rgb</code> or <code>#rrggbb</code>); anything else is ignored. Missing keys fall back to the default theme. Install one from Menu, Plugins and themes, Install a theme. Three themes are built in: A Studio, Graphite and Daylight.</p>
+<p>A theme changes the colors of the interface and of the editors. It only contains hex colors (<code>#rgb</code> or <code>#rrggbb</code>); anything else is ignored. Missing <code>colors</code> keys fall back to the default theme; when <code>editor</code> is left out, the editor colors are made from your <code>colors</code> (a light theme gets a light grid). Text that would be unreadable on its background is replaced by readable text. Install one from Menu, Plugins and themes, Install a theme. Three themes are built in: A Studio, Graphite and Daylight. The <strong>Export</strong> button next to each theme saves its file: start a new theme from a built in one that way.</p>
 <h3>Example</h3>
 <pre><code>{
   "type": "astudio-theme",

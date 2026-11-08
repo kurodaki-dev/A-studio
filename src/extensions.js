@@ -11,33 +11,27 @@ const MAX_STORAGE = 100 * 1024;
 const MAX_MESSAGE = 1024 * 1024;
 let socketIds = 0;
 
-function settingsGet(ext) {
-  try {
-    const o = JSON.parse(localStorage.getItem('astudio:extset:' + ext.plugin.id) || '{}');
-    return o && typeof o === 'object' ? o : {};
-  } catch {
-    return {};
-  }
-}
+// Data an extension keeps on the device: its storage (storage API) and the values of
+// its settings section, each one JSON object under its own key.
 const STORAGE_PREFIX = 'astudio:ext:';
-
-function storageGet(ext) {
+const SETTINGS_PREFIX = 'astudio:extset:';
+function readObject(key) {
   try {
-    const o = JSON.parse(localStorage.getItem(STORAGE_PREFIX + ext.plugin.id) || '{}');
-    return o && typeof o === 'object' ? o : {};
+    const o = JSON.parse(localStorage.getItem(key) || '{}');
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
   } catch {
     return {};
   }
 }
+const storageGet = (ext) => readObject(STORAGE_PREFIX + ext.plugin.id);
+const settingsGet = (ext) => readObject(SETTINGS_PREFIX + ext.plugin.id);
 
 // Script injected in every extension frame: it defines the `astudio` API.
 export const BOOTSTRAP = `(() => {
   let next = 0;
   const pending = new Map();
   const clicks = new Map();
-  const stateListeners = [];
-  const projectListeners = [];
-  const settingsListeners = [];
+  const listeners = { state: new Set(), project: new Set(), settings: new Set() };
   const netListeners = new Map();
   const call = (method, ...args) => new Promise((resolve, reject) => {
     const id = ++next;
@@ -57,12 +51,8 @@ export const BOOTSTRAP = `(() => {
     } else if (m.event === 'click') {
       const f = clicks.get(m.target);
       if (f) f();
-    } else if (m.event === 'state') {
-      for (const f of stateListeners) { try { f(m.data); } catch (err) { console.error(err); } }
-    } else if (m.event === 'project') {
-      for (const f of projectListeners) { try { f(m.data); } catch (err) { console.error(err); } }
-    } else if (m.event === 'settings') {
-      for (const f of settingsListeners) { try { f(m.data); } catch (err) { console.error(err); } }
+    } else if (listeners[m.event]) {
+      for (const f of [...listeners[m.event]]) { try { f(m.data); } catch (err) { console.error(err); } }
     } else if (m.event === 'net') {
       const f = netListeners.get(m.data.id);
       if (f) { try { f(m.data); } catch (err) { console.error(err); } }
@@ -128,12 +118,14 @@ export const BOOTSTRAP = `(() => {
       remove: (key) => call('storage.remove', key),
       keys: () => call('storage.keys'),
     }),
+    // Listens to 'state', 'project' or 'settings'. Returns a function that stops listening.
     on: (event, fn) => {
-      if (typeof fn !== 'function') return;
-      if (event === 'state') stateListeners.push(fn);
-      else if (event === 'project') projectListeners.push(fn);
-      else if (event === 'settings') settingsListeners.push(fn);
+      const set = listeners[event];
+      if (!set || typeof fn !== 'function') return () => {};
+      set.add(fn);
+      return () => set.delete(fn);
     },
+    off: (event, fn) => { if (listeners[event]) listeners[event].delete(fn); },
   });
 })();`;
 
@@ -160,19 +152,7 @@ export const METHOD_PERMISSION = {
   'project.getNotes': 'project-read',
   'project.instruments': 'project-read',
   'project.addChannel': 'project-write',
-  'settings.addSection': 'ui',
-  'settings.get': 'ui',
-  'settings.set': 'ui',
-  'net.connect': 'network',
-  'net.send': 'network',
-  'net.close': 'network',
   'project.setNotes': 'project-write',
-  'ui.addShortcut': 'ui',
-  'audio.playNote': 'audio',
-  'storage.get': 'storage',
-  'storage.set': 'storage',
-  'storage.remove': 'storage',
-  'storage.keys': 'storage',
   'project.addNotes': 'project-write',
   'project.clearNotes': 'project-write',
   'project.selectPattern': 'project-write',
@@ -181,6 +161,18 @@ export const METHOD_PERMISSION = {
   'ui.addPanel': 'ui',
   'ui.openPanel': 'ui',
   'ui.hint': 'ui',
+  'ui.addShortcut': 'ui',
+  'settings.addSection': 'ui',
+  'settings.get': 'ui',
+  'settings.set': 'ui',
+  'audio.playNote': 'audio',
+  'storage.get': 'storage',
+  'storage.set': 'storage',
+  'storage.remove': 'storage',
+  'storage.keys': 'storage',
+  'net.connect': 'network',
+  'net.send': 'network',
+  'net.close': 'network',
 };
 
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -210,7 +202,7 @@ export function createExtensionHost(app) {
     const need = METHOD_PERMISSION[method];
     if (!need) throw new Error('Unknown method ' + method);
     if (!ext.plugin.permissions.includes(need)) throw new Error('Permission "' + need + '" is not declared in @permissions');
-    const a = args || [];
+    const a = Array.isArray(args) ? args.slice(0, 4) : [];
     switch (method) {
       case 'transport.play': return app.actions.play();
       case 'transport.stop': return app.actions.stop();
@@ -287,7 +279,11 @@ export function createExtensionHost(app) {
         else data[key] = a[1] === undefined ? null : a[1];
         const json = JSON.stringify(data);
         if (json.length > MAX_STORAGE) throw new Error('Extension storage is limited to 100 KB');
-        localStorage.setItem(STORAGE_PREFIX + ext.plugin.id, json);
+        try {
+          localStorage.setItem(STORAGE_PREFIX + ext.plugin.id, json);
+        } catch {
+          throw new Error('The device storage is full');
+        }
         return true;
       }
       case 'ui.addShortcut': {
@@ -347,7 +343,11 @@ export function createExtensionHost(app) {
     const owner = frameOwner(e.source);
     if (!owner) return;
     if (m.method === 'error') {
-      app.actions.extensionError(owner.ext.plugin, str((m.args || [])[0], 300));
+      // One alert every 10 s at most: an extension failing in a loop cannot flood the screen.
+      const now = Date.now();
+      if (now - (owner.ext.lastError || 0) < 10000) return;
+      owner.ext.lastError = now;
+      app.actions.extensionError(owner.ext.plugin, str(Array.isArray(m.args) ? m.args[0] : '', 300));
       return;
     }
     try {
@@ -376,7 +376,7 @@ export function createExtensionHost(app) {
     else {
       ext.settingValues[f.id] = v;
       try {
-        localStorage.setItem('astudio:extset:' + ext.plugin.id, JSON.stringify(ext.settingValues));
+        localStorage.setItem(SETTINGS_PREFIX + ext.plugin.id, JSON.stringify(ext.settingValues));
       } catch {
         /* ignore */
       }

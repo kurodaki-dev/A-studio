@@ -33,31 +33,35 @@ export const MAX_CONTROLS = 12;
 // What an extension may do, declared with @permissions in its header.
 export const PERMISSIONS = ['ui', 'transport', 'project-read', 'project-write', 'audio', 'storage', 'network'];
 
-function parseControls(head) {
+// warn(line, message): header lines that are ignored, so the editor can say why.
+function parseControls(head, warn = () => {}) {
   const out = [];
   const seen = new Set();
-  for (const raw of head.split(/\r?\n/)) {
+  head.split(/\r?\n/).forEach((raw, n) => {
     const line = raw.replace(/^\s*\*?\s*/, '');
-    for (const [kind, re] of CONTROL_RES) {
-      const m = re.exec(line);
-      if (!m || seen.has(m[1]) || out.length >= MAX_CONTROLS) continue;
-      if (kind === 'knob') {
-        const min = Number(m[3]);
-        const max = Number(m[4]);
-        if (!(max > min)) continue;
-        out.push({ kind, id: m[1], name: m[2], min, max, def: clampNum(Number(m[5]), min, max, min) });
-      } else if (kind === 'toggle') {
-        out.push({ kind, id: m[1], name: m[2], min: 0, max: 1, def: m[3] === '1' ? 1 : 0 });
-      } else if (kind === 'choice') {
-        const options = m[3].split('|').map((x) => x.slice(0, 20)).filter(Boolean).slice(0, 16);
-        if (options.length < 2) continue;
-        out.push({ kind, id: m[1], name: m[2], options, min: 0, max: options.length - 1, def: clampNum(Number(m[4] || 0), 0, options.length - 1, 0) });
-      } else {
-        out.push({ kind, id: m[1], name: m[2], min: 0, max: 1e9, def: 0 });
-      }
-      seen.add(m[1]);
+    const tag = /^@(param|toggle|choice|button)\b/.exec(line);
+    if (!tag) return;
+    const kind = tag[1] === 'param' ? 'knob' : tag[1];
+    const m = CONTROL_RES.find((x) => x[0] === kind)[1].exec(line);
+    if (!m) return warn(n + 1, '@' + tag[1] + ' is not written as in the documentation, it is ignored');
+    if (seen.has(m[1])) return warn(n + 1, 'The control id ' + m[1] + ' is used twice, the second one is ignored');
+    if (out.length >= MAX_CONTROLS) return warn(n + 1, 'More than ' + MAX_CONTROLS + ' controls, this one is ignored');
+    if (kind === 'knob') {
+      const min = Number(m[3]);
+      const max = Number(m[4]);
+      if (!(max > min)) return warn(n + 1, 'The maximum of ' + m[1] + ' must be larger than its minimum');
+      out.push({ kind, id: m[1], name: m[2], min, max, def: clampNum(Number(m[5]), min, max, min) });
+    } else if (kind === 'toggle') {
+      out.push({ kind, id: m[1], name: m[2], min: 0, max: 1, def: m[3] === '1' ? 1 : 0 });
+    } else if (kind === 'choice') {
+      const options = m[3].split('|').map((x) => x.slice(0, 20)).filter(Boolean).slice(0, 16);
+      if (options.length < 2) return warn(n + 1, 'A choice needs at least two options separated by |');
+      out.push({ kind, id: m[1], name: m[2], options, min: 0, max: options.length - 1, def: clampNum(Number(m[4] || 0), 0, options.length - 1, 0) });
+    } else {
+      out.push({ kind, id: m[1], name: m[2], min: 0, max: 1e9, def: 0 });
     }
-  }
+    seen.add(m[1]);
+  });
   return out;
 }
 
@@ -79,10 +83,18 @@ export function parsePlugin(code) {
   const type = rawType === 'effect' ? 'effect' : rawType === 'extension' ? 'extension' : 'instrument';
   if (type === 'instrument' && !/registerVoice\s*\(/.test(code)) throw new Error('An instrument must call registerVoice(YourVoiceClass)');
   if (type === 'effect' && !/registerEffect\s*\(/.test(code)) throw new Error('An effect must call registerEffect(YourEffectClass)');
-  const params = type === 'extension' ? [] : parseControls(head);
+  const warnings = [];
+  const warn = (line, message) => {
+    if (warnings.length < 20) warnings.push({ line, message });
+  };
+  const params = type === 'extension' ? [] : parseControls(head, warn);
   const presets = type === 'extension' ? [] : parsePresets(head, params);
-  const permissions = type === 'extension' ? tag('permissions').split(/[\s,]+/).filter((x) => PERMISSIONS.includes(x)) : [];
+  const asked = type === 'extension' ? tag('permissions').split(/[\s,]+/).filter(Boolean) : [];
+  for (const x of asked) if (!PERMISSIONS.includes(x)) warn(null, 'Unknown permission "' + x + '" (allowed: ' + PERMISSIONS.join(', ') + ')');
+  const permissions = [...new Set(asked.filter((x) => PERMISSIONS.includes(x)))];
+  if (rawType && !['instrument', 'effect', 'extension'].includes(rawType)) warn(null, 'Unknown @type "' + rawType + '", read as instrument');
   const cat = tag('category');
+  if (cat && !CATS.includes(cat)) warn(null, 'Unknown @category "' + cat + '" (allowed: ' + CATS.join(', ') + ')');
   return {
     id,
     name,
@@ -94,6 +106,7 @@ export function parsePlugin(code) {
     oneShot: /@oneshot\b/i.test(head),
     params,
     presets,
+    warnings,
     code,
   };
 }
@@ -150,6 +163,15 @@ export function deleteUserPreset(pluginId, name) {
   }
 }
 
+// Saves the installed plugins. A full storage leaves the list as it was.
+function persist(list) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(list.map((x) => ({ code: x.code, source: x.source }))));
+  } catch {
+    throw new Error('The device storage is full: delete a plugin or a theme first');
+  }
+}
+
 function read() {
   try {
     const list = JSON.parse(localStorage.getItem(KEY) || '[]');
@@ -182,25 +204,30 @@ export const getPlugin = (id) => getBuiltinEffect(id) || cache.find((p) => p.id 
 export function installPlugin(code, source) {
   const p = parsePlugin(code);
   if (typeof source === 'string' && source.startsWith('https://raw.githubusercontent.com/')) p.source = source;
-  const list = cache.filter((x) => x.id !== p.id);
-  list.push(p);
-  localStorage.setItem(KEY, JSON.stringify(list.map((x) => ({ code: x.code, source: x.source }))));
+  const list = [...cache.filter((x) => x.id !== p.id), p];
+  persist(list);
   cache = list;
   return p;
 }
 
 export function removePlugin(id) {
   cache = cache.filter((x) => x.id !== id);
+  // Its data goes with it: extension storage and settings, saved presets.
   try {
     localStorage.removeItem('astudio:ext:' + id);
     localStorage.removeItem('astudio:extset:' + id);
+    const all = readPresets();
+    if (id in all) {
+      delete all[id];
+      localStorage.setItem(PRESET_KEY, JSON.stringify(all));
+    }
   } catch {
     /* ignore */
   }
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache.map((x) => ({ code: x.code, source: x.source }))));
+    persist(cache);
   } catch {
-    /* ignore */
+    /* removing frees space: nothing to report */
   }
 }
 
@@ -254,16 +281,14 @@ export function reportPluginError(p, message, stack) {
   return line;
 }
 
-// Effects process the sound of a mixer insert: process(inL, inR, outL, outR, params).
-function effectSource(p) {
-  return `"use strict";
-let __Effect = null;
-function registerEffect(E) { if (typeof E === 'function') __Effect = E; }
-const __transport = { bpm: 120, playing: false, beat: 0 };
+// Host code shared by instruments and effects (worklet side): playback position for
+// the plugin, number checks for parameter messages and a safe output (NaN becomes
+// silence, samples are kept within +-4 so a broken plugin cannot blast the speakers).
+const HOST_COMMON = `const __transport = { bpm: 120, playing: false, beat: 0 };
 let __anchor = { position: 0, at: 0 };
 function __setTransport(t) {
   if (!t || typeof t !== 'object') return;
-  if (typeof t.bpm === 'number') __transport.bpm = t.bpm;
+  if (typeof t.bpm === 'number' && t.bpm > 0) __transport.bpm = t.bpm;
   if (typeof t.playing === 'boolean') __transport.playing = t.playing;
   __anchor = { position: typeof t.position === 'number' ? t.position : 0, at: typeof t.at === 'number' ? t.at : currentTime };
   __transport.beat = __anchor.position / 96;
@@ -271,7 +296,21 @@ function __setTransport(t) {
 function __tick() {
   if (__transport.playing) __transport.beat = (__anchor.position + (currentTime - __anchor.at) * __transport.bpm * 96 / 60) / 96;
 }
+function __setParams(params, values) {
+  if (!values || typeof values !== 'object') return;
+  for (const k of Object.keys(values)) if (typeof values[k] === 'number' && values[k] === values[k]) params[k] = values[k];
+}
+function __safe(x) {
+  return x === x ? (x < -4 ? -4 : x > 4 ? 4 : x) : 0;
+}
+`;
 
+// Effects process the sound of a mixer insert: process(inL, inR, outL, outR, params).
+function effectSource(p) {
+  return `"use strict";
+let __Effect = null;
+function registerEffect(E) { if (typeof E === 'function') __Effect = E; }
+${HOST_COMMON}
 ${DSP_LIB}
 // @astudio-user-code
 ${p.code}
@@ -280,7 +319,8 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
   constructor(options) {
     super();
     const o = (options && options.processorOptions) || {};
-    this.params = Object.assign({}, o.params || {});
+    this.params = {};
+    __setParams(this.params, o.params);
     __setTransport(o.transport);
     this.zero = new Float32Array(128);
     this.reported = false;
@@ -293,9 +333,8 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
       const m = e.data;
       if (!m || typeof m !== 'object') return;
       if (m.type === 'transport') __setTransport(m);
-      else if (m.type === 'params' && m.values && typeof m.values === 'object') {
-        for (const k of Object.keys(m.values)) if (typeof m.values[k] === 'number') this.params[k] = m.values[k];
-      } else if (m.type === 'button' && typeof m.id === 'string') {
+      else if (m.type === 'params') __setParams(this.params, m.values);
+      else if (m.type === 'button' && typeof m.id === 'string') {
         this.params[m.id] = (this.params[m.id] || 0) + 1;
         try { if (this.fx && this.fx.button) this.fx.button(m.id, this.params); } catch (err) { this.fail(err); this.fx = null; }
       }
@@ -324,12 +363,8 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
       if (oR !== oL) oR.set(iR);
     }
     for (let i = 0; i < n; i++) {
-      let a = oL[i];
-      oL[i] = a === a ? (a < -4 ? -4 : a > 4 ? 4 : a) : 0;
-      if (oR !== oL) {
-        a = oR[i];
-        oR[i] = a === a ? (a < -4 ? -4 : a > 4 ? 4 : a) : 0;
-      }
+      oL[i] = __safe(oL[i]);
+      if (oR !== oL) oR[i] = __safe(oR[i]);
     }
     return true;
   }
@@ -341,19 +376,7 @@ function instrumentSource(p) {
   return `"use strict";
 let __Voice = null;
 function registerVoice(V) { if (typeof V === 'function') __Voice = V; }
-const __transport = { bpm: 120, playing: false, beat: 0 };
-let __anchor = { position: 0, at: 0 };
-function __setTransport(t) {
-  if (!t || typeof t !== 'object') return;
-  if (typeof t.bpm === 'number') __transport.bpm = t.bpm;
-  if (typeof t.playing === 'boolean') __transport.playing = t.playing;
-  __anchor = { position: typeof t.position === 'number' ? t.position : 0, at: typeof t.at === 'number' ? t.at : currentTime };
-  __transport.beat = __anchor.position / 96;
-}
-function __tick() {
-  if (__transport.playing) __transport.beat = (__anchor.position + (currentTime - __anchor.at) * __transport.bpm * 96 / 60) / 96;
-}
-
+${HOST_COMMON}
 const MAX_VOICES = 32;
 const MAX_TAIL = 10;
 ${DSP_LIB}
@@ -364,7 +387,8 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
   constructor(options) {
     super();
     const o = (options && options.processorOptions) || {};
-    this.params = Object.assign({}, o.params || {});
+    this.params = {};
+    __setParams(this.params, o.params);
     __setTransport(o.transport);
     this.queue = (o.events || []).slice().sort((a, b) => a.frame - b.frame);
     this.voices = [];
@@ -384,8 +408,8 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
     } else if (m.type === 'off') {
       for (const v of this.voices) if (v.id === m.id) v.offFrame = Math.min(v.offFrame, currentFrame);
       for (const q of this.queue) if (q.id === m.id) q.dur = 0;
-    } else if (m.type === 'params' && m.values && typeof m.values === 'object') {
-      for (const k of Object.keys(m.values)) if (typeof m.values[k] === 'number') this.params[k] = m.values[k];
+    } else if (m.type === 'params') {
+      __setParams(this.params, m.values);
     } else if (m.type === 'button' && typeof m.id === 'string') {
       this.params[m.id] = (this.params[m.id] || 0) + 1;
       for (const v of this.voices) {
@@ -442,12 +466,8 @@ registerProcessor(${JSON.stringify(processorName(p))}, class extends AudioWorkle
       try { alive = v.inst.process(L, R, this.params, __transport); } catch (err) { this.fail(err); continue; }
       // Clamp to +-4 and replace NaN with silence, channel by channel.
       for (let i = 0; i < L.length; i++) {
-        let a = L[i];
-        let b = R[i];
-        a = a === a ? (a < -4 ? -4 : a > 4 ? 4 : a) : 0;
-        b = b === b ? (b < -4 ? -4 : b > 4 ? 4 : b) : 0;
-        oL[i + off] += a;
-        if (oR !== oL) oR[i + off] += b;
+        oL[i + off] += __safe(L[i]);
+        if (oR !== oL) oR[i + off] += __safe(R[i]);
       }
       if (alive !== false && end < v.killFrame) keep.push(v);
     }
