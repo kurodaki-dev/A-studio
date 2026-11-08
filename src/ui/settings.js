@@ -1,12 +1,12 @@
 import { h, btn, icon, openModal, alertBox, confirmBox, dropdown, hint } from './dom.js';
 import { t, lang, LANGS, setLang } from '../i18n.js';
-import { allThemes, currentTheme, applyTheme, installTheme, removeTheme } from '../themes.js';
+import { allThemes, currentTheme, applyTheme, installTheme, removeTheme, themeFile } from '../themes.js';
 import { allPlugins, installPlugin, removePlugin } from '../plugins.js';
 import { openPluginEditor } from './pluginEditor.js';
 import { openGithubInstall } from './githubInstall.js';
 import { openCatalog } from './catalog.js';
 import { fetchText } from '../github.js';
-import { pickFile } from '../platform.js';
+import { pickFile, saveFile } from '../platform.js';
 import { checkForUpdate, updatesSupported, autoCheckEnabled, setAutoCheck, orientationPref, applyOrientation } from '../update.js';
 import { openExternal, DOCS_URL, bugReportUrl } from '../links.js';
 import { APP_VERSION } from '../version.js';
@@ -85,8 +85,8 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
       } else {
         const p = installPlugin(text);
         hint(t('Plugin installed: ') + p.name);
+        onExtensionsChange && onExtensionsChange();
       }
-      onExtensionsChange && onExtensionsChange();
       render();
     } catch (e) {
       alertBox(t('Install failed'), String((e && e.message) || e));
@@ -185,11 +185,16 @@ export function openSettings({ section = 'general', onExtensionsChange, engine, 
         h('div', { class: 'set-list' }, themes.map((th) =>
           h('div', { class: 'set-item' + (currentTheme().id === th.id ? ' on' : '') },
             h('span', { class: 'swatches' }, ['bg', 'panel', 'accent', 'green'].map((k) => h('i', { style: { background: th.colors[k] } }))),
-            h('button', { class: 'set-item-name', type: 'button', onClick: () => { applyTheme(th.id); onExtensionsChange && onExtensionsChange(); render(); } }, th.name, th.builtIn ? h('small', null, t('built in')) : th.author ? h('small', null, th.author) : null),
+            h('button', { class: 'set-item-name', type: 'button', onClick: () => { applyTheme(th.id); render(); } }, th.name, th.builtIn ? h('small', null, t('built in')) : th.author ? h('small', null, th.author) : null),
+            // Export: the theme file, to share it or as a start for a new theme.
+            btn('Download', t('Export'), () => {
+              const id = th.builtIn ? 'my-' + th.id : th.id;
+              const name = th.builtIn ? th.name + ' ' + t('copy') : th.name;
+              saveFile(id + '.astudio-theme.json', themeFile(th, id, name), 'application/json').catch((e) => alertBox(t('Export'), String((e && e.message) || e)));
+            }),
             th.builtIn ? null : btn('Trash', t('Delete'), async () => {
               if (await confirmBox(t('Delete theme'), th.name, t('Delete'))) {
                 removeTheme(th.id);
-                onExtensionsChange && onExtensionsChange();
                 render();
               }
             }),

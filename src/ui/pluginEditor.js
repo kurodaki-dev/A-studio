@@ -376,6 +376,15 @@ export function openPluginEditor({ code, onInstalled, onTry, engine }) {
     }
     const kind = p.type === 'effect' ? t('effect') : p.type === 'extension' ? t('extension') : t('instrument');
     const extra = p.type === 'extension' ? t('Permissions: ') + (p.permissions.join(', ') || t('none')) : p.params.length + ' ' + t('controls');
+    const w = p.warnings[0];
+    if (w) {
+      // Valid, but part of the header is ignored: say which line and why.
+      show(t('Warning: ') + w.message + (p.warnings.length > 1 ? ' (+' + (p.warnings.length - 1) + ')' : ''), false, w.line);
+      status.classList.remove('err');
+      status.classList.add('warn');
+      return p;
+    }
+    status.classList.remove('warn');
     show(t('Header OK: ') + p.name + ' (' + kind + ', ' + extra + ')', true);
     return p;
   };

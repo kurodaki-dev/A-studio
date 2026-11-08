@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parsePlugin, paramValues, moduleSource } from '../src/plugins.js';
-import { validateTheme } from '../src/themes.js';
+import { validateTheme, themeFile, contrast, editorFromColors } from '../src/themes.js';
 import { t } from '../src/i18n.js';
 import { isInstrumentId } from '../src/audio/catalog.js';
 import FR from '../src/locales/fr.js';
@@ -329,4 +329,76 @@ test('AI Connect handles every tool of the MCP bridge', () => {
   const toolsBlock = /const TOOLS = \{([\s\S]*?)\n\};/.exec(plugin.code)[1];
   const handled = [...toolsBlock.matchAll(/^\s+(?:async\s+)?([a-z_]+)[:(]/gm)].map((m) => m[1]);
   for (const name of bridgeTools) assert.ok(handled.includes(name), 'plugin misses ' + name);
+});
+
+test('a theme without editor colors gets a grid that matches its own colors', () => {
+  const colors = { bg: '#f2f2f2', panel: '#ffffff', panel2: '#eeeeee', panel3: '#dddddd', line: '#cccccc', text: '#111111', dim: '#666666', accent: '#0066cc', green: '#228833', red: '#cc3311', input: '#ffffff', lcd: '#222222', 'lcd-text': '#aaddff' };
+  const th = validateTheme({ type: 'astudio-theme', id: 'paper', name: 'Paper', colors });
+  assert.deepEqual(th.editor, editorFromColors(th.colors));
+  assert.ok(contrast(th.editor.gridWhite, '#ffffff') < 1.5, 'light grid for a light theme');
+  assert.equal(th.editor.playhead, '#0066cc');
+});
+
+test('unreadable theme text is replaced by readable text', () => {
+  const th = validateTheme({ type: 'astudio-theme', id: 'dark-on-dark', name: 'X', colors: { bg: '#101010', panel: '#181818', text: '#202020', dim: '#1a1a1a', lcd: '#000000', 'lcd-text': '#010101' } });
+  assert.ok(contrast(th.colors.text, th.colors.panel) >= 3);
+  assert.ok(contrast(th.colors.dim, th.colors.panel) >= 1.8);
+  assert.ok(contrast(th.colors['lcd-text'], th.colors.lcd) >= 3);
+});
+
+test('an exported theme file installs back unchanged', () => {
+  const th = validateTheme({ type: 'astudio-theme', id: 'ocean', name: 'Ocean', author: 'Me', colors: { accent: '#3FB6C8' } });
+  const again = validateTheme(JSON.parse(themeFile(th)));
+  assert.deepEqual({ ...again, version: '' }, { ...th, version: '' });
+  assert.equal(JSON.parse(themeFile(th, 'copy', 'Copy')).id, 'copy');
+});
+
+test('ignored header lines are reported with their line number', () => {
+  const p = parsePlugin(`/**
+ * @astudio-plugin
+ * @id warn-test
+ * @name Warn
+ * @category drumz
+ * @param cutoff "Cutoff" 1 0 0.5
+ * @param gain "Gain" 0 1 0.5
+ * @param gain "Gain again" 0 1 0.5
+ * @choice wave "Wave" saw
+ * @toggle mono Mono
+ */
+registerVoice(class {});`);
+  assert.deepEqual(p.params.map((x) => x.id), ['gain']);
+  assert.deepEqual(p.warnings.filter((w) => w.line).map((w) => w.line), [6, 8, 9, 10]);
+  assert.ok(p.warnings.some((w) => /category/.test(w.message)));
+  assert.deepEqual(parsePlugin(supersaw).warnings, []);
+  const ext = parsePlugin('/* @astudio-plugin\n@id e\n@name E\n@type extension\n@permissions ui ui fly */');
+  assert.deepEqual(ext.permissions, ['ui']);
+  assert.ok(ext.warnings.some((w) => /fly/.test(w.message)));
+});
+
+test('a plugin ignores parameter values that are not numbers', () => {
+  const p = parsePlugin(supersaw);
+  const { proc } = loadProcessor(p, { params: { cutoff: 1000, detune: NaN, bad: 'x' }, events: [] });
+  assert.deepEqual(proc.params, { cutoff: 1000 });
+  proc.port.onmessage({ data: { type: 'params', values: { cutoff: NaN, release: 0.5 } } });
+  assert.deepEqual(proc.params, { cutoff: 1000, release: 0.5 });
+});
+
+test('an extension can stop listening to events', async () => {
+  const { BOOTSTRAP } = await import('../src/extensions.js');
+  let handler;
+  const win = { addEventListener: (type, f) => { if (type === 'message') handler = f; } };
+  const parent = { postMessage() {} };
+  new Function('window', 'addEventListener', 'parent', BOOTSTRAP)(win, win.addEventListener, parent);
+  const got = [];
+  const stop = win.astudio.on('state', (d) => got.push(d));
+  const send = (data) => handler({ source: parent, data: { __astudio: 1, event: 'state', data } });
+  send(1);
+  stop();
+  send(2);
+  const f = (d) => got.push('b' + d);
+  win.astudio.on('state', f);
+  send(3);
+  win.astudio.off('state', f);
+  send(4);
+  assert.deepEqual(got, [1, 'b3']);
 });
