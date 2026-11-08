@@ -25,7 +25,7 @@ export function setAutoCheck(on) {
 // Only the Android app needs updates: the web version is always the latest one.
 export const updatesSupported = () => isNative();
 
-export async function fetchLatest() {
+async function fetchLatest() {
   const res = await fetch(LATEST_URL, {
     headers: { Accept: 'application/vnd.github+json' },
     cache: 'no-store',
@@ -36,11 +36,10 @@ export async function fetchLatest() {
   return res.json();
 }
 
-export const AppUpdater = registerPlugin('AppUpdater');
+const AppUpdater = registerPlugin('AppUpdater');
 
-// Download inside the app, then open the Android installer. done: text shown once the
-// installer is open (A Studio itself, or the A Voice Studio extension).
-export async function installUpdate(rel, { title = t('Update'), done = t('Confirm the install in the Android window. A Studio restarts with the new version once you tap Open.') } = {}) {
+// Download inside the app, then open the Android installer.
+async function installUpdate(rel) {
   try {
     const { allowed } = await AppUpdater.canInstall();
     if (!allowed) {
@@ -60,7 +59,7 @@ export async function installUpdate(rel, { title = t('Update'), done = t('Confir
   }
   const bar = h('div', { class: 'progress-fill' });
   const label = h('p', null, t('Downloading...'));
-  const m = openModal({ title, body: h('div', null, label, h('div', { class: 'progress' }, bar)), actions: [] });
+  const m = openModal({ title: t('Update'), body: h('div', null, label, h('div', { class: 'progress' }, bar)), actions: [] });
   const sub = await AppUpdater.addListener('progress', ({ received, total }) => {
     const pct = total > 0 ? Math.round((received / total) * 100) : 0;
     bar.style.width = pct + '%';
@@ -68,12 +67,12 @@ export async function installUpdate(rel, { title = t('Update'), done = t('Confir
   });
   try {
     await AppUpdater.downloadAndInstall({ url: rel.url });
-    label.textContent = done;
+    label.textContent = t('Confirm the install in the Android window. A Studio restarts with the new version once you tap Open.');
     bar.style.width = '100%';
     setTimeout(() => m.close(), 4000);
   } catch (e) {
     m.close();
-    alertBox(title, t('The download failed: ') + String((e && e.message) || e));
+    alertBox(t('Update'), t('The download failed: ') + String((e && e.message) || e));
   } finally {
     sub.remove();
   }

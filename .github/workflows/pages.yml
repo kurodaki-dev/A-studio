@@ -30,8 +30,6 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      # A Voice Studio is published next to A Studio, in voice/ (the switch opens it).
-      - run: npm run build:voice && cp -r voice/dist dist/voice
 
       - uses: actions/configure-pages@v5
         with:

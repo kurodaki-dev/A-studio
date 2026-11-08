@@ -1,6 +1,5 @@
 import './style.css';
 import { lastPhrase } from './scorelog.js';
-import { openVoiceStudio } from './voiceStudio.js';
 import { knob } from './ui/controls.js';
 import { h, btn, icon, hint, bindHint, openMenu, openModal, promptText, confirmBox, alertBox, closeMenu, dropdown } from './ui/dom.js';
 import { store, newProject, currentPattern, makePattern, nextPatternIndex, serialize, normalizeProject, notesFor, newId } from './store.js';
@@ -429,14 +428,7 @@ function setMenuBar(on) {
   menuBar.classList.toggle('hidden', !on);
   closeMenu();
 }
-// Switch between A Studio and its vocal extension A Voice Studio, above the menu bar.
-const appSwitch = h('div', { class: 'app-switch' },
-  h('div', { class: 'app-switch-pill', role: 'tablist', 'aria-label': t('Switch app') },
-    h('button', { class: 'app-switch-btn on', type: 'button', role: 'tab', 'aria-selected': 'true', title: 'A Studio', 'aria-label': 'A Studio' }, icon('Piano', 18), h('span', null, 'A Studio')),
-    h('button', { class: 'app-switch-btn', type: 'button', role: 'tab', 'aria-selected': 'false', title: 'A Voice Studio', 'aria-label': 'A Voice Studio', onClick: () => openVoiceStudio() }, icon('Mic', 18), h('span', null, 'A Voice Studio')),
-  ),
-);
-document.getElementById('app').append(appSwitch, menuBar, topbar, body);
+document.getElementById('app').append(menuBar, topbar, body);
 
 function setSidebar(on) {
   ui.sidebar = on;
